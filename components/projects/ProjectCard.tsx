@@ -102,7 +102,7 @@ export function ProjectCard({ project, currentUserId, onProjectUpdate }: Project
 
   const handleEditName = (e: React.MouseEvent) => {
     e.stopPropagation()
-    setEditedName(displayProject.name)
+    setEditedName(optimisticProject.name)
     setIsEditingName(true)
   }
 
