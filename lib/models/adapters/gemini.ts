@@ -8,6 +8,30 @@ import { BaseModelAdapter, GenerationRequest, GenerationResponse, ModelConfig } 
 
 let genAiClient: any = null
 
+const redactLargeStrings = (value: any, maxLen = 256) => {
+  const seen = new WeakSet<object>()
+  const walk = (v: any): any => {
+    if (typeof v === 'string') {
+      return v.length > maxLen ? `<redacted:${v.length}>` : v
+    }
+    if (v === null || typeof v !== 'object') return v
+    if (seen.has(v)) return '<circular>'
+    seen.add(v)
+    if (Array.isArray(v)) return v.map(walk)
+    const out: Record<string, any> = {}
+    for (const [k, val] of Object.entries(v)) {
+      // common base64 field name
+      if (k === 'data' && typeof val === 'string' && val.length > maxLen) {
+        out[k] = `<redacted:${val.length}>`
+        continue
+      }
+      out[k] = walk(val)
+    }
+    return out
+  }
+  return walk(value)
+}
+
 // Try to initialize Gen AI SDK client with Vertex AI (server-side only)
 if (typeof window === 'undefined') {
   try {
@@ -365,7 +389,7 @@ export class GeminiAdapter extends BaseModelAdapter {
     if (!response.ok) {
       const error = await response.json()
       console.error('Gemini API error:', error)
-      console.error('Request payload:', JSON.stringify(payload, null, 2))
+      console.error('Request payload (redacted):', JSON.stringify(redactLargeStrings(payload), null, 2))
       throw new Error(error.error?.message || 'Image generation failed')
     }
     
@@ -566,7 +590,7 @@ export class GeminiAdapter extends BaseModelAdapter {
     }
     
     console.log(`[Veo 3.1] Calling API with ${duration}s video, ${width}x${height}, ${options.aspectRatio}`)
-    console.log(`[Veo 3.1] Payload:`, JSON.stringify(payload, null, 2))
+    console.log(`[Veo 3.1] Payload (redacted):`, JSON.stringify(redactLargeStrings(payload), null, 2))
     
     try {
       // Initiate video generation
