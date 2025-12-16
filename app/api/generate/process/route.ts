@@ -186,6 +186,17 @@ async function processGenerationById(
     let inlineReferenceImage = referenceImage as string | undefined
     let referenceImageUrl = persistedReferenceUrl as string | undefined
 
+    // Debug: Log what we received from parameters
+    console.log(`[${generationId}] Reference image debug:`, {
+      hasReferenceImage: Boolean(referenceImage),
+      referenceImageLength: typeof referenceImage === 'string' ? referenceImage.length : 0,
+      referenceImagePrefix: typeof referenceImage === 'string' ? referenceImage.substring(0, 50) : 'N/A',
+      hasPersistedUrl: Boolean(persistedReferenceUrl),
+      persistedUrl: persistedReferenceUrl || 'N/A',
+      hasReferenceImages: Boolean((parameters as any)?.referenceImages),
+      referenceImagesCount: Array.isArray((parameters as any)?.referenceImages) ? (parameters as any).referenceImages.length : 0,
+    })
+
     if (inlineReferenceImage && inlineReferenceImage.startsWith('data:') && !referenceImageUrl) {
       try {
         const extension = inlineReferenceImage.includes('image/png') ? 'png' : 'jpg'
@@ -253,16 +264,31 @@ async function processGenerationById(
       console.log(`[${generationId}] Processed ${processedReferenceImages.length} reference image(s) for generation`)
     }
     
-    // Generate using the model
-    const result = await model.generate({
+    // Build the generation request
+    const generationRequest: any = {
       prompt: generation.prompt,
       negativePrompt: generation.negativePrompt || undefined,
-      ...(hasMultipleImages 
-        ? { referenceImages: processedReferenceImages || referenceImages } 
-        : { referenceImage: inlineReferenceImage, referenceImageUrl }),
       parameters: otherParameters,
       ...otherParameters,
-    })
+    }
+
+    // Add reference images - handle both single and multiple
+    if (hasMultipleImages) {
+      generationRequest.referenceImages = processedReferenceImages || referenceImages
+      console.log(`[${generationId}] Passing ${generationRequest.referenceImages.length} reference images to model`)
+    } else if (inlineReferenceImage) {
+      generationRequest.referenceImage = inlineReferenceImage
+      generationRequest.referenceImageUrl = referenceImageUrl
+      console.log(`[${generationId}] Passing single reference image to model (${inlineReferenceImage.substring(0, 30)}...)`)
+    } else if (referenceImageUrl) {
+      generationRequest.referenceImageUrl = referenceImageUrl
+      console.log(`[${generationId}] Passing reference URL to model: ${referenceImageUrl.substring(0, 50)}...`)
+    } else {
+      console.log(`[${generationId}] No reference image provided for generation`)
+    }
+
+    // Generate using the model
+    const result = await model.generate(generationRequest)
     stopHeartbeat()
     await appendLog('model:generate:end', { status: result?.status })
 

@@ -11,22 +11,24 @@ if (typeof window === 'undefined' && !REPLICATE_API_KEY) {
 }
 
 /**
- * Seedream 4 Model Configuration
- * Image-to-image generation and editing model by ByteDance via Replicate
- * Documentation: https://replicate.com/bytedance/seedream-4
+ * Seedream 4.5 Model Configuration
+ * Next-gen image generation model by ByteDance via Replicate
+ * Documentation: https://replicate.com/bytedance/seedream-4.5
  */
 export const SEEDREAM_4_CONFIG: ModelConfig = {
   id: 'replicate-seedream-4',
   name: 'Seedream 4',
   provider: 'ByteDance (Replicate)',
   type: 'image',
-  description: 'Unified text-to-image generation and precise single-sentence editing at up to 4K resolution',
+  description: 'Seedream 4.5 - Superior aesthetics, stronger spatial understanding, and richer world knowledge at up to 4K resolution',
   supportedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4'],
   defaultAspectRatio: '1:1',
   maxResolution: 4096,
   capabilities: {
     editing: true,
     'text-2-image': true,
+    'image-2-image': true,
+    multiImageEditing: true, // Seedream 4.5 supports 1-14 reference images
   },
   parameters: [
     {
@@ -161,7 +163,7 @@ export class ReplicateAdapter extends BaseModelAdapter {
       // Determine which Replicate model to use based on config
       let modelPath: string
       if (this.config.id === 'replicate-seedream-4') {
-        modelPath = 'bytedance/seedream-4'
+        modelPath = 'bytedance/seedream-4.5' // Upgraded to Seedream 4.5
       } else if (this.config.id === 'replicate-reve') {
         modelPath = 'reve/create'
       } else {
@@ -174,23 +176,47 @@ export class ReplicateAdapter extends BaseModelAdapter {
         aspect_ratio: aspectRatioMap[aspectRatio] || aspectRatio,
       }
 
-      // Seedream-specific parameters
+      // Seedream 4.5 specific parameters
       if (this.config.id === 'replicate-seedream-4') {
-        const size = '2K' // Replicate Seedream 4 supports: 1K (1024px), 2K (2048px), 4K (4096px)
+        const size = '2K' // Seedream 4.5 supports: 2K (2048px), 4K (4096px), or custom
         input.size = size
         input.sequential_image_generation = numOutputs > 1 ? 'auto' : 'disabled'
         input.max_images = numOutputs
+        input.enhance_prompt = true // Enable prompt enhancement for better results
 
-        // Add image input if provided (handle both single image and array)
-        const referenceImages = request.referenceImages || (referenceImage ? [referenceImage] : [])
+        // Debug: Log all possible reference image sources
+        console.log('[Seedream-4.5] Debug - Reference image sources:')
+        console.log(`  - request.referenceImages: ${request.referenceImages ? `array with ${request.referenceImages.length} items` : 'undefined'}`)
+        console.log(`  - request.referenceImage: ${referenceImage ? `string (${referenceImage.substring(0, 30)}...)` : 'undefined'}`)
+        console.log(`  - request.referenceImageUrl: ${request.referenceImageUrl || 'undefined'}`)
+
+        // Build reference images array from all possible sources
+        let referenceImages: string[] = []
+        
+        // 1. Check for referenceImages array (multiple images)
+        if (request.referenceImages && Array.isArray(request.referenceImages) && request.referenceImages.length > 0) {
+          referenceImages = request.referenceImages
+          console.log(`[Seedream-4.5] Using referenceImages array: ${referenceImages.length} image(s)`)
+        }
+        // 2. Check for single referenceImage (data URL)
+        else if (referenceImage && typeof referenceImage === 'string' && referenceImage.length > 0) {
+          referenceImages = [referenceImage]
+          console.log(`[Seedream-4.5] Using single referenceImage`)
+        }
+        // 3. Check for referenceImageUrl (public URL)
+        else if (request.referenceImageUrl && typeof request.referenceImageUrl === 'string') {
+          referenceImages = [request.referenceImageUrl]
+          console.log(`[Seedream-4.5] Using referenceImageUrl: ${request.referenceImageUrl.substring(0, 50)}...`)
+        }
+
         if (referenceImages.length > 0) {
-          // Seedream-4 supports multiple reference images via image_input array
-          // Replicate accepts both data URLs and public URLs
+          // Seedream 4.5 accepts 1-14 images via image_input array
           input.image_input = referenceImages
-          console.log(`[Seedream-4] Using ${referenceImages.length} reference image(s)`)
-          console.log(`[Seedream-4] First image format: ${referenceImages[0]?.substring(0, 50)}... (${referenceImages[0]?.startsWith('data:') ? 'data URL' : referenceImages[0]?.startsWith('http') ? 'URL' : 'unknown'})`)
+          console.log(`[Seedream-4.5] ✅ Passing ${referenceImages.length} reference image(s) to API`)
+          console.log(`[Seedream-4.5] First image type: ${referenceImages[0]?.startsWith('data:') ? 'data URL' : referenceImages[0]?.startsWith('http') ? 'public URL' : 'unknown'}`)
+          console.log(`[Seedream-4.5] First image length: ${referenceImages[0]?.length || 0} chars`)
         } else {
-          console.log('[Seedream-4] No reference image provided - generating text-to-image')
+          console.log('[Seedream-4.5] ⚠️ No reference image provided - generating text-to-image only')
         }
       }
       // Reve model doesn't support image input or multiple outputs
