@@ -8,6 +8,46 @@ import { BaseModelAdapter, GenerationRequest, GenerationResponse, ModelConfig } 
 
 let genAiClient: any = null
 
+// Configuration for rate limiting and retries
+const IMAGE_GENERATION_DELAY_MS = Number(process.env.IMAGE_GENERATION_DELAY_MS || '2000')
+const MAX_RETRY_ATTEMPTS = Number(process.env.MAX_RETRY_ATTEMPTS || '5')
+
+// Helper to safely stringify error details for quota detection
+const stringifySafe = (v: any): string => {
+  try {
+    return typeof v === 'string' ? v : JSON.stringify(v)
+  } catch {
+    return ''
+  }
+}
+
+// Detect quota exhaustion errors (limit: 0, daily quota, etc.)
+const isQuotaExhaustedError = (error: any): boolean => {
+  const haystack = [
+    error?.message,
+    stringifySafe(error?.details),
+    stringifySafe(error?.response?.data),
+    stringifySafe(error?.error),
+    stringifySafe(error?.error?.details),
+  ]
+    .filter(Boolean)
+    .join(' | ')
+
+  return (
+    haystack.includes('limit: 0') ||
+    haystack.includes('limit":0') ||
+    haystack.toLowerCase().includes('daily quota') ||
+    haystack.toLowerCase().includes('exceeded your current quota') ||
+    haystack.toLowerCase().includes('quota exceeded')
+  )
+}
+
+// Check if error is a 429 rate limit error
+const isRateLimitError = (error: any): boolean => {
+  const status = error?.status || error?.code || error?.error?.code
+  return status === 429 || status === 'RESOURCE_EXHAUSTED'
+}
+
 const redactLargeStrings = (value: any, maxLen = 256) => {
   const seen = new WeakSet<object>()
   const walk = (v: any): any => {
@@ -139,16 +179,27 @@ export class GeminiAdapter extends BaseModelAdapter {
 
     const numImages = request.numOutputs || 1
     
-    // Generate multiple images by making multiple requests
-    const promises = Array.from({ length: numImages }, () =>
-      this.generateSingleImage(endpoint, request)
-    )
-
-    const results = await Promise.allSettled(promises)
+    // Generate images sequentially (one at a time) to avoid rate limits
+    // This prevents parallel request storms that trigger 429 errors
+    const outputs: any[] = []
     
-    const outputs = results
-      .filter((result): result is PromiseFulfilledResult<any> => result.status === 'fulfilled')
-      .map(result => result.value)
+    for (let i = 0; i < numImages; i++) {
+      console.log(`Nano banana pro: Generating image ${i + 1}/${numImages}`)
+      
+      try {
+        const output = await this.generateSingleImageWithRetry(endpoint, request, i + 1, numImages)
+        outputs.push(output)
+        
+        // Add delay between sequential requests (except after the last one)
+        if (i < numImages - 1) {
+          await new Promise(resolve => setTimeout(resolve, IMAGE_GENERATION_DELAY_MS))
+        }
+      } catch (error: any) {
+        console.error(`Nano banana pro: Image ${i + 1}/${numImages} failed:`, error.message)
+        // Continue to next image even if one fails
+        // We'll throw if all fail at the end
+      }
+    }
 
     if (outputs.length === 0) {
       throw new Error('All image generations failed')
@@ -163,6 +214,52 @@ export class GeminiAdapter extends BaseModelAdapter {
         prompt: request.prompt,
       },
     }
+  }
+
+  // Generate single image with retry logic for 429 errors
+  private async generateSingleImageWithRetry(
+    endpoint: string,
+    request: GenerationRequest,
+    imageIndex: number,
+    totalImages: number
+  ): Promise<any> {
+    let lastError: any = null
+    
+    for (let attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
+      try {
+        return await this.generateSingleImage(endpoint, request)
+      } catch (error: any) {
+        lastError = error
+        
+        // Check if it's a quota exhaustion error (limit: 0, daily quota)
+        // Fail fast - don't retry on true quota exhaustion
+        if (isQuotaExhaustedError(error)) {
+          console.error(`Nano banana pro: Quota exhausted (limit: 0 or daily quota). Failing fast.`)
+          throw new Error('Quota exhausted. Please check your API quota limits or try again later.')
+        }
+        
+        // Only retry on 429 rate limit errors
+        if (isRateLimitError(error) && attempt < MAX_RETRY_ATTEMPTS) {
+          // Exponential backoff with jitter: 1-2s, 2-4s, 4-8s, 8-16s, 16-32s
+          const baseDelay = Math.pow(2, attempt - 1) * 1000
+          const jitter = Math.random() * baseDelay
+          const delay = baseDelay + jitter
+          
+          console.log(
+            `Nano banana pro: Image ${imageIndex}/${totalImages} - Rate limit (429) on attempt ${attempt}/${MAX_RETRY_ATTEMPTS}. Retrying in ${Math.round(delay)}ms...`
+          )
+          
+          await new Promise(resolve => setTimeout(resolve, delay))
+          continue
+        }
+        
+        // Not a retryable error or max retries reached
+        throw error
+      }
+    }
+    
+    // Should not reach here, but satisfy TypeScript
+    throw lastError || new Error('Generation failed after retries')
   }
 
   private async generateSingleImage(endpoint: string, request: GenerationRequest): Promise<any> {
@@ -364,11 +461,26 @@ export class GeminiAdapter extends BaseModelAdapter {
       }
     } catch (error: any) {
       console.error('Gen AI SDK error:', error)
-      // Fallback to Gemini API if Gen AI SDK fails
-      if (this.apiKey) {
+      
+      // Fail fast on quota exhaustion - don't fallback to another API with zero quota
+      if (isQuotaExhaustedError(error)) {
+        throw new Error('Quota exhausted. Please check your API quota limits or try again later.')
+      }
+      
+      // Only fallback to Gemini API if it's not a quota issue and we have an API key
+      // But check if Gemini API has quota first
+      if (this.apiKey && !isQuotaExhaustedError(error)) {
         console.log('Falling back to Gemini API due to Gen AI SDK error')
         const endpoint = `${this.baseUrl}/models/gemini-3-pro-image-preview:generateContent`
-        return await this.generateImageGeminiAPI(endpoint, payload)
+        try {
+          return await this.generateImageGeminiAPI(endpoint, payload)
+        } catch (fallbackError: any) {
+          // If fallback also has quota issues, fail fast
+          if (isQuotaExhaustedError(fallbackError)) {
+            throw new Error('Quota exhausted on both Vertex AI and Gemini API. Please check your quota limits.')
+          }
+          throw fallbackError
+        }
       }
       throw error
     }
@@ -391,7 +503,15 @@ export class GeminiAdapter extends BaseModelAdapter {
       const error = await response.json()
       console.error('Gemini API error:', error)
       console.error('Request payload (redacted):', JSON.stringify(redactLargeStrings(payload), null, 2))
-      throw new Error(error.error?.message || 'Image generation failed')
+      
+      // Create error object that includes details for quota detection
+      const apiError: any = new Error(error.error?.message || 'Image generation failed')
+      apiError.status = response.status
+      apiError.code = error.error?.code
+      apiError.error = error.error
+      apiError.details = error.error?.details
+      
+      throw apiError
     }
     
     console.log('Nano banana pro: Response OK, parsing data')
@@ -717,8 +837,6 @@ export const NANO_BANANA_CONFIG: ModelConfig = {
       default: 1,
       options: [
         { label: '1 image', value: 1 },
-        { label: '2 images', value: 2 },
-        { label: '4 images', value: 4 },
       ],
     },
   ],
