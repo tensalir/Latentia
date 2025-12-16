@@ -83,36 +83,107 @@ if (typeof window === 'undefined') {
     const projectId = process.env.GOOGLE_CLOUD_PROJECT_ID
     const location = process.env.GOOGLE_CLOUD_REGION || 'us-central1'
     
+    console.log('[Vertex AI] Initialization check:')
+    console.log(`[Vertex AI]   - Project ID: ${projectId ? '✓ Set' : '✗ Missing'}`)
+    console.log(`[Vertex AI]   - Region: ${location}`)
+    
     // Check if we have credentials (either via file path or JSON string for Vercel)
     const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS
     const credentialsJson = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON
+    
+    console.log(`[Vertex AI]   - Credentials path: ${credentialsPath ? '✓ Set' : '✗ Not set'}`)
+    console.log(`[Vertex AI]   - Credentials JSON: ${credentialsJson ? `✓ Set (${credentialsJson.length} chars)` : '✗ Not set'}`)
     
     if (projectId && (credentialsPath || credentialsJson)) {
       let credentials: any = undefined
       
       if (credentialsPath) {
         // Use file path (local development) - SDK will automatically use GOOGLE_APPLICATION_CREDENTIALS
+        console.log(`[Vertex AI] Using credentials file path: ${credentialsPath}`)
         if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
           process.env.GOOGLE_APPLICATION_CREDENTIALS = credentialsPath
         }
         // Don't parse file - SDK handles it automatically
       } else if (credentialsJson) {
         // For Vercel/serverless: parse JSON string and pass directly
-        credentials = JSON.parse(credentialsJson)
+        console.log('[Vertex AI] Parsing credentials JSON...')
+        try {
+          // Check if JSON has any obvious issues
+          if (credentialsJson.trim().startsWith('@')) {
+            console.warn('[Vertex AI] WARNING: Credentials JSON appears to start with "@" - this might be a file path prefix that should be removed')
+          }
+          
+          credentials = JSON.parse(credentialsJson)
+          
+          // Validate credentials structure
+          if (!credentials.type || credentials.type !== 'service_account') {
+            console.error('[Vertex AI] ERROR: Credentials JSON missing or incorrect type field')
+            console.error(`[Vertex AI]   Expected: "service_account", Got: "${credentials.type || 'undefined'}"`)
+          } else {
+            console.log('[Vertex AI] ✓ Credentials JSON parsed successfully')
+          }
+          
+          if (!credentials.client_email) {
+            console.error('[Vertex AI] ERROR: Credentials JSON missing client_email field')
+          } else {
+            console.log(`[Vertex AI]   Service account: ${credentials.client_email}`)
+          }
+          
+          if (!credentials.private_key) {
+            console.error('[Vertex AI] ERROR: Credentials JSON missing private_key field')
+          } else {
+            console.log(`[Vertex AI]   Private key: ${credentials.private_key.substring(0, 30)}... (present)`)
+          }
+          
+          if (credentials.project_id && credentials.project_id !== projectId) {
+            console.warn(`[Vertex AI] WARNING: Credentials project_id (${credentials.project_id}) doesn't match GOOGLE_CLOUD_PROJECT_ID (${projectId})`)
+          }
+          
+        } catch (parseError: any) {
+          console.error('[Vertex AI] ERROR: Failed to parse GOOGLE_APPLICATION_CREDENTIALS_JSON')
+          console.error(`[Vertex AI]   Error: ${parseError.message}`)
+          console.error(`[Vertex AI]   First 200 chars of JSON: ${credentialsJson.substring(0, 200)}`)
+          if (credentialsJson.length > 200) {
+            console.error(`[Vertex AI]   ... (truncated, total length: ${credentialsJson.length})`)
+          }
+          throw parseError
+        }
       }
       
       // Initialize Vertex AI client
-      vertexAiClient = new VertexAI({
-        project: projectId,
-        location,
-        ...(credentials && { googleAuthOptions: { credentials } }),
-      })
-      
-      console.log(`[Vertex AI] Initialized for project: ${projectId}, location: ${location}`)
+      console.log('[Vertex AI] Initializing Vertex AI client...')
+      try {
+        vertexAiClient = new VertexAI({
+          project: projectId,
+          location,
+          ...(credentials && { googleAuthOptions: { credentials } }),
+        })
+        
+        console.log(`[Vertex AI] ✓ Successfully initialized for project: ${projectId}, location: ${location}`)
+        console.log(`[Vertex AI]   Note: gemini-3-pro-image-preview is currently only available in us-central1`)
+        if (credentials) {
+          console.log(`[Vertex AI]   Using service account: ${credentials.client_email || 'unknown'}`)
+        }
+      } catch (initError: any) {
+        console.error('[Vertex AI] ERROR: Failed to initialize Vertex AI client')
+        console.error(`[Vertex AI]   Error: ${initError.message}`)
+        console.error(`[Vertex AI]   Stack: ${initError.stack}`)
+        throw initError
+      }
+    } else {
+      console.log('[Vertex AI] Not configured - missing required environment variables')
+      if (!projectId) {
+        console.log('[Vertex AI]   ✗ GOOGLE_CLOUD_PROJECT_ID is not set')
+      }
+      if (!credentialsPath && !credentialsJson) {
+        console.log('[Vertex AI]   ✗ Neither GOOGLE_APPLICATION_CREDENTIALS nor GOOGLE_APPLICATION_CREDENTIALS_JSON is set')
+      }
     }
-  } catch (error) {
+  } catch (error: any) {
     // Vertex AI not available or not configured - will fall back to Gemini API
-    console.log('[Vertex AI] Not configured, will use Gemini API:', error)
+    console.error('[Vertex AI] Initialization failed, will use Gemini API fallback')
+    console.error(`[Vertex AI]   Error: ${error.message}`)
+    console.error(`[Vertex AI]   Stack: ${error.stack}`)
   }
 }
 
@@ -308,7 +379,8 @@ export class GeminiAdapter extends BaseModelAdapter {
   }
 
   private async generateImageVertexAI(request: GenerationRequest, payload: any): Promise<any> {
-    console.log('Nano banana pro: Using Vertex AI')
+    const location = process.env.GOOGLE_CLOUD_REGION || 'us-central1'
+    console.log(`Nano banana pro: Using Vertex AI (region: ${location})`)
     
     if (!vertexAiClient) {
       throw new Error('Vertex AI client not initialized')
@@ -371,7 +443,52 @@ export class GeminiAdapter extends BaseModelAdapter {
         height: dimensions.height,
       }
     } catch (error: any) {
-      console.error('Vertex AI error:', error)
+      console.error('[Vertex AI] Generation error occurred')
+      console.error(`[Vertex AI]   Error type: ${error?.constructor?.name || typeof error}`)
+      console.error(`[Vertex AI]   Error message: ${error?.message || String(error)}`)
+      
+      // Check if error is an HTML response (authentication/configuration issue)
+      const errorMessage = error?.message || String(error)
+      const errorString = String(error)
+      
+      if (errorMessage.includes('<!DOCTYPE') || errorMessage.includes('Unexpected token') || errorString.includes('<!DOCTYPE')) {
+        console.error('[Vertex AI] ⚠️  Received HTML response instead of JSON - authentication/configuration issue detected')
+        console.error('[Vertex AI]   This usually means:')
+        console.error('[Vertex AI]     1. Authentication failed (invalid credentials)')
+        console.error('[Vertex AI]     2. Service account lacks required permissions')
+        console.error('[Vertex AI]     3. Vertex AI API not enabled for the project')
+        console.error('[Vertex AI]     4. Incorrect region (though us-central1 should be correct)')
+        console.error('[Vertex AI]   Troubleshooting steps:')
+        console.error('[Vertex AI]     - Verify GOOGLE_APPLICATION_CREDENTIALS_JSON in Vercel contains valid JSON (no file paths)')
+        console.error('[Vertex AI]     - Check service account has "Vertex AI User" role')
+        console.error('[Vertex AI]     - Ensure Vertex AI API is enabled: https://console.cloud.google.com/apis/library/aiplatform.googleapis.com')
+        console.error('[Vertex AI]     - Verify project ID matches: gen-lang-client-0963396085')
+        
+        // Try to extract more details from the error
+        if (error?.response || error?.body) {
+          const responseBody = error?.response?.body || error?.body
+          if (responseBody && typeof responseBody === 'string' && responseBody.includes('<!DOCTYPE')) {
+            const htmlPreview = responseBody.substring(0, 500)
+            console.error(`[Vertex AI]   HTML response preview: ${htmlPreview}...`)
+          }
+        }
+        
+        throw new Error('Vertex AI authentication failed. Please check your credentials configuration in Vercel environment variables and verify the service account has Vertex AI User role.')
+      }
+      
+      // Log other error details
+      if (error?.code) {
+        console.error(`[Vertex AI]   Error code: ${error.code}`)
+      }
+      if (error?.status) {
+        console.error(`[Vertex AI]   HTTP status: ${error.status}`)
+      }
+      if (error?.details) {
+        console.error(`[Vertex AI]   Error details:`, JSON.stringify(error.details, null, 2))
+      }
+      if (error?.stack) {
+        console.error(`[Vertex AI]   Stack trace:`, error.stack)
+      }
       
       // Fail fast on quota exhaustion - don't fallback to another API with zero quota
       if (isQuotaExhaustedError(error)) {
