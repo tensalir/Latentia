@@ -3,6 +3,7 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 import { prisma } from '@/lib/prisma'
 import Anthropic from '@anthropic-ai/sdk'
+import { getSkillSystemPrompt } from '@/lib/prompts/loadSkill'
 
 export async function POST(request: NextRequest) {
   try {
@@ -38,13 +39,20 @@ export async function POST(request: NextRequest) {
       },
     })
 
-    // Fallback to universal enhancement if no model-specific one exists
+    // Get system prompt: use database override first, then Claude Skill, then fallback
     let systemPrompt: string
+    
     if (enhancementPrompt) {
+      // Database override takes precedence
       systemPrompt = enhancementPrompt.systemPrompt
     } else {
-      // Fallback to universal system prompt (hardcoded to avoid file system issues)
-      systemPrompt = `You are an expert AI prompt engineer. Your job is to enhance user prompts for generative AI models.
+      // Try to load from Claude Skill file
+      const skillPrompt = getSkillSystemPrompt('genai-prompting')
+      if (skillPrompt) {
+        systemPrompt = skillPrompt
+      } else {
+        // Final fallback (should not normally be reached)
+        systemPrompt = `You are an expert AI prompt engineer. Your job is to enhance user prompts for generative AI models.
 
 **CRITICAL INSTRUCTION**: Return ONLY the enhanced prompt text. Do NOT include explanations, versions, reasons, or any other text. Just the prompt itself.
 
@@ -60,6 +68,7 @@ Enhance the user's prompt by adding helpful details while respecting their creat
 
 ## Response Format
 Return ONLY the enhanced prompt text. Nothing else.`
+      }
     }
 
     // Initialize Claude client
