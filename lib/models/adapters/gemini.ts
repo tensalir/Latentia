@@ -1,20 +1,64 @@
 import { BaseModelAdapter, GenerationRequest, GenerationResponse, ModelConfig } from '../base'
 
 /**
- * Google Gemini API Adapter
+ * Google Gemini/Vertex AI Adapter
  * Supports Gemini 3 Pro Image (Nano banana pro) and Veo 3.1
+ * Uses Vertex AI when credentials are available (better rate limits), falls back to Gemini API
  */
+
+let vertexAiClient: any = null
+
+// Try to initialize Vertex AI client (server-side only)
+if (typeof window === 'undefined') {
+  try {
+    const { VertexAI } = require('@google-cloud/vertexai')
+    const projectId = process.env.GOOGLE_CLOUD_PROJECT_ID
+    const location = process.env.GOOGLE_CLOUD_REGION || 'us-central1'
+    
+    // Check if we have credentials (either via file path or JSON string for Vercel)
+    const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS
+    const credentialsJson = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON
+    
+    if (projectId && (credentialsPath || credentialsJson)) {
+      // Parse credentials if provided as JSON string (for Vercel)
+      let credentials: any = undefined
+      if (credentialsJson) {
+        try {
+          credentials = JSON.parse(credentialsJson)
+        } catch (e) {
+          console.warn('Failed to parse GOOGLE_APPLICATION_CREDENTIALS_JSON:', e)
+        }
+      }
+      
+      vertexAiClient = new VertexAI({
+        project: projectId,
+        location,
+        ...(credentials && { googleAuthOptions: { credentials } }),
+      })
+      console.log(`[Vertex AI] Initialized for project: ${projectId}, location: ${location}`)
+    }
+  } catch (error) {
+    // Vertex AI not available or not configured - will fall back to Gemini API
+    console.log('[Vertex AI] Not configured, will use Gemini API')
+  }
+}
 
 export class GeminiAdapter extends BaseModelAdapter {
   private apiKey: string
   private baseUrl = 'https://generativelanguage.googleapis.com/v1beta'
+  private useVertexAI: boolean
 
   constructor(config: ModelConfig) {
     super(config)
     this.apiKey = process.env.GEMINI_API_KEY || ''
+    this.useVertexAI = vertexAiClient !== null
 
-    if (!this.apiKey) {
-      console.warn('Gemini API key not configured')
+    if (!this.useVertexAI && !this.apiKey) {
+      console.warn('Neither Vertex AI nor Gemini API key configured')
+    } else if (this.useVertexAI) {
+      console.log('[GeminiAdapter] Using Vertex AI (better rate limits)')
+    } else {
+      console.log('[GeminiAdapter] Using Gemini API (AI Studio)')
     }
   }
 
@@ -120,7 +164,71 @@ export class GeminiAdapter extends BaseModelAdapter {
       }
     }
 
-    console.log('Nano banana pro: Sending request to Gemini API')
+    // Use Vertex AI if available, otherwise fall back to Gemini API
+    if (this.useVertexAI && vertexAiClient) {
+      return await this.generateImageVertexAI(request, payload)
+    } else {
+      return await this.generateImageGeminiAPI(endpoint, payload)
+    }
+  }
+
+  private async generateImageVertexAI(request: GenerationRequest, payload: any): Promise<any> {
+    console.log('Nano banana pro: Using Vertex AI')
+    
+    try {
+      const model = vertexAiClient.preview.getGenerativeModel({
+        model: 'gemini-3-pro-image-preview',
+      })
+
+      const result = await model.generateContent(payload)
+      const response = await result.response
+
+      // Extract image from response
+      const imagePart = response.candidates?.[0]?.content?.parts?.find(
+        (part: any) => part.inlineData?.mimeType?.startsWith('image/')
+      )
+
+      if (!imagePart?.inlineData?.data) {
+        console.error('Vertex AI response missing image data:', JSON.stringify(response, null, 2))
+        throw new Error('No image data in response')
+      }
+
+      // Determine dimensions based on aspect ratio
+      const aspectRatioDimensions: Record<string, { width: number; height: number }> = {
+        '1:1': { width: 1024, height: 1024 },
+        '2:3': { width: 832, height: 1248 },
+        '3:2': { width: 1248, height: 832 },
+        '3:4': { width: 864, height: 1184 },
+        '4:3': { width: 1184, height: 864 },
+        '4:5': { width: 896, height: 1152 },
+        '5:4': { width: 1152, height: 896 },
+        '9:16': { width: 768, height: 1344 },
+        '16:9': { width: 1344, height: 768 },
+        '21:9': { width: 1536, height: 672 },
+      }
+
+      const dimensions = aspectRatioDimensions[payload.generationConfig.imageConfig?.aspectRatio || '1:1'] || { width: 1024, height: 1024 }
+
+      return {
+        url: `data:${imagePart.inlineData.mimeType};base64,${imagePart.inlineData.data}`,
+        width: dimensions.width,
+        height: dimensions.height,
+      }
+    } catch (error: any) {
+      console.error('Vertex AI error:', error)
+      // Fallback to Gemini API if Vertex AI fails
+      if (this.apiKey) {
+        console.log('Falling back to Gemini API due to Vertex AI error')
+        const endpoint = `${this.baseUrl}/models/gemini-3-pro-image-preview:generateContent`
+        return await this.generateImageGeminiAPI(endpoint, payload)
+      }
+      throw error
+    }
+  }
+
+  private async generateImageGeminiAPI(endpoint: string, payload: any): Promise<any> {
+    console.log('Nano banana pro: Using Gemini API (AI Studio)')
+    
     const response = await fetch(`${endpoint}?key=${this.apiKey}`, {
       method: 'POST',
       headers: {
@@ -166,7 +274,7 @@ export class GeminiAdapter extends BaseModelAdapter {
       '21:9': { width: 1536, height: 672 },
     }
 
-    const dimensions = aspectRatioDimensions[request.aspectRatio || '1:1'] || { width: 1024, height: 1024 }
+    const dimensions = aspectRatioDimensions[payload.generationConfig.imageConfig?.aspectRatio || '1:1'] || { width: 1024, height: 1024 }
 
     return {
       url: `data:${imagePart.inlineData.mimeType};base64,${imagePart.inlineData.data}`,

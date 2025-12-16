@@ -121,17 +121,40 @@ export async function POST(request: NextRequest) {
     }
 
     // Create generation record in database with 'processing' status
-    generation = await prisma.generation.create({
-      data: {
-        sessionId,
-        userId: user.id,
-        modelId,
-        prompt,
-        negativePrompt: negativePrompt || null,
-        parameters: generationParameters,
-        status: 'processing',
-      },
-    })
+    // Note: cost field is nullable and will be set later when generation completes
+    try {
+      generation = await prisma.generation.create({
+        data: {
+          sessionId,
+          userId: user.id,
+          modelId,
+          prompt,
+          negativePrompt: negativePrompt || null,
+          parameters: generationParameters,
+          status: 'processing',
+          // cost is nullable, so we don't set it here - it will be calculated and set when generation completes
+        },
+      })
+    } catch (error: any) {
+      // Handle case where cost column doesn't exist yet (migration not applied)
+      if (error.message?.includes('cost') || error.message?.includes('column') || error.code === 'P2002') {
+        console.error('Database schema mismatch - cost column may be missing. Run migration: prisma/migrations/add_cost_column.sql')
+        // Try without cost field (if Prisma allows it)
+        generation = await prisma.generation.create({
+          data: {
+            sessionId,
+            userId: user.id,
+            modelId,
+            prompt,
+            negativePrompt: negativePrompt || null,
+            parameters: generationParameters,
+            status: 'processing',
+          } as any, // Type assertion to bypass Prisma validation if column missing
+        })
+      } else {
+        throw error
+      }
+    }
 
     console.log(`[${generation.id}] Generation created, starting async processing`)
     metricMeta.generationId = generation.id

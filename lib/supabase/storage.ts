@@ -31,11 +31,12 @@ export async function uploadBase64ToStorage(
     const buffer = Buffer.from(base64Data, 'base64')
 
     // Upload to Supabase Storage
+    // Use upsert: true to handle existing files gracefully (e.g., retries, duplicate uploads)
     const { data, error } = await supabaseAdmin.storage
       .from(bucket)
       .upload(path, buffer, {
         contentType: mimeType,
-        upsert: false,
+        upsert: true, // Allow overwriting existing files
       })
 
     if (error) {
@@ -123,11 +124,12 @@ export async function uploadUrlToStorage(
     }
 
     // Upload to Supabase Storage
+    // Use upsert: true to handle existing files gracefully (e.g., retries, duplicate uploads)
     const { data, error } = await supabaseAdmin.storage
       .from(bucket)
       .upload(path, buffer, {
         contentType,
-        upsert: false,
+        upsert: true, // Allow overwriting existing files
       })
 
     if (error) {
