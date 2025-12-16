@@ -50,6 +50,7 @@ export function VideoInput({
   const [generating, setGenerating] = useState(false)
   const [browseModalOpen, setBrowseModalOpen] = useState(false)
   const [stylePopoverOpen, setStylePopoverOpen] = useState(false)
+  const [isDragging, setIsDragging] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const createReferenceId = () => {
     if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -60,6 +61,9 @@ export function VideoInput({
   
   // Get model-specific capabilities
   const { modelConfig, supportedAspectRatios, maxResolution, parameters: modelParameters } = useModelCapabilities(selectedModel)
+  
+  // Check if model supports image-to-video (reference images)
+  const supportsImageToVideo = modelConfig?.capabilities?.['image-2-video'] === true
   
   // Get resolution options from model config or use defaults
   const resolutionOptions = modelParameters.find(p => p.name === 'resolution')?.options || [
@@ -122,18 +126,73 @@ export function VideoInput({
     }
   }
 
+  // Process and add image file (used by both file input and drag-and-drop)
+  const processImageFile = (file: File) => {
+    if (!file.type.startsWith('image/')) return
+    
+    // Clean up old preview URL
+    if (imagePreviewUrl) {
+      URL.revokeObjectURL(imagePreviewUrl)
+    }
+    // Create new preview URL
+    const previewUrl = URL.createObjectURL(file)
+    setImagePreviewUrl(previewUrl)
+    setReferenceImage(file)
+    setReferenceImageId(createReferenceId())
+  }
+
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (file && file.type.startsWith('image/')) {
-      // Clean up old preview URL
-      if (imagePreviewUrl) {
-        URL.revokeObjectURL(imagePreviewUrl)
+    if (file) {
+      processImageFile(file)
+    }
+    
+    // Reset input value so the same file can be selected again
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }
+
+  // Drag-and-drop handlers
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!supportsImageToVideo) return
+    setIsDragging(true)
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!supportsImageToVideo) return
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    // Only set dragging to false if we're leaving the drop zone entirely
+    const rect = e.currentTarget.getBoundingClientRect()
+    const x = e.clientX
+    const y = e.clientY
+    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+      setIsDragging(false)
+    }
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(false)
+    
+    if (!supportsImageToVideo) return
+    
+    const files = Array.from(e.dataTransfer.files)
+    if (files.length > 0) {
+      // For video, only use the first image file
+      const imageFile = files.find(file => file.type.startsWith('image/'))
+      if (imageFile) {
+        processImageFile(imageFile)
       }
-      // Create new preview URL
-      const previewUrl = URL.createObjectURL(file)
-      setImagePreviewUrl(previewUrl)
-      setReferenceImage(file)
-      setReferenceImageId(createReferenceId())
     }
   }
 
@@ -194,15 +253,29 @@ export function VideoInput({
   return (
     <div className="space-y-3">
       {/* Main Input Area - Card Style */}
-      <div className="flex items-center gap-3">
+      <div 
+        className={`flex items-center gap-3 transition-all ${
+          isDragging && supportsImageToVideo
+            ? 'ring-2 ring-primary ring-offset-2 rounded-lg p-1 -m-1 bg-primary/5'
+            : ''
+        }`}
+        onDragEnter={handleDragEnter}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
         {/* Input */}
         <div className="flex-1 relative">
           <Textarea
-            placeholder="Describe a video to animate from the reference image..."
+            placeholder={supportsImageToVideo ? "Describe a video to animate from the reference image, or drag and drop an image here..." : "Describe a video to animate from the reference image..."}
             value={prompt}
             onChange={(e) => onPromptChange(e.target.value)}
             onKeyDown={handleKeyDown}
-            className="resize-none min-h-[52px] max-h-[104px] px-4 py-3 text-sm rounded-lg bg-muted/50 border border-border focus-visible:ring-2 focus-visible:ring-primary focus-visible:border-primary transition-all"
+            className={`resize-none min-h-[52px] max-h-[104px] px-4 py-3 text-sm rounded-lg bg-muted/50 border transition-all ${
+              isDragging && supportsImageToVideo
+                ? 'border-primary'
+                : 'border-border focus-visible:ring-2 focus-visible:ring-primary focus-visible:border-primary'
+            }`}
             disabled={generating}
           />
           <PromptEnhancementButton

@@ -49,6 +49,7 @@ export function ChatInput({
   const [browseModalOpen, setBrowseModalOpen] = useState(false)
   const [stylePopoverOpen, setStylePopoverOpen] = useState(false)
   const [isEnhancing, setIsEnhancing] = useState(false)
+  const [isDragging, setIsDragging] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   
   // Get model-specific capabilities
@@ -127,41 +128,83 @@ export function ChatInput({
     }
   }
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || [])
+  // Process and add image files (used by both file input and drag-and-drop)
+  const processImageFiles = (files: File[]) => {
     const imageFiles = files.filter(file => file.type.startsWith('image/'))
     
-    if (imageFiles.length > 0) {
-      if (supportsMultiImage) {
-        // Add new images to the array
-        const newFiles = [...referenceImages, ...imageFiles]
-        const newPreviewUrls = [...imagePreviewUrls, ...imageFiles.map(file => URL.createObjectURL(file))]
-        setReferenceImages(newFiles)
-        setImagePreviewUrls(newPreviewUrls)
-        // Keep single image for backward compatibility (use first one)
-        if (newFiles.length > 0) {
-          setReferenceImage(newFiles[0])
-        }
-      } else {
-        // Single image mode - use first file only
-        const file = imageFiles[0]
-        // Clean up old preview URLs
-        imagePreviewUrls.forEach(url => {
-          if (url.startsWith('blob:')) {
-            URL.revokeObjectURL(url)
-          }
-        })
-        const previewUrl = URL.createObjectURL(file)
-        setImagePreviewUrls([previewUrl])
-        setReferenceImage(file)
-        setReferenceImages([file])
+    if (imageFiles.length === 0) return
+    
+    if (supportsMultiImage) {
+      // Add new images to the array
+      const newFiles = [...referenceImages, ...imageFiles]
+      const newPreviewUrls = [...imagePreviewUrls, ...imageFiles.map(file => URL.createObjectURL(file))]
+      setReferenceImages(newFiles)
+      setImagePreviewUrls(newPreviewUrls)
+      // Keep single image for backward compatibility (use first one)
+      if (newFiles.length > 0) {
+        setReferenceImage(newFiles[0])
       }
+    } else {
+      // Single image mode - use first file only
+      const file = imageFiles[0]
+      // Clean up old preview URLs
+      imagePreviewUrls.forEach(url => {
+        if (url.startsWith('blob:')) {
+          URL.revokeObjectURL(url)
+        }
+      })
+      const previewUrl = URL.createObjectURL(file)
+      setImagePreviewUrls([previewUrl])
+      setReferenceImage(file)
+      setReferenceImages([file])
     }
+  }
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || [])
+    processImageFiles(files)
     
     // Reset input value so the same file can be selected again
     if (fileInputRef.current) {
       fileInputRef.current.value = ''
     }
+  }
+
+  // Drag-and-drop handlers
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!supportsImageEditing) return
+    setIsDragging(true)
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!supportsImageEditing) return
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    // Only set dragging to false if we're leaving the drop zone entirely
+    const rect = e.currentTarget.getBoundingClientRect()
+    const x = e.clientX
+    const y = e.clientY
+    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+      setIsDragging(false)
+    }
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(false)
+    
+    if (!supportsImageEditing) return
+    
+    const files = Array.from(e.dataTransfer.files)
+    processImageFiles(files)
   }
 
   const handleBrowseSelect = async (imageUrl: string) => {
@@ -299,17 +342,29 @@ export function ChatInput({
   return (
     <div className="space-y-3">
       {/* Main Input Area - Card Style */}
-      <div className="flex items-center gap-3">
+      <div 
+        className={`flex items-center gap-3 transition-all ${
+          isDragging && supportsImageEditing
+            ? 'ring-2 ring-primary ring-offset-2 rounded-lg p-1 -m-1 bg-primary/5'
+            : ''
+        }`}
+        onDragEnter={handleDragEnter}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
         {/* Input */}
         <div className="flex-1 relative">
           <Textarea
-            placeholder="Describe an image and click generate..."
+            placeholder={supportsImageEditing ? "Describe an image and click generate, or drag and drop images here..." : "Describe an image and click generate..."}
             value={prompt}
             onChange={(e) => onPromptChange(e.target.value)}
             onKeyDown={handleKeyDown}
             className={`resize-none min-h-[52px] max-h-[104px] px-4 py-3 text-sm rounded-lg bg-muted/50 border transition-all pr-10 ${
               isEnhancing 
                 ? 'border-primary/50 bg-primary/5 shadow-lg shadow-primary/10' 
+                : isDragging && supportsImageEditing
+                ? 'border-primary'
                 : 'border-border focus-visible:ring-2 focus-visible:ring-primary focus-visible:border-primary'
             }`}
           />
