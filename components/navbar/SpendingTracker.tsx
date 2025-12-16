@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { DollarSign } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Popover,
@@ -9,6 +8,14 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 import { formatCost } from '@/lib/cost/calculator'
+
+// Subtle pulse animation for spending tracker
+const pulseStyle = `
+  @keyframes pulse-subtle {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+  }
+`
 
 interface SpendingData {
   totalCost: number
@@ -65,19 +72,34 @@ export function SpendingTracker({ isAdmin }: SpendingTrackerProps) {
   }
 
   const totalCost = spendingData?.totalCost || 0
+  const displayCost = totalCost < 1 ? totalCost.toFixed(3) : totalCost.toFixed(2)
+  const currencySymbol = '$' // Can be made dynamic if needed
 
   return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button variant="ghost" size="icon" className="relative" title="Spending Overview">
-          <DollarSign className="h-4 w-4" />
-          {!loading && totalCost > 0 && (
-            <span className="absolute -top-1 -right-1 text-[10px] font-semibold text-primary">
-              {totalCost < 1 ? totalCost.toFixed(3) : totalCost.toFixed(1)}
-            </span>
-          )}
-        </Button>
-      </PopoverTrigger>
+    <>
+      <style>{pulseStyle}</style>
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button 
+            variant="ghost" 
+            size="default" 
+            className="h-8 px-3 font-semibold hover:animate-none transition-all"
+            title="Click to view spending breakdown"
+          >
+            {loading ? (
+              <span className="text-sm text-muted-foreground">...</span>
+            ) : (
+              <span 
+                className="text-sm inline-block"
+                style={{
+                  animation: totalCost > 0 ? 'pulse-subtle 3s ease-in-out infinite' : 'none',
+                }}
+              >
+                {currencySymbol}{displayCost}
+              </span>
+            )}
+          </Button>
+        </PopoverTrigger>
       <PopoverContent side="bottom" className="w-80 p-0" align="end">
           <div className="p-4">
             <div className="mb-3 border-b border-border pb-2">
@@ -110,7 +132,8 @@ export function SpendingTracker({ isAdmin }: SpendingTrackerProps) {
             )}
           </div>
       </PopoverContent>
-    </Popover>
+      </Popover>
+    </>
   )
 }
 

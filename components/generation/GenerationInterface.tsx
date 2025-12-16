@@ -52,6 +52,7 @@ export function GenerationInterface({
   const loadMoreRef = useRef<HTMLDivElement | null>(null)
   const [prompt, setPrompt] = useState('')
   const [referenceImageUrl, setReferenceImageUrl] = useState<string | null>(null)
+  const [referenceImageUrls, setReferenceImageUrls] = useState<string[]>([]) // For image generation with multiple images
   const [userId, setUserId] = useState<string | null>(null)
   const [currentUser, setCurrentUser] = useState<{ displayName: string | null } | null>(null)
   const previousSessionIdRef = useRef<string | null>(null)
@@ -264,7 +265,7 @@ export function GenerationInterface({
     }
   }
 
-  const handleReuseParameters = (generation: GenerationWithOutputs) => {
+  const handleReuseParameters = async (generation: GenerationWithOutputs) => {
     // Set prompt
     setPrompt(generation.prompt)
     
@@ -280,10 +281,62 @@ export function GenerationInterface({
       ...(genParams.duration && { duration: genParams.duration }),
     })
     
+    // Reuse reference images
+    let hasRefImages = false
+    if (generationType === 'video') {
+      // For video: use referenceImageUrl (single image or begin frame)
+      if (genParams.referenceImageUrl) {
+        setReferenceImageUrl(genParams.referenceImageUrl)
+        hasRefImages = true
+      } else if (genParams.referenceImageId) {
+        // If we only have an ID, construct the public URL
+        // Reference images are stored in generated-images bucket
+        const supabase = createClient()
+        const { data: { publicUrl } } = supabase.storage
+          .from('generated-images')
+          .getPublicUrl(`references/${generation.userId}/${genParams.referenceImageId}.jpg`)
+        if (publicUrl) {
+          setReferenceImageUrl(publicUrl)
+          hasRefImages = true
+        }
+      }
+      // TODO: Handle beginFrame and endFrame when implemented
+    } else {
+      // For images: use referenceImages (can be multiple)
+      const urls: string[] = []
+      
+      if (genParams.referenceImages && Array.isArray(genParams.referenceImages)) {
+        // Check if these are URLs or data URLs
+        // If they're URLs, use them directly
+        const urlImages = genParams.referenceImages.filter((img: string) => 
+          typeof img === 'string' && img.startsWith('http')
+        )
+        urls.push(...urlImages)
+      } else if (genParams.referenceImageUrl) {
+        urls.push(genParams.referenceImageUrl)
+      } else if (genParams.referenceImageId) {
+        // Construct public URL from ID
+        const supabase = createClient()
+        const { data: { publicUrl } } = supabase.storage
+          .from('generated-images')
+          .getPublicUrl(`references/${generation.userId}/${genParams.referenceImageId}.jpg`)
+        if (publicUrl) {
+          urls.push(publicUrl)
+        }
+      }
+      
+      if (urls.length > 0) {
+        setReferenceImageUrls(urls)
+        hasRefImages = true
+      }
+    }
+    
     // Show toast to confirm
     toast({
       title: "Parameters reused",
-      description: "Prompt and settings have been loaded. You can now modify and regenerate.",
+      description: hasRefImages 
+        ? "Prompt, settings, and reference images have been loaded."
+        : "Prompt and settings have been loaded. You can now modify and regenerate.",
       variant: "default",
     })
   }
@@ -425,6 +478,7 @@ export function GenerationInterface({
                 selectedModel={selectedModel}
                 onModelSelect={setSelectedModel}
                 isGenerating={false}
+                referenceImageUrls={referenceImageUrls}
               />
             )}
           </div>

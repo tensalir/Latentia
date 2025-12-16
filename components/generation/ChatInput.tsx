@@ -27,6 +27,7 @@ interface ChatInputProps {
   selectedModel: string
   onModelSelect: (modelId: string) => void
   isGenerating?: boolean
+  referenceImageUrls?: string[] // URLs to hydrate reference images from
 }
 
 export function ChatInput({
@@ -39,6 +40,7 @@ export function ChatInput({
   selectedModel,
   onModelSelect,
   isGenerating = false,
+  referenceImageUrls,
 }: ChatInputProps) {
   const params = useParams()
   const [referenceImage, setReferenceImage] = useState<File | null>(null) // Single image (backward compatibility)
@@ -217,6 +219,60 @@ export function ChatInput({
     // Update single image reference
     setReferenceImage(newFiles.length > 0 ? newFiles[0] : null)
   }
+
+  // Hydrate reference images from URLs provided by parent (e.g., when reusing parameters)
+  useEffect(() => {
+    if (!referenceImageUrls || referenceImageUrls.length === 0) {
+      // Clear images if URLs are explicitly cleared (empty array)
+      if (referenceImageUrls?.length === 0 && imagePreviewUrls.length > 0) {
+        imagePreviewUrls.forEach(url => {
+          if (url.startsWith('blob:')) {
+            URL.revokeObjectURL(url)
+          }
+        })
+        setReferenceImages([])
+        setImagePreviewUrls([])
+        setReferenceImage(null)
+      }
+      return
+    }
+    
+    // Check if we've already loaded these URLs (avoid re-fetching)
+    const urlSet = new Set(referenceImageUrls)
+    const currentUrlSet = new Set(imagePreviewUrls)
+    const urlsMatch = urlSet.size === currentUrlSet.size && 
+                      Array.from(urlSet).every(url => currentUrlSet.has(url))
+    if (urlsMatch && referenceImages.length === referenceImageUrls.length) return
+    
+    ;(async () => {
+      try {
+        const files: File[] = []
+        const previewUrls: string[] = []
+        
+        for (const url of referenceImageUrls) {
+          const response = await fetch(url)
+          const blob = await response.blob()
+          const file = new File([blob], 'reference.png', { type: blob.type })
+          files.push(file)
+          previewUrls.push(url)
+        }
+        
+        // Clean up old preview URLs if they're blob URLs
+        imagePreviewUrls.forEach(url => {
+          if (url.startsWith('blob:') && !previewUrls.includes(url)) {
+            URL.revokeObjectURL(url)
+          }
+        })
+        
+        setReferenceImages(files)
+        setImagePreviewUrls(previewUrls)
+        setReferenceImage(files.length > 0 ? files[0] : null)
+      } catch (err) {
+        console.error('Failed to hydrate reference image URLs:', err)
+      }
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [referenceImageUrls]) // Only depend on referenceImageUrls
 
   // Cleanup preview URLs on unmount
   useEffect(() => {

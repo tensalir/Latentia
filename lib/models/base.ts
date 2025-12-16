@@ -28,6 +28,7 @@ export interface ModelConfig {
     'text-2-image'?: boolean
     'image-2-image'?: boolean
     'text-2-video'?: boolean
+    'image-2-video'?: boolean
     multiImageEditing?: boolean // Supports multiple reference images
   }
   pricing?: {
@@ -47,6 +48,8 @@ export interface GenerationRequest {
   seed?: number
   referenceImage?: string // Single image (for backward compatibility)
   referenceImages?: string[] // Multiple images (for models that support it)
+  beginFrame?: string // First frame for frame-specific video generation (base64 data URL)
+  endFrame?: string // Last frame for frame-specific video generation (base64 data URL)
   [key: string]: any
 }
 

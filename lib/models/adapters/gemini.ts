@@ -616,15 +616,21 @@ export const NANO_BANANA_CONFIG: ModelConfig = {
 
 // Veo 3.1 configuration based on official API docs
 // https://ai.google.dev/gemini-api/docs/video
+// https://cloud.google.com/vertex-ai/generative-ai/docs/video/generate-videos-from-first-and-last-frames
 export const VEO_3_1_CONFIG: ModelConfig = {
   id: 'gemini-veo-3.1',
   name: 'Veo 3.1',
   provider: 'Google',
   type: 'video',
-  description: 'State-of-the-art video generation with native audio support',
+  description: 'State-of-the-art video generation with native audio support, frame-specific generation, and video extension',
   defaultAspectRatio: '16:9',
-  supportedAspectRatios: ['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9'],
+  // Veo 3.1 officially supports: 16:9, 9:16, and 1:1
+  supportedAspectRatios: ['16:9', '9:16', '1:1'],
   maxResolution: 1080,
+  capabilities: {
+    'text-2-video': true,
+    'image-2-video': true,
+  },
   pricing: {
     perSecond: 0.05,
     currency: 'USD',
