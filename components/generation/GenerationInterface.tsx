@@ -305,23 +305,29 @@ export function GenerationInterface({
       // For images: use referenceImages (can be multiple)
       const urls: string[] = []
       
-      if (genParams.referenceImages && Array.isArray(genParams.referenceImages)) {
-        // Check if these are URLs or data URLs
-        // If they're URLs, use them directly
-        const urlImages = genParams.referenceImages.filter((img: string) => 
-          typeof img === 'string' && img.startsWith('http')
+      if (genParams.referenceImages && Array.isArray(genParams.referenceImages) && genParams.referenceImages.length > 0) {
+        // Handle both HTTP URLs and data URLs
+        // Data URLs need to be converted to Files, but for now we can pass them directly
+        // The ChatInput component will handle converting data URLs to Files
+        const validImages = genParams.referenceImages.filter((img: string) => 
+          typeof img === 'string' && (img.startsWith('http') || img.startsWith('data:'))
         )
-        urls.push(...urlImages)
+        urls.push(...validImages)
       } else if (genParams.referenceImageUrl) {
         urls.push(genParams.referenceImageUrl)
       } else if (genParams.referenceImageId) {
         // Construct public URL from ID
         const supabase = createClient()
-        const { data: { publicUrl } } = supabase.storage
-          .from('generated-images')
-          .getPublicUrl(`references/${generation.userId}/${genParams.referenceImageId}.jpg`)
-        if (publicUrl) {
-          urls.push(publicUrl)
+        // Try both jpg and png extensions
+        const extensions = ['jpg', 'png']
+        for (const ext of extensions) {
+          const { data: { publicUrl } } = supabase.storage
+            .from('generated-images')
+            .getPublicUrl(`references/${generation.userId}/${genParams.referenceImageId}.${ext}`)
+          if (publicUrl) {
+            urls.push(publicUrl)
+            break
+          }
         }
       }
       

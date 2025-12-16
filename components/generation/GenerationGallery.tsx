@@ -21,6 +21,36 @@ const formatDate = (date: Date | string | undefined): string => {
   }
 }
 
+// Helper to extract reference image URL from generation parameters
+const getReferenceImageUrl = (generation: GenerationWithOutputs): string | null => {
+  const params = generation.parameters as any
+  
+  // Check for referenceImageUrl directly
+  if (params.referenceImageUrl) {
+    return params.referenceImageUrl
+  }
+  
+  // Check for referenceImages array (multiple images - take first)
+  if (params.referenceImages && Array.isArray(params.referenceImages) && params.referenceImages.length > 0) {
+    const firstImage = params.referenceImages[0]
+    // Accept both HTTP URLs and data URLs for display
+    if (typeof firstImage === 'string' && (firstImage.startsWith('http') || firstImage.startsWith('data:'))) {
+      return firstImage
+    }
+  }
+  
+  // Check for referenceImageId - would need to construct URL
+  // But for display purposes, we'd need to construct it, which requires Supabase client
+  // For now, return null and we can enhance later if needed
+  if (params.referenceImageId) {
+    // Note: We can't construct the URL here without Supabase client access
+    // This is okay - the reuse function handles it
+    return null
+  }
+  
+  return null
+}
+
 interface GenerationGalleryProps {
   generations: GenerationWithOutputs[]
   sessionId: string | null
@@ -237,7 +267,7 @@ export function GenerationGallery({
           return (
             <div key={generation.id} className="flex gap-6 items-start">
               {/* Left Side: Prompt Display with Cancelled State */}
-              <div className="w-96 h-64 flex-shrink-0 bg-muted/30 rounded-xl p-6 border border-destructive/50 flex flex-col relative">
+              <div className="w-96 flex-shrink-0 bg-muted/30 rounded-xl p-6 border border-destructive/50 flex flex-col relative" style={{ minHeight: '256px' }}>
                 <div className="absolute top-2 left-2 px-2 py-1 bg-destructive/20 text-destructive text-xs font-medium rounded z-10">
                   Cancelled
                 </div>
@@ -311,6 +341,26 @@ export function GenerationGallery({
                       <span className="text-muted-foreground/70">Generated:</span>
                       <span className="font-medium">{formatDate(generation.createdAt)}</span>
                     </div>
+                    
+                    {/* Reference Image Thumbnail */}
+                    {(() => {
+                      const refImageUrl = getReferenceImageUrl(generation)
+                      if (refImageUrl) {
+                        return (
+                          <div className="mt-3 pt-3 border-t border-border/50">
+                            <div className="text-xs text-muted-foreground/70 mb-1.5">Reference Image:</div>
+                            <div className="w-20 h-20 rounded-lg overflow-hidden border border-border/50">
+                              <img
+                                src={refImageUrl}
+                                alt="Reference"
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+                          </div>
+                        )
+                      }
+                      return null
+                    })()}
                   </div>
                 </div>
 
@@ -357,6 +407,26 @@ export function GenerationGallery({
                       <span className="text-muted-foreground/70">Generated:</span>
                       <span className="font-medium">{formatDate(generation.createdAt)}</span>
                     </div>
+                    
+                    {/* Reference Image Thumbnail */}
+                    {(() => {
+                      const refImageUrl = getReferenceImageUrl(generation)
+                      if (refImageUrl) {
+                        return (
+                          <div className="mt-3 pt-3 border-t border-border/50">
+                            <div className="text-xs text-muted-foreground/70 mb-1.5">Reference Image:</div>
+                            <div className="w-20 h-20 rounded-lg overflow-hidden border border-border/50">
+                              <img
+                                src={refImageUrl}
+                                alt="Reference"
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+                          </div>
+                        )
+                      }
+                      return null
+                    })()}
                   </div>
                 </div>
 
@@ -446,7 +516,7 @@ export function GenerationGallery({
           return (
             <div key={generation.id} className="flex gap-6 items-start">
               {/* Left Side: Prompt Display - Fixed Height with Scroll on Hover */}
-              <div className="w-96 h-64 flex-shrink-0 bg-muted/30 rounded-xl p-6 border border-border/50 flex flex-col">
+              <div className="w-96 flex-shrink-0 bg-muted/30 rounded-xl p-6 border border-border/50 flex flex-col" style={{ minHeight: '256px' }}>
                 <div className="flex-1 overflow-hidden hover:overflow-y-auto transition-all group relative">
                   <p 
                     className="text-base font-normal leading-relaxed text-foreground/90 cursor-pointer hover:text-primary transition-colors"

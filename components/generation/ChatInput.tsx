@@ -250,11 +250,22 @@ export function ChatInput({
         const previewUrls: string[] = []
         
         for (const url of referenceImageUrls) {
-          const response = await fetch(url)
-          const blob = await response.blob()
-          const file = new File([blob], 'reference.png', { type: blob.type })
-          files.push(file)
-          previewUrls.push(url)
+          // Handle data URLs directly
+          if (url.startsWith('data:')) {
+            // Convert data URL to File
+            const response = await fetch(url)
+            const blob = await response.blob()
+            const file = new File([blob], 'reference.png', { type: blob.type })
+            files.push(file)
+            previewUrls.push(url) // Use data URL as preview
+          } else {
+            // Handle HTTP URLs
+            const response = await fetch(url)
+            const blob = await response.blob()
+            const file = new File([blob], 'reference.png', { type: blob.type })
+            files.push(file)
+            previewUrls.push(url)
+          }
         }
         
         // Clean up old preview URLs if they're blob URLs
