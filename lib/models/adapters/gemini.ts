@@ -432,21 +432,16 @@ export class GeminiAdapter extends BaseModelAdapter {
         
         uploadedReferenceMeta = {
           name: fileResourceName,
+          uri: fileUri,
           contentType,
           byteLength: imageBytes.length,
         }
         console.log(`[Veo 3.1] Reference image uploaded`, uploadedReferenceMeta)
         
-        // Try different formats - VEO 3.1 API format is unclear from docs
-        // Option 1: Use full resource name "files/abc123"
-        // Option 2: Use just file ID "abc123"  
-        // Option 3: Use full URI
-        // Let's try the full resource name first (most common in Gemini API)
-        instance.image = fileResourceName
+        // Store the file reference - will be used in cleanInstance
+        instance.imageFileResource = fileResourceName
+        instance.imageFileUri = fileUri
         console.log(`[Veo 3.1] Using file resource name for image: ${fileResourceName}`)
-        if (fileUri) {
-          console.log(`[Veo 3.1] File URI also available: ${fileUri}`)
-        }
       } catch (error: any) {
         console.error('[Veo 3.1] Error uploading reference image:', error)
         console.error('[Veo 3.1] Error details:', {
@@ -459,19 +454,27 @@ export class GeminiAdapter extends BaseModelAdapter {
       console.log(`[Veo 3.1] No reference image provided, generating text-to-video`)
     }
     
-    if (imageBytes && !instance.image) {
+    if (imageBytes && !instance.imageFileResource) {
       throw new Error('[Veo 3.1] Reference image upload failed - no file resource returned')
     }
     
     // Build clean instance object - only include prompt and image if provided
     // According to docs: https://ai.google.dev/gemini-api/docs/video
+    // For image-to-video, Veo 3.1 expects the image field as a file reference object
     const cleanInstance: any = {
       prompt: instance.prompt,
     }
     
     // Only add image field if we actually have an uploaded image
-    if (instance.image) {
-      cleanInstance.image = instance.image
+    // Based on Veo 3.1 API docs, the image should be a file reference object
+    // The API expects: { "fileUri": "files/xxx" } format
+    if (instance.imageFileResource && uploadedReferenceMeta) {
+      // Veo 3.1 expects image as an object with fileUri field
+      // Use the file resource name (e.g., "files/z1iqte75pus9")
+      cleanInstance.image = {
+        fileUri: instance.imageFileResource,
+      }
+      console.log(`[Veo 3.1] Added image reference to instance:`, cleanInstance.image)
     }
     
     const payload = {
