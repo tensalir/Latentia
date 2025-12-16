@@ -197,6 +197,7 @@ export class GeminiAdapter extends BaseModelAdapter {
     const payload: any = {
       contents: [
         {
+          role: 'user', // Required by Vertex AI API
           parts,
         },
       ],
