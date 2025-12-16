@@ -95,10 +95,11 @@ model Generation {
   negativePrompt String?  @map("negative_prompt") @db.Text
   parameters     Json // Flexible params per model
   status         String // 'queued', 'processing', 'completed', 'failed'
+  cost           Decimal? @db.Decimal(10, 6) // Cost in USD (e.g., 0.010000 for $0.01)
   createdAt      DateTime @default(now()) @map("created_at")
 
-  session Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  user    Profile  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  session Session        @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user    Profile        @relation(fields: [userId], references: [id], onDelete: Cascade)
   outputs Output[]
   job     GenerationJob?
 
@@ -110,12 +111,12 @@ model Generation {
 }
 
 model GenerationJob {
-  id           String      @id @default(uuid()) @db.Uuid
-  generationId String      @unique @map("generation_id") @db.Uuid
-  runAfter     DateTime?   @map("run_after")
-  attempts     Int         @default(0)
-  lockedAt     DateTime?   @map("locked_at")
-  createdAt    DateTime    @default(now()) @map("created_at")
+  id           String    @id @default(uuid()) @db.Uuid
+  generationId String    @unique @map("generation_id") @db.Uuid
+  runAfter     DateTime? @map("run_after")
+  attempts     Int       @default(0)
+  lockedAt     DateTime? @map("locked_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
 
   generation Generation @relation(fields: [generationId], references: [id], onDelete: Cascade)
 

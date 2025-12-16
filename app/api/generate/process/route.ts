@@ -297,9 +297,22 @@ async function processGenerationById(
         data: outputRecords,
       })
 
+      // Calculate cost for this generation
+      const { calculateGenerationCost } = await import('@/lib/cost/calculator')
+      const totalVideoDuration = outputRecords.reduce((sum, output) => {
+        return sum + (output.duration || 0)
+      }, 0)
+      const costResult = calculateGenerationCost(generation.modelId, {
+        outputCount: outputRecords.length,
+        videoDurationSeconds: totalVideoDuration > 0 ? totalVideoDuration : undefined,
+      })
+
       await prisma.generation.update({
         where: { id: generation.id },
-        data: { status: 'completed' },
+        data: {
+          status: 'completed',
+          cost: costResult.cost,
+        },
       })
 
       console.log(`[${generationId}] Generation completed successfully`)

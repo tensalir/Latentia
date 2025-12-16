@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Plus, LogOut, Settings, Sun, Moon, Bookmark } from 'lucide-react'
+import { SpendingTracker } from '@/components/navbar/SpendingTracker'
 import { ProjectGrid } from '@/components/projects/ProjectGrid'
 import { NewProjectDialog } from '@/components/projects/NewProjectDialog'
 import type { Project } from '@/types/project'
@@ -17,6 +18,7 @@ export default function ProjectsPage() {
   const [loading, setLoading] = useState(true)
   const [showNewProject, setShowNewProject] = useState(false)
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
+  const [isAdmin, setIsAdmin] = useState(false)
   const [activeTab, setActiveTab] = useState<TabType>('projects')
   const [theme, setTheme] = useState<'light' | 'dark'>('light')
   const router = useRouter()
@@ -55,6 +57,13 @@ export default function ProjectsPage() {
       }
 
       setCurrentUserId(user.id)
+
+      // Fetch user profile to check admin status
+      const profileResponse = await fetch('/api/profile')
+      if (profileResponse.ok) {
+        const profile = await profileResponse.json()
+        setIsAdmin(profile.role === 'admin')
+      }
 
       // Use optimized endpoint with thumbnails - bypass cache to get fresh data
       console.log('Fetching projects with thumbnails from API...')
@@ -128,6 +137,7 @@ export default function ProjectsPage() {
             >
               <Bookmark className="h-4 w-4" />
             </Button>
+            <SpendingTracker isAdmin={isAdmin} />
             <Button 
               variant="ghost" 
               size="icon"
