@@ -251,19 +251,19 @@ export function VideoInput({
   }, [imagePreviewUrl])
 
   return (
-    <div className="space-y-3">
+    <div 
+      className={`space-y-3 transition-all ${
+        isDragging && supportsImageToVideo
+          ? 'ring-2 ring-primary ring-offset-2 rounded-lg p-2 -m-2 bg-primary/5'
+          : ''
+      }`}
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       {/* Main Input Area - Card Style */}
-      <div 
-        className={`flex items-center gap-3 transition-all ${
-          isDragging && supportsImageToVideo
-            ? 'ring-2 ring-primary ring-offset-2 rounded-lg p-1 -m-1 bg-primary/5'
-            : ''
-        }`}
-        onDragEnter={handleDragEnter}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-      >
+      <div className="flex items-center gap-3">
         {/* Input */}
         <div className="flex-1 relative">
           <Textarea
@@ -273,7 +273,7 @@ export function VideoInput({
             onKeyDown={handleKeyDown}
             className={`resize-none min-h-[52px] max-h-[104px] px-4 py-3 text-sm rounded-lg bg-muted/50 border transition-all ${
               isDragging && supportsImageToVideo
-                ? 'border-primary'
+                ? 'border-primary/50'
                 : 'border-border focus-visible:ring-2 focus-visible:ring-primary focus-visible:border-primary'
             }`}
             disabled={generating}
