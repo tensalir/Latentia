@@ -21,6 +21,13 @@ const formatDate = (date: Date | string | undefined): string => {
   }
 }
 
+const SUPABASE_URL = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/+$/, '')
+
+const getPublicStorageUrl = (bucket: string, path: string): string | null => {
+  if (!SUPABASE_URL) return null
+  return `${SUPABASE_URL}/storage/v1/object/public/${bucket}/${path}`
+}
+
 // Helper to extract reference image URL from generation parameters
 const getReferenceImageUrl = (generation: GenerationWithOutputs): string | null => {
   const params = generation.parameters as any
@@ -38,14 +45,20 @@ const getReferenceImageUrl = (generation: GenerationWithOutputs): string | null 
       return firstImage
     }
   }
+
+  // If we have a persisted path, we can construct the public URL
+  if (params.referenceImagePath) {
+    const bucket = params.referenceImageBucket || 'generated-images'
+    return getPublicStorageUrl(bucket, params.referenceImagePath)
+  }
   
   // Check for referenceImageId - would need to construct URL
-  // But for display purposes, we'd need to construct it, which requires Supabase client
-  // For now, return null and we can enhance later if needed
   if (params.referenceImageId) {
-    // Note: We can't construct the URL here without Supabase client access
-    // This is okay - the reuse function handles it
-    return null
+    const bucket = params.referenceImageBucket || 'generated-images'
+    const mime: string | undefined = params.referenceImageMimeType
+    const ext = typeof mime === 'string' && mime.includes('png') ? 'png' : 'jpg'
+    const path = `references/${generation.userId}/${params.referenceImageId}.${ext}`
+    return getPublicStorageUrl(bucket, path)
   }
   
   return null
@@ -557,6 +570,26 @@ export function GenerationGallery({
                     <span className="text-muted-foreground/70">Generated:</span>
                     <span className="font-medium">{new Date(generation.createdAt).toLocaleDateString()}</span>
                   </div>
+
+                  {/* Reference Image Thumbnail */}
+                  {(() => {
+                    const refImageUrl = getReferenceImageUrl(generation)
+                    if (refImageUrl) {
+                      return (
+                        <div className="mt-3 pt-3 border-t border-border/50">
+                          <div className="text-xs text-muted-foreground/70 mb-1.5">Reference Image:</div>
+                          <div className="w-20 h-20 rounded-lg overflow-hidden border border-border/50">
+                            <img
+                              src={refImageUrl}
+                              alt="Reference"
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
+                        </div>
+                      )
+                    }
+                    return null
+                  })()}
                 </div>
               </div>
 
