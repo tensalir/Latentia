@@ -234,7 +234,8 @@ export function GenerationInterface({
           resolution: parameters.resolution,
           numOutputs: parameters.numOutputs,
           ...(parameters.duration && { duration: parameters.duration }),
-          ...(referenceImageData && { referenceImage: referenceImageData }),
+          ...(referenceImagesData && referenceImagesData.length > 0 && { referenceImages: referenceImagesData }),
+          ...(referenceImageData && !referenceImagesData && { referenceImage: referenceImageData }),
           ...(options?.referenceImageId && { referenceImageId: options.referenceImageId }),
         },
       })

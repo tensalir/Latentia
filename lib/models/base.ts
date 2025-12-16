@@ -28,6 +28,7 @@ export interface ModelConfig {
     'text-2-image'?: boolean
     'image-2-image'?: boolean
     'text-2-video'?: boolean
+    multiImageEditing?: boolean // Supports multiple reference images
   }
   pricing?: {
     perImage?: number
@@ -44,7 +45,8 @@ export interface GenerationRequest {
   resolution?: number
   numOutputs?: number
   seed?: number
-  referenceImage?: string
+  referenceImage?: string // Single image (for backward compatibility)
+  referenceImages?: string[] // Multiple images (for models that support it)
   [key: string]: any
 }
 

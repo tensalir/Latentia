@@ -16,7 +16,7 @@ import { useParams } from 'next/navigation'
 interface ChatInputProps {
   prompt: string
   onPromptChange: (prompt: string) => void
-  onGenerate: (prompt: string, options?: { referenceImage?: File }) => void
+  onGenerate: (prompt: string, options?: { referenceImage?: File; referenceImages?: File[] }) => void
   parameters: {
     aspectRatio: string
     resolution: number
@@ -41,8 +41,9 @@ export function ChatInput({
   isGenerating = false,
 }: ChatInputProps) {
   const params = useParams()
-  const [referenceImage, setReferenceImage] = useState<File | null>(null)
-  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null)
+  const [referenceImage, setReferenceImage] = useState<File | null>(null) // Single image (backward compatibility)
+  const [referenceImages, setReferenceImages] = useState<File[]>([]) // Multiple images
+  const [imagePreviewUrls, setImagePreviewUrls] = useState<string[]>([])
   const [browseModalOpen, setBrowseModalOpen] = useState(false)
   const [stylePopoverOpen, setStylePopoverOpen] = useState(false)
   const [isEnhancing, setIsEnhancing] = useState(false)
@@ -53,6 +54,8 @@ export function ChatInput({
   
   // Check if model supports image editing (reference images)
   const supportsImageEditing = modelConfig?.capabilities?.editing === true
+  // Check if model supports multiple reference images
+  const supportsMultiImage = modelConfig?.capabilities?.multiImageEditing === true
   
   // Get resolution options from model config or use defaults
   const resolutionOptions = modelParameters.find(p => p.name === 'resolution')?.options || [
@@ -76,12 +79,16 @@ export function ChatInput({
         updates.resolution = maxResolution
       }
       
-      // Clear reference image if switching to a model that doesn't support editing
-      if (!supportsImageEditing && referenceImage) {
-        if (imagePreviewUrl) {
-          URL.revokeObjectURL(imagePreviewUrl)
-        }
-        setImagePreviewUrl(null)
+      // Clear reference images if switching to a model that doesn't support editing
+      if (!supportsImageEditing) {
+        // Clean up all preview URLs
+        imagePreviewUrls.forEach(url => {
+          if (url.startsWith('blob:')) {
+            URL.revokeObjectURL(url)
+          }
+        })
+        setImagePreviewUrls([])
+        setReferenceImages([])
         setReferenceImage(null)
       }
       
@@ -95,12 +102,16 @@ export function ChatInput({
     if (!prompt.trim()) return
 
     try {
-      await onGenerate(prompt, { referenceImage: referenceImage || undefined })
+      // Use multiple images if model supports it, otherwise use single image for backward compatibility
+      if (supportsMultiImage && referenceImages.length > 0) {
+        await onGenerate(prompt, { referenceImages })
+      } else if (referenceImage) {
+        await onGenerate(prompt, { referenceImage })
+      } else {
+        await onGenerate(prompt)
+      }
       onPromptChange('')
-      // DON'T clear referenceImage - keep it for next generation
-      // Only clear preview if we're done with the file
-      // setImagePreviewUrl(null)
-      // setReferenceImage(null)
+      // DON'T clear reference images - keep them for next generation
     } catch (error) {
       console.error('Generation error:', error)
       // Error handling is done in the mutation
@@ -115,16 +126,34 @@ export function ChatInput({
   }
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file && file.type.startsWith('image/')) {
-      // Clean up old preview URL
-      if (imagePreviewUrl) {
-        URL.revokeObjectURL(imagePreviewUrl)
+    const files = Array.from(e.target.files || [])
+    const imageFiles = files.filter(file => file.type.startsWith('image/'))
+    
+    if (imageFiles.length > 0) {
+      if (supportsMultiImage) {
+        // Add new images to the array
+        const newFiles = [...referenceImages, ...imageFiles]
+        const newPreviewUrls = [...imagePreviewUrls, ...imageFiles.map(file => URL.createObjectURL(file))]
+        setReferenceImages(newFiles)
+        setImagePreviewUrls(newPreviewUrls)
+        // Keep single image for backward compatibility (use first one)
+        if (newFiles.length > 0) {
+          setReferenceImage(newFiles[0])
+        }
+      } else {
+        // Single image mode - use first file only
+        const file = imageFiles[0]
+        // Clean up old preview URLs
+        imagePreviewUrls.forEach(url => {
+          if (url.startsWith('blob:')) {
+            URL.revokeObjectURL(url)
+          }
+        })
+        const previewUrl = URL.createObjectURL(file)
+        setImagePreviewUrls([previewUrl])
+        setReferenceImage(file)
+        setReferenceImages([file])
       }
-      // Create new preview URL
-      const previewUrl = URL.createObjectURL(file)
-      setImagePreviewUrl(previewUrl)
-      setReferenceImage(file)
     }
     
     // Reset input value so the same file can be selected again
@@ -140,13 +169,28 @@ export function ChatInput({
       const blob = await response.blob()
       const file = new File([blob], 'reference.png', { type: blob.type })
       
-      // Clean up old preview URL
-      if (imagePreviewUrl) {
-        URL.revokeObjectURL(imagePreviewUrl)
+      if (supportsMultiImage) {
+        // Add to array
+        const newFiles = [...referenceImages, file]
+        const newPreviewUrls = [...imagePreviewUrls, imageUrl]
+        setReferenceImages(newFiles)
+        setImagePreviewUrls(newPreviewUrls)
+        // Keep single image for backward compatibility
+        if (newFiles.length === 1) {
+          setReferenceImage(file)
+        }
+      } else {
+        // Single image mode
+        // Clean up old preview URLs
+        imagePreviewUrls.forEach(url => {
+          if (url.startsWith('blob:')) {
+            URL.revokeObjectURL(url)
+          }
+        })
+        setImagePreviewUrls([imageUrl])
+        setReferenceImage(file)
+        setReferenceImages([file])
       }
-      // Set the imageUrl as preview (it's already a valid URL)
-      setImagePreviewUrl(imageUrl)
-      setReferenceImage(file)
       
       // Reset file input so a new image can be selected
       if (fileInputRef.current) {
@@ -157,14 +201,33 @@ export function ChatInput({
     }
   }
 
-  // Cleanup preview URL on unmount
+  // Remove a specific image
+  const handleRemoveImage = (index: number) => {
+    const newFiles = referenceImages.filter((_, i) => i !== index)
+    const urlToRemove = imagePreviewUrls[index]
+    
+    // Clean up preview URL if it's a blob URL
+    if (urlToRemove && urlToRemove.startsWith('blob:')) {
+      URL.revokeObjectURL(urlToRemove)
+    }
+    
+    const newPreviewUrls = imagePreviewUrls.filter((_, i) => i !== index)
+    setReferenceImages(newFiles)
+    setImagePreviewUrls(newPreviewUrls)
+    // Update single image reference
+    setReferenceImage(newFiles.length > 0 ? newFiles[0] : null)
+  }
+
+  // Cleanup preview URLs on unmount
   useEffect(() => {
     return () => {
-      if (imagePreviewUrl) {
-        URL.revokeObjectURL(imagePreviewUrl)
-      }
+      imagePreviewUrls.forEach(url => {
+        if (url.startsWith('blob:')) {
+          URL.revokeObjectURL(url)
+        }
+      })
     }
-  }, [imagePreviewUrl])
+  }, [imagePreviewUrls])
 
   return (
     <div className="space-y-3">
@@ -196,34 +259,32 @@ export function ChatInput({
           />
         </div>
 
-        {/* Reference Image Thumbnail - Left of Generate Button */}
-        {referenceImage && imagePreviewUrl && (
-          <div className="relative group">
-            <div className="w-[52px] h-[52px] rounded-lg overflow-hidden border-2 border-primary shadow-md">
-              <img
-                src={imagePreviewUrl}
-                alt="Reference"
-                className="w-full h-full object-cover"
-              />
-            </div>
-            <button
-              onClick={() => {
-                if (imagePreviewUrl) {
-                  URL.revokeObjectURL(imagePreviewUrl)
-                }
-                setImagePreviewUrl(null)
-                setReferenceImage(null)
-                
-                // Reset file input so a new image can be selected
-                if (fileInputRef.current) {
-                  fileInputRef.current.value = ''
-                }
-              }}
-              className="absolute -top-2 -right-2 bg-background border border-border rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm hover:bg-destructive hover:text-destructive-foreground"
-              title="Remove reference image"
-            >
-              <X className="h-3 w-3" />
-            </button>
+        {/* Reference Image Thumbnails - Left of Generate Button */}
+        {imagePreviewUrls.length > 0 && (
+          <div className="flex items-center gap-2">
+            {imagePreviewUrls.map((previewUrl, index) => (
+              <div key={index} className="relative group">
+                <div className="w-[52px] h-[52px] rounded-lg overflow-hidden border-2 border-primary shadow-md">
+                  <img
+                    src={previewUrl}
+                    alt={`Reference ${index + 1}`}
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+                <button
+                  onClick={() => handleRemoveImage(index)}
+                  className="absolute -top-2 -right-2 bg-background border border-border rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm hover:bg-destructive hover:text-destructive-foreground z-10"
+                  title="Remove reference image"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+                {supportsMultiImage && imagePreviewUrls.length > 1 && (
+                  <div className="absolute -bottom-1 -right-1 bg-primary text-primary-foreground text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+                    {index + 1}
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         )}
         
@@ -295,6 +356,7 @@ export function ChatInput({
           ref={fileInputRef}
           type="file"
           accept="image/*"
+          multiple={supportsMultiImage}
           className="hidden"
           onChange={handleFileSelect}
         />

@@ -219,12 +219,17 @@ async function processGenerationById(
     await appendLog('model:generate:start', { modelId: generation.modelId })
     startHeartbeat('model:generate:heartbeat')
 
+    // Handle multiple reference images or single image
+    const referenceImages = (otherParameters as any).referenceImages
+    const hasMultipleImages = Array.isArray(referenceImages) && referenceImages.length > 0
+    
     // Generate using the model
     const result = await model.generate({
       prompt: generation.prompt,
       negativePrompt: generation.negativePrompt || undefined,
-      referenceImage: inlineReferenceImage,
-      referenceImageUrl,
+      ...(hasMultipleImages 
+        ? { referenceImages } 
+        : { referenceImage: inlineReferenceImage, referenceImageUrl }),
       parameters: otherParameters,
       ...otherParameters,
     })

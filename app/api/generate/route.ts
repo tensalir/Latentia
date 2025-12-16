@@ -46,10 +46,22 @@ export async function POST(request: NextRequest) {
       parameters: requestParameters,
     } = body
     const rawParameters = requestParameters || {}
-    const { referenceImage, referenceImageId, ...otherParameters } = rawParameters
+    const { referenceImage, referenceImages, referenceImageId, ...otherParameters } = rawParameters
     let referencePointer: Record<string, any> | null = null
 
-    if (referenceImage && typeof referenceImage === 'string' && referenceImage.startsWith('data:')) {
+    // Handle multiple reference images (preferred) or single image (backward compatibility)
+    if (referenceImages && Array.isArray(referenceImages) && referenceImages.length > 0) {
+      // Multiple images - persist all of them
+      metricMeta.hasReferenceImage = true
+      metricMeta.referenceImageCount = referenceImages.length
+      // For now, persist all images and pass them through
+      // We'll store them as an array in the parameters
+      referencePointer = {
+        referenceImages: referenceImages, // Pass through as-is for now
+        // If needed, we could persist each one separately
+      }
+    } else if (referenceImage && typeof referenceImage === 'string' && referenceImage.startsWith('data:')) {
+      // Single image (backward compatibility)
       metricMeta.hasReferenceImage = true
       referencePointer = await persistReferenceImage(referenceImage, user.id, referenceImageId)
     } else if (referenceImageId) {

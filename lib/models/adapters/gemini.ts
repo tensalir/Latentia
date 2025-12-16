@@ -39,7 +39,8 @@ export class GeminiAdapter extends BaseModelAdapter {
   private async generateImage(request: GenerationRequest): Promise<GenerationResponse> {
     console.log('Nano banana pro: Starting image generation')
     console.log('Nano banana pro: Prompt:', request.prompt)
-    console.log('Nano banana pro: Has reference image:', !!request.referenceImage)
+    const referenceImages = request.referenceImages || (request.referenceImage ? [request.referenceImage] : [])
+    console.log('Nano banana pro: Reference images count:', referenceImages.length)
     // Gemini 3 Pro Image (Nano banana pro) endpoint
     const endpoint = `${this.baseUrl}/models/gemini-3-pro-image-preview:generateContent`
 
@@ -79,10 +80,13 @@ export class GeminiAdapter extends BaseModelAdapter {
       text: request.prompt,
     })
     
-    // Add reference image if provided (for image editing)
-    if (request.referenceImage) {
+    // Handle multiple reference images (preferred) or single image (backward compatibility)
+    const referenceImages = request.referenceImages || (request.referenceImage ? [request.referenceImage] : [])
+    
+    // Add all reference images to parts array
+    for (const imageData of referenceImages) {
       // Extract base64 data and mime type from data URL
-      const dataUrlMatch = request.referenceImage.match(/^data:([^;]+);base64,(.+)$/)
+      const dataUrlMatch = imageData.match(/^data:([^;]+);base64,(.+)$/)
       if (dataUrlMatch) {
         const [, mimeType, base64Data] = dataUrlMatch
         parts.push({
@@ -479,6 +483,7 @@ export const NANO_BANANA_CONFIG: ModelConfig = {
   capabilities: {
     editing: true,
     'text-2-image': true,
+    multiImageEditing: true, // Gemini 3 Pro Image supports multiple reference images
   },
   pricing: {
     perImage: 0.01,
