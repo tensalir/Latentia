@@ -17,7 +17,7 @@ if (typeof window === 'undefined' && !REPLICATE_API_KEY) {
  */
 export const SEEDREAM_4_CONFIG: ModelConfig = {
   id: 'replicate-seedream-4',
-  name: 'Seedream 4',
+  name: 'Seedream 4.5',
   provider: 'ByteDance (Replicate)',
   type: 'image',
   description: 'Seedream 4.5 - Superior aesthetics, stronger spatial understanding, and richer world knowledge at up to 4K resolution',
