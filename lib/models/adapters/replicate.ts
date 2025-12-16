@@ -181,9 +181,16 @@ export class ReplicateAdapter extends BaseModelAdapter {
         input.sequential_image_generation = numOutputs > 1 ? 'auto' : 'disabled'
         input.max_images = numOutputs
 
-        // Add image input if provided
-        if (referenceImage) {
-          input.image_input = [referenceImage]
+        // Add image input if provided (handle both single image and array)
+        const referenceImages = request.referenceImages || (referenceImage ? [referenceImage] : [])
+        if (referenceImages.length > 0) {
+          // Seedream-4 supports multiple reference images via image_input array
+          // Replicate accepts both data URLs and public URLs
+          input.image_input = referenceImages
+          console.log(`[Seedream-4] Using ${referenceImages.length} reference image(s)`)
+          console.log(`[Seedream-4] First image format: ${referenceImages[0]?.substring(0, 50)}... (${referenceImages[0]?.startsWith('data:') ? 'data URL' : referenceImages[0]?.startsWith('http') ? 'URL' : 'unknown'})`)
+        } else {
+          console.log('[Seedream-4] No reference image provided - generating text-to-image')
         }
       }
       // Reve model doesn't support image input or multiple outputs

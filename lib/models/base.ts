@@ -100,11 +100,10 @@ export abstract class BaseModelAdapter {
       throw new Error('Prompt is required')
     }
 
-    if (request.resolution && this.config.maxResolution) {
-      if (request.resolution > this.config.maxResolution) {
-        throw new Error(`Resolution exceeds maximum of ${this.config.maxResolution}`)
-      }
-    }
+    // Note: request.resolution is a setting (1024, 2048, 4096 for 1K/2K/4K)
+    // maxResolution is the maximum pixel dimension (e.g., 1536 for 21:9 aspect ratio)
+    // We don't validate resolution setting here - actual dimensions are calculated per aspect ratio
+    // The maxResolution check should be done on the calculated dimensions, not the resolution setting
   }
 }
 

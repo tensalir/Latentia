@@ -388,14 +388,18 @@ export class GeminiAdapter extends BaseModelAdapter {
     
     try {
       // Use preview.getGenerativeModel() for preview models like gemini-3-pro-image-preview
+      // Note: Some preview models may not be available via Vertex AI SDK yet
+      // If this fails with 404, the model might only be available via Gemini API
       const model = vertexAiClient.preview.getGenerativeModel({
         model: 'gemini-3-pro-image-preview',
       })
 
+      console.log('[Vertex AI] Model initialized, calling generateContent...')
       const result = await model.generateContent({
         contents: payload.contents,
         generationConfig: payload.generationConfig,
       })
+      console.log('[Vertex AI] generateContent call successful')
 
       // Extract image from response
       const response = result.response
@@ -446,6 +450,19 @@ export class GeminiAdapter extends BaseModelAdapter {
       console.error('[Vertex AI] Generation error occurred')
       console.error(`[Vertex AI]   Error type: ${error?.constructor?.name || typeof error}`)
       console.error(`[Vertex AI]   Error message: ${error?.message || String(error)}`)
+      
+      // Check for 404 - model not found (might not be available via Vertex AI SDK)
+      if (error?.code === 404 || error?.status === 404 || errorMessage.includes('404') || errorMessage.includes('was not found')) {
+        console.error('[Vertex AI] ⚠️  Model not found (404) - gemini-3-pro-image-preview may not be available via Vertex AI SDK yet')
+        console.error('[Vertex AI]   This preview model might only be accessible via Gemini API (AI Studio)')
+        console.error('[Vertex AI]   Falling back to Gemini API...')
+        // Don't throw - let it fall through to Gemini API fallback
+        if (this.apiKey) {
+          const endpoint = `${this.baseUrl}/models/gemini-3-pro-image-preview:generateContent`
+          return await this.generateImageGeminiAPI(endpoint, payload)
+        }
+        throw new Error('Model not available via Vertex AI. Please use Gemini API (AI Studio) instead.')
+      }
       
       // Check if error is an HTML response (authentication/configuration issue)
       const errorMessage = error?.message || String(error)
@@ -843,7 +860,7 @@ export const NANO_BANANA_CONFIG: ModelConfig = {
   provider: 'Google',
   type: 'image',
   description: 'Gemini 3 Pro Image - Advanced image generation with superior quality',
-  maxResolution: 1536, // Max dimension from 21:9 (1536x672)
+  maxResolution: 4096, // Max dimension for 4K resolution (actual dimensions vary by aspect ratio)
   defaultAspectRatio: '1:1',
   // All 10 supported aspect ratios from official Gemini API documentation
   supportedAspectRatios: ['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9'],

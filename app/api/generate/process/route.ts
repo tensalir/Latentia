@@ -223,12 +223,42 @@ async function processGenerationById(
     const referenceImages = (otherParameters as any).referenceImages
     const hasMultipleImages = Array.isArray(referenceImages) && referenceImages.length > 0
     
+    // For models that need data URLs (like Replicate), convert URLs to data URLs if needed
+    let processedReferenceImages: string[] | undefined
+    if (hasMultipleImages) {
+      processedReferenceImages = await Promise.all(
+        referenceImages.map(async (img: string, index: number) => {
+          // If it's already a data URL, use it as-is
+          if (img.startsWith('data:')) {
+            return img
+          }
+          // If it's a URL, try to download and convert to data URL for Replicate
+          // (Replicate can handle URLs, but data URLs are more reliable)
+          if (img.startsWith('http')) {
+            try {
+              // Try to infer mime type from URL or use default
+              const mimeType = img.match(/\.(png|jpg|jpeg|webp)$/i)?.[1] === 'png' ? 'image/png' : 'image/jpeg'
+              const dataUrl = await downloadReferenceImageAsDataUrl(img, mimeType)
+              console.log(`[${generationId}] Converted reference image ${index + 1} from URL to data URL`)
+              return dataUrl
+            } catch (error) {
+              console.warn(`[${generationId}] Failed to convert reference image ${index + 1} URL to data URL, using URL directly:`, img.substring(0, 100))
+              // Fallback to URL - Replicate should handle public URLs
+              return img
+            }
+          }
+          return img
+        })
+      )
+      console.log(`[${generationId}] Processed ${processedReferenceImages.length} reference image(s) for generation`)
+    }
+    
     // Generate using the model
     const result = await model.generate({
       prompt: generation.prompt,
       negativePrompt: generation.negativePrompt || undefined,
       ...(hasMultipleImages 
-        ? { referenceImages } 
+        ? { referenceImages: processedReferenceImages || referenceImages } 
         : { referenceImage: inlineReferenceImage, referenceImageUrl }),
       parameters: otherParameters,
       ...otherParameters,
