@@ -175,8 +175,17 @@ export function GenerationInterface({
 
     try {
       // Convert reference images File(s) to base64 data URL(s) if provided
-      // COMPRESS to prevent HTTP 413 errors (Vercel limit: 4.5MB)
-      const compressImage = (file: File): Promise<string> => {
+      // COMPRESS to prevent HTTP 413 errors (Vercel limit: 4.5MB for request body)
+      // When multiple images are present, we need to be more aggressive with compression
+      const imageCount = options?.referenceImages?.length || (options?.referenceImage ? 1 : 0)
+      const maxTotalSizeMB = 3.5 // Leave room for other request data (prompt, parameters, etc.)
+      const maxPerImageMB = imageCount > 1 
+        ? Math.max(0.5, maxTotalSizeMB / imageCount) // More aggressive for multiple images
+        : 3.0 // Single image can be larger
+      const maxDimension = imageCount > 1 ? 1536 : 2048 // Smaller dimensions for multiple images
+      const quality = imageCount > 1 ? 0.75 : 0.85 // Lower quality for multiple images
+      
+      const compressImage = (file: File, targetMaxMB: number): Promise<string> => {
         return new Promise<string>((resolve, reject) => {
           const reader = new FileReader()
           reader.onload = () => {
@@ -193,10 +202,10 @@ export function GenerationInterface({
                 return
               }
               
-              // Calculate new dimensions (max 2048px to keep size reasonable)
+              // Calculate new dimensions
               let { width, height } = img
-              if (width > 2048 || height > 2048) {
-                const ratio = 2048 / Math.max(width, height)
+              if (width > maxDimension || height > maxDimension) {
+                const ratio = maxDimension / Math.max(width, height)
                 width = Math.floor(width * ratio)
                 height = Math.floor(height * ratio)
               }
@@ -205,17 +214,32 @@ export function GenerationInterface({
               canvas.height = height
               ctx.drawImage(img, 0, 0, width, height)
               
-              // Convert to JPEG at 85% quality for better compression
-              const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.85)
+              // Convert to JPEG with appropriate quality
+              let compressedDataUrl = canvas.toDataURL('image/jpeg', quality)
               
-              // Final size check - reject if still too large
-              const sizeInMB = compressedDataUrl.length / (1024 * 1024)
-              if (sizeInMB > 3.5) {
-                console.warn('Compressed image still too large, using original')
-                resolve(dataUrl)
-              } else {
-                resolve(compressedDataUrl)
+              // If still too large, reduce quality further
+              let currentQuality = quality
+              let attempts = 0
+              while (compressedDataUrl.length / (1024 * 1024) > targetMaxMB && attempts < 3 && currentQuality > 0.5) {
+                currentQuality = Math.max(0.5, currentQuality - 0.1)
+                compressedDataUrl = canvas.toDataURL('image/jpeg', currentQuality)
+                attempts++
               }
+              
+              // Final size check
+              const sizeInMB = compressedDataUrl.length / (1024 * 1024)
+              if (sizeInMB > targetMaxMB * 1.1) { // Allow 10% tolerance
+                console.warn(`Compressed image still too large (${sizeInMB.toFixed(2)}MB), target: ${targetMaxMB.toFixed(2)}MB`)
+                // Try one more time with even lower quality
+                compressedDataUrl = canvas.toDataURL('image/jpeg', 0.5)
+                const finalSizeMB = compressedDataUrl.length / (1024 * 1024)
+                if (finalSizeMB > targetMaxMB * 1.2) {
+                  reject(new Error(`Image too large after compression (${finalSizeMB.toFixed(2)}MB). Please use smaller images.`))
+                  return
+                }
+              }
+              
+              resolve(compressedDataUrl)
             }
             img.onerror = () => resolve(dataUrl) // Fallback on error
             img.src = dataUrl
@@ -230,11 +254,40 @@ export function GenerationInterface({
       let referenceImagesData: string[] | undefined
       
       if (options?.referenceImages && options.referenceImages.length > 0) {
-        // Multiple images
-        referenceImagesData = await Promise.all(options.referenceImages.map(compressImage))
+        // Multiple images - compress each with per-image limit
+        try {
+          referenceImagesData = await Promise.all(
+            options.referenceImages.map(file => compressImage(file, maxPerImageMB))
+          )
+          
+          // Validate total size
+          const totalSizeMB = referenceImagesData.reduce((sum, img) => sum + img.length / (1024 * 1024), 0)
+          if (totalSizeMB > maxTotalSizeMB) {
+            throw new Error(
+              `Total image size (${totalSizeMB.toFixed(2)}MB) exceeds limit (${maxTotalSizeMB}MB). ` +
+              `Please use fewer or smaller images.`
+            )
+          }
+        } catch (error: any) {
+          toast({
+            title: "Image too large",
+            description: error.message || 'Images are too large. Please use smaller images or fewer images.',
+            variant: "destructive",
+          })
+          throw error
+        }
       } else if (options?.referenceImage) {
         // Single image (backward compatibility)
-        referenceImageData = await compressImage(options.referenceImage)
+        try {
+          referenceImageData = await compressImage(options.referenceImage, maxPerImageMB)
+        } catch (error: any) {
+          toast({
+            title: "Image too large",
+            description: error.message || 'Image is too large. Please use a smaller image.',
+            variant: "destructive",
+          })
+          throw error
+        }
       }
 
       const result = await generateMutation.mutateAsync({
@@ -386,7 +439,7 @@ export function GenerationInterface({
   
   // Get all processing generations (in-progress) - exclude cancelled and failed as they shouldn't show progress
   const processingGenerations = generations.filter(g => 
-    g.status === 'processing' && g.status !== 'failed' && g.status !== 'cancelled'
+    g.status === 'processing'
   )
   
   // Get cancelled generations separately (they will be shown in the gallery but without progress)
