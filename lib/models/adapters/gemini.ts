@@ -6,7 +6,7 @@ import { BaseModelAdapter, GenerationRequest, GenerationResponse, ModelConfig } 
  * Uses Gen AI SDK with Vertex AI when credentials are available (better rate limits), falls back to Gemini API
  */
 
-let genAiClient: any = null
+let vertexAiClient: any = null
 
 // Configuration for rate limiting and retries
 const IMAGE_GENERATION_DELAY_MS = Number(process.env.IMAGE_GENERATION_DELAY_MS || '2000')
@@ -72,10 +72,10 @@ const redactLargeStrings = (value: any, maxLen = 256) => {
   return walk(value)
 }
 
-// Try to initialize Gen AI SDK client with Vertex AI (server-side only)
+// Try to initialize Vertex AI client (server-side only)
 if (typeof window === 'undefined') {
   try {
-    const { GoogleGenAI } = require('@google/genai')
+    const { VertexAI } = require('@google-cloud/vertexai')
     const fs = require('fs')
     const path = require('path')
     const os = require('os')
@@ -88,47 +88,31 @@ if (typeof window === 'undefined') {
     const credentialsJson = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON
     
     if (projectId && (credentialsPath || credentialsJson)) {
-      // Handle credentials for Gen AI SDK
-      // The SDK uses Application Default Credentials, which can be:
-      // 1. A file path in GOOGLE_APPLICATION_CREDENTIALS env var
-      // 2. Credentials set via google-auth-library
+      let credentials: any = undefined
       
       if (credentialsPath) {
-        // Use file path (local development)
-        // Ensure the env var is set for the SDK to pick up
+        // Use file path (local development) - SDK will automatically use GOOGLE_APPLICATION_CREDENTIALS
         if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
           process.env.GOOGLE_APPLICATION_CREDENTIALS = credentialsPath
         }
+        // Don't parse file - SDK handles it automatically
       } else if (credentialsJson) {
-        // For Vercel/serverless: write credentials to a temp file
-        // The Gen AI SDK needs GOOGLE_APPLICATION_CREDENTIALS to point to a file
-        try {
-          const tempDir = os.tmpdir()
-          const tempFilePath = path.join(tempDir, `gcp-credentials-${Date.now()}.json`)
-          fs.writeFileSync(tempFilePath, credentialsJson, 'utf8')
-          process.env.GOOGLE_APPLICATION_CREDENTIALS = tempFilePath
-          console.log(`[Gen AI SDK] Wrote credentials to temp file: ${tempFilePath}`)
-        } catch (e) {
-          console.warn('[Gen AI SDK] Failed to write credentials to temp file:', e)
-        }
+        // For Vercel/serverless: parse JSON string and pass directly
+        credentials = JSON.parse(credentialsJson)
       }
       
-      // Initialize Gen AI SDK with Vertex AI
-      // The SDK will automatically use Application Default Credentials from GOOGLE_APPLICATION_CREDENTIALS
-      // Note: Preview models (like gemini-3-pro-image-preview) may require location: 'global'
-      // If you get 404 "model not found" errors with Vertex AI, try setting GOOGLE_CLOUD_REGION=global
-      // The system will automatically fall back to Gemini API if Vertex AI fails
-      genAiClient = new GoogleGenAI({
-        vertexai: true,
+      // Initialize Vertex AI client
+      vertexAiClient = new VertexAI({
         project: projectId,
         location,
+        ...(credentials && { googleAuthOptions: { credentials } }),
       })
       
-      console.log(`[Gen AI SDK] Initialized with Vertex AI for project: ${projectId}, location: ${location}`)
+      console.log(`[Vertex AI] Initialized for project: ${projectId}, location: ${location}`)
     }
   } catch (error) {
-    // Gen AI SDK not available or not configured - will fall back to Gemini API
-    console.log('[Gen AI SDK] Not configured, will use Gemini API:', error)
+    // Vertex AI not available or not configured - will fall back to Gemini API
+    console.log('[Vertex AI] Not configured, will use Gemini API:', error)
   }
 }
 
@@ -140,12 +124,12 @@ export class GeminiAdapter extends BaseModelAdapter {
   constructor(config: ModelConfig) {
     super(config)
     this.apiKey = process.env.GEMINI_API_KEY || ''
-    this.useGenAI = genAiClient !== null
+    this.useGenAI = vertexAiClient !== null
 
     if (!this.useGenAI && !this.apiKey) {
-      console.warn('Neither Gen AI SDK (Vertex AI) nor Gemini API key configured')
+      console.warn('Neither Vertex AI nor Gemini API key configured')
     } else if (this.useGenAI) {
-      console.log('[GeminiAdapter] Using Gen AI SDK with Vertex AI (better rate limits)')
+      console.log('[GeminiAdapter] Using Vertex AI (better rate limits)')
     } else {
       console.log('[GeminiAdapter] Using Gemini API (AI Studio)')
     }
@@ -294,7 +278,6 @@ export class GeminiAdapter extends BaseModelAdapter {
     const payload: any = {
       contents: [
         {
-          role: 'user', // Required by Vertex AI API
           parts,
         },
       ],
@@ -319,113 +302,36 @@ export class GeminiAdapter extends BaseModelAdapter {
     }
   }
 
-  private async generateImageGenAI(request: GenerationRequest, payload: any): Promise<any> {
-    console.log('Nano banana pro: Using Gen AI SDK with Vertex AI')
+  private async generateImageVertexAI(request: GenerationRequest, payload: any): Promise<any> {
+    console.log('Nano banana pro: Using Vertex AI')
     
-    if (!genAiClient) {
-      throw new Error('Gen AI client not initialized')
+    if (!vertexAiClient) {
+      throw new Error('Vertex AI client not initialized')
     }
     
     try {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/e6034d14-134b-41df-97f8-0c4119e294f2',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H3',location:'lib/models/adapters/gemini.ts:generateImageGenAI',message:'genai client surface',data:{clientKeys:Object.keys(genAiClient||{}).slice(0,30),modelsType:typeof genAiClient?.models,modelsKeys:genAiClient?.models?Object.keys(genAiClient.models).slice(0,30):[],hasModelsGetGenerativeModel:typeof genAiClient?.models?.getGenerativeModel==='function',hasModelsGenerateContent:typeof genAiClient?.models?.generateContent==='function',hasModelsGenerateContentStream:typeof genAiClient?.models?.generateContentStream==='function',hasClientGetGenerativeModel:typeof genAiClient?.getGenerativeModel==='function'},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
+      // Use preview.getGenerativeModel() for preview models like gemini-3-pro-image-preview
+      const model = vertexAiClient.preview.getGenerativeModel({
+        model: 'gemini-3-pro-image-preview',
+      })
 
-      let model: any
-      let result: any
-      let selectedMethod:
-        | 'models.generateContent'
-        | 'models.getGenerativeModel'
-        | 'client.getGenerativeModel'
-        | 'none' = 'none'
-
-      // Prefer @google/genai modern API: models.generateContent({ model, contents, config })
-      if (genAiClient.models && typeof genAiClient.models.generateContent === 'function') {
-        selectedMethod = 'models.generateContent'
-
-        const gc = payload.generationConfig || {}
-        const config: any = {
-          ...(typeof gc.temperature === 'number' ? { temperature: gc.temperature } : {}),
-          ...(gc.imageConfig ? { imageConfig: gc.imageConfig } : {}),
-        }
-
-        // Normalize responseModalities to uppercase (SDK examples use "IMAGE"/"TEXT")
-        if (Array.isArray(gc.responseModalities)) {
-          config.responseModalities = gc.responseModalities.map((m: any) =>
-            typeof m === 'string' ? m.toUpperCase() : m
-          )
-        }
-
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/e6034d14-134b-41df-97f8-0c4119e294f2',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H4',location:'lib/models/adapters/gemini.ts:generateImageGenAI',message:'using models.generateContent',data:{hasConfig:Boolean(Object.keys(config||{}).length),configKeys:Object.keys(config||{}),responseModalities:config.responseModalities},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
-
-        result = await genAiClient.models.generateContent({
-          model: 'gemini-3-pro-image-preview',
-          contents: payload.contents,
-          config,
-        })
-      } else {
-        // Legacy pattern: models.getGenerativeModel() -> model.generateContent()
-
-        // Check if it's genAiClient.models.getGenerativeModel (older pattern)
-        if (genAiClient.models && typeof genAiClient.models.getGenerativeModel === 'function') {
-          selectedMethod = 'models.getGenerativeModel'
-          model = genAiClient.models.getGenerativeModel({
-            model: 'gemini-3-pro-image-preview',
-          })
-        }
-        // Fallback: try direct getGenerativeModel (for backward compatibility)
-        else if (typeof genAiClient.getGenerativeModel === 'function') {
-          selectedMethod = 'client.getGenerativeModel'
-          model = genAiClient.getGenerativeModel({
-            model: 'gemini-3-pro-image-preview',
-          })
-        }
-        // If neither works, log available methods and throw
-        else {
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/e6034d14-134b-41df-97f8-0c4119e294f2',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H3',location:'lib/models/adapters/gemini.ts:generateImageGenAI',message:'genai model getter missing',data:{selectedMethod,clientKeys:Object.keys(genAiClient||{}).slice(0,30),modelsKeys:genAiClient?.models?Object.keys(genAiClient.models).slice(0,30):[]},timestamp:Date.now()})}).catch(()=>{});
-          // #endregion
-          console.error('[Gen AI SDK] Available methods:', Object.keys(genAiClient))
-          console.error('[Gen AI SDK] Available model methods:', genAiClient?.models ? Object.keys(genAiClient.models) : [])
-          throw new Error('Gen AI SDK getGenerativeModel method not found. Client structure: ' + JSON.stringify(Object.keys(genAiClient)))
-        }
-      }
-      
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/e6034d14-134b-41df-97f8-0c4119e294f2',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H3',location:'lib/models/adapters/gemini.ts:generateImageGenAI',message:'genai method selected',data:{selectedMethod},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
-
-      if (!result) {
-        result = await model.generateContent({
-          contents: payload.contents,
-          generationConfig: payload.generationConfig,
-        })
-      }
+      const result = await model.generateContent({
+        contents: payload.contents,
+        generationConfig: payload.generationConfig,
+      })
 
       // Extract image from response
-      // @google/genai SDK response structure can vary:
-      // - result.response.candidates (if wrapped)
-      // - result.candidates (if direct)
-      // - result.text (for text responses)
-      let response: any = result
+      const response = result.response
+      const candidates = response.candidates || []
       
-      // Check if response is wrapped
-      if (result.response) {
-        response = result.response
-      }
-      
-      // Handle different response structures
-      const candidates = response.candidates || (response.candidate ? [response.candidate] : [])
       if (candidates.length === 0) {
-        console.error('Gen AI SDK response missing candidates:', JSON.stringify(result, null, 2))
+        console.error('Vertex AI response missing candidates:', JSON.stringify(result, null, 2))
         throw new Error('No candidates in response')
       }
       
       const content = candidates[0]?.content
       if (!content || !content.parts) {
-        console.error('Gen AI SDK response missing content parts:', JSON.stringify(result, null, 2))
+        console.error('Vertex AI response missing content parts:', JSON.stringify(result, null, 2))
         throw new Error('No content parts in response')
       }
       
@@ -434,7 +340,7 @@ export class GeminiAdapter extends BaseModelAdapter {
       )
 
       if (!imagePart?.inlineData?.data) {
-        console.error('Gen AI SDK response missing image data:', JSON.stringify(result, null, 2))
+        console.error('Vertex AI response missing image data:', JSON.stringify(result, null, 2))
         throw new Error('No image data in response')
       }
 
@@ -460,7 +366,7 @@ export class GeminiAdapter extends BaseModelAdapter {
         height: dimensions.height,
       }
     } catch (error: any) {
-      console.error('Gen AI SDK error:', error)
+      console.error('Vertex AI error:', error)
       
       // Fail fast on quota exhaustion - don't fallback to another API with zero quota
       if (isQuotaExhaustedError(error)) {
@@ -468,9 +374,8 @@ export class GeminiAdapter extends BaseModelAdapter {
       }
       
       // Only fallback to Gemini API if it's not a quota issue and we have an API key
-      // But check if Gemini API has quota first
       if (this.apiKey && !isQuotaExhaustedError(error)) {
-        console.log('Falling back to Gemini API due to Gen AI SDK error')
+        console.log('Falling back to Gemini API due to Vertex AI error')
         const endpoint = `${this.baseUrl}/models/gemini-3-pro-image-preview:generateContent`
         try {
           return await this.generateImageGeminiAPI(endpoint, payload)
@@ -581,33 +486,33 @@ export class GeminiAdapter extends BaseModelAdapter {
     
     const { width, height } = getDimensions(aspectRatio, resolution)
     
-    // Use Gen AI SDK if available (Vertex AI), otherwise fall back to Gemini API REST
-    if (this.useGenAI && genAiClient) {
-      return await this.generateVideoGenAI(request, { width, height, duration, resolution, aspectRatio })
+    // Use Vertex AI if available, otherwise fall back to Gemini API REST
+    if (this.useGenAI && vertexAiClient) {
+      return await this.generateVideoVertexAI(request, { width, height, duration, resolution, aspectRatio })
     } else {
       return await this.generateVideoGeminiAPI(request, { width, height, duration, resolution, aspectRatio })
     }
   }
   
-  private async generateVideoGenAI(
+  private async generateVideoVertexAI(
     request: GenerationRequest,
     options: { width: number; height: number; duration: number; resolution: number; aspectRatio: string }
   ): Promise<GenerationResponse> {
-    console.log(`[Veo 3.1] Gen AI SDK with Vertex AI available, but video generation methods not yet in SDK`)
+    console.log(`[Veo 3.1] Vertex AI available, but video generation methods not yet in SDK`)
     console.log(`[Veo 3.1] Falling back to Gemini API REST (works great, maintains functionality)`)
     
-    if (!genAiClient) {
-      throw new Error('Gen AI client not initialized')
+    if (!vertexAiClient) {
+      throw new Error('Vertex AI client not initialized')
     }
     
-    // Note: The Gen AI SDK JavaScript version may not have video generation methods yet
+    // Note: The Vertex AI SDK JavaScript version may not have video generation methods yet
     // When the SDK adds video support, this method will be updated to use SDK methods
     // For now, we maintain the working Gemini API REST implementation
     // This ensures videos continue to work while we wait for SDK video support
     
     try {
-      // TODO: When Gen AI SDK adds video generation support, implement here:
-      // const model = genAiClient.getGenerativeModel({ model: 'veo-3.1-generate-preview' })
+      // TODO: When Vertex AI SDK adds video generation support, implement here:
+      // const model = vertexAiClient.preview.getGenerativeModel({ model: 'veo-3.1-generate-preview' })
       // const operation = await model.generateVideos({ ... })
       // Then poll and return result
       
@@ -615,10 +520,10 @@ export class GeminiAdapter extends BaseModelAdapter {
       return await this.generateVideoGeminiAPI(request, options)
       
     } catch (error: any) {
-      console.error('[Veo 3.1] Gen AI SDK error:', error)
-      // Fallback to Gemini API REST if Gen AI SDK fails
+      console.error('[Veo 3.1] Vertex AI error:', error)
+      // Fallback to Gemini API REST if Vertex AI fails
       if (this.apiKey) {
-        console.log('Falling back to Gemini API REST due to Gen AI SDK error')
+        console.log('Falling back to Gemini API REST due to Vertex AI error')
         return await this.generateVideoGeminiAPI(request, options)
       }
       throw error

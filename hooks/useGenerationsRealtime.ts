@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import type { GenerationWithOutputs } from '@/types/generation'
@@ -9,6 +9,32 @@ import type { GenerationWithOutputs } from '@/types/generation'
  */
 export function useGenerationsRealtime(sessionId: string | null, userId: string | null) {
   const queryClient = useQueryClient()
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null)
+
+  // Debounce invalidation by 2 seconds to prevent race condition
+  // This prevents real-time updates from immediately invalidating queries
+  // before optimistic updates can be processed
+  const debouncedInvalidate = useMemo(() => {
+    return () => {
+      // Clear any existing timeout
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current)
+      }
+      
+      // Set new timeout
+      timeoutRef.current = setTimeout(() => {
+        queryClient.invalidateQueries({ 
+          queryKey: ['generations', sessionId],
+          refetchType: 'active'
+        })
+        queryClient.invalidateQueries({ 
+          queryKey: ['generations', 'infinite', sessionId],
+          refetchType: 'active'
+        })
+        timeoutRef.current = null
+      }, 2000)
+    }
+  }, [sessionId, queryClient])
 
   useEffect(() => {
     if (!sessionId || !userId) return
@@ -32,15 +58,8 @@ export function useGenerationsRealtime(sessionId: string | null, userId: string 
           const newData = payload.new as any
           console.log('🔴 Generation change detected:', payload.eventType, newData?.id)
 
-          // Invalidate both old and new query keys for generations
-          queryClient.invalidateQueries({ 
-            queryKey: ['generations', sessionId],
-            refetchType: 'active'
-          })
-          queryClient.invalidateQueries({ 
-            queryKey: ['generations', 'infinite', sessionId],
-            refetchType: 'active'
-          })
+          // Debounce invalidation to prevent race condition with optimistic updates
+          debouncedInvalidate()
         }
       )
       .subscribe((status) => {
@@ -60,16 +79,8 @@ export function useGenerationsRealtime(sessionId: string | null, userId: string 
         async (payload) => {
           console.log('🔴 Output added:', payload.new?.id)
 
-          // Check if this output belongs to a generation in our session
-          // We'll refetch to be safe
-          queryClient.invalidateQueries({ 
-            queryKey: ['generations', sessionId],
-            refetchType: 'active'
-          })
-          queryClient.invalidateQueries({ 
-            queryKey: ['generations', 'infinite', sessionId],
-            refetchType: 'active'
-          })
+          // Debounce invalidation to prevent race condition
+          debouncedInvalidate()
         }
       )
       .subscribe()
@@ -77,9 +88,13 @@ export function useGenerationsRealtime(sessionId: string | null, userId: string 
     // Cleanup subscriptions on unmount
     return () => {
       console.log(`🔴 Unsubscribing from real-time updates for session: ${sessionId}`)
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current)
+        timeoutRef.current = null
+      }
       supabase.removeChannel(generationsChannel)
       supabase.removeChannel(outputsChannel)
     }
-  }, [sessionId, userId, queryClient])
+  }, [sessionId, userId, debouncedInvalidate])
 }
 

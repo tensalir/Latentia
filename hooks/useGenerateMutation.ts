@@ -123,7 +123,7 @@ export function useGenerateMutation() {
               if (pageIndex === 0) {
                 const exists = page.data.some(gen => gen.id === optimisticGeneration.id)
                 if (exists) return page
-                return { ...page, data: [optimisticGeneration, ...page.data] }
+                return { ...page, data: [...page.data, optimisticGeneration] }
               }
               return page
             }),
@@ -248,7 +248,7 @@ export function useGenerateMutation() {
     onError: (error: Error, variables, context) => {
       console.error('Generation failed:', error)
       
-      // Update the optimistic generation to show the error
+      // Update the optimistic generation to show the error in both caches
       queryClient.setQueryData<GenerationWithOutputs[]>(
         ['generations', variables.sessionId],
         (old) => {
@@ -267,6 +267,34 @@ export function useGenerateMutation() {
             }
             return gen
           })
+        }
+      )
+      
+      // Also update the infinite query cache so errors persist
+      queryClient.setQueryData(
+        ['generations', 'infinite', variables.sessionId],
+        (old: InfiniteData<PaginatedGenerationsResponse> | undefined) => {
+          if (!old) return undefined
+          
+          return {
+            ...old,
+            pages: old.pages.map((page) => {
+              const foundIndex = page.data.findIndex(gen => gen.id === context?.optimisticId)
+              if (foundIndex !== -1) {
+                const newData = [...page.data]
+                newData[foundIndex] = {
+                  ...newData[foundIndex],
+                  status: 'failed' as const,
+                  parameters: {
+                    ...newData[foundIndex].parameters,
+                    error: error.message,
+                  },
+                }
+                return { ...page, data: newData }
+              }
+              return page
+            }),
+          }
         }
       )
     },
