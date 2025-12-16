@@ -14,16 +14,21 @@ import { prisma } from '@/lib/prisma'
  */
 export async function GET() {
   try {
+    console.log('[with-thumbnails] Starting request')
     const supabase = createRouteHandlerClient({ cookies })
     const {
       data: { user },
     } = await supabase.auth.getUser()
 
     if (!user) {
+      console.log('[with-thumbnails] No user found')
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    console.log('[with-thumbnails] User authenticated:', user.id)
+
     // First, get all projects the user has access to
+    console.log('[with-thumbnails] Fetching projects...')
     const projects = await prisma.project.findMany({
       where: {
         OR: [
@@ -56,6 +61,8 @@ export async function GET() {
         updatedAt: 'desc',
       },
     })
+
+    console.log('[with-thumbnails] Found', projects.length, 'projects')
 
     // Prepare IDs for parallel queries
     const ownerIds = Array.from(new Set(projects.map(p => p.ownerId)))
