@@ -26,11 +26,26 @@ export function ProjectCard({ project, currentUserId, onProjectUpdate }: Project
   const [editedName, setEditedName] = useState(project.name)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [optimisticProject, setOptimisticProject] = useState<Project>(project)
+  
+  // Sync editedName when project name changes externally
+  useEffect(() => {
+    if (!isEditingName) {
+      setEditedName(displayProject.name)
+    }
+  }, [displayProject.name, isEditingName])
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const hasPrefetchedRef = useRef(false)
 
-  const isOwner = currentUserId && project.ownerId === currentUserId
-  const thumbnailUrl = project.thumbnailUrl || null
+  // Update optimistic project when prop changes (from parent refetch)
+  useEffect(() => {
+    setOptimisticProject(project)
+  }, [project])
+
+  // Use optimistic project for display
+  const displayProject = optimisticProject
+  const isOwner = currentUserId && displayProject.ownerId === currentUserId
+  const thumbnailUrl = displayProject.thumbnailUrl || null
 
   const handleMouseEnter = () => {
     if (hasPrefetchedRef.current) return
@@ -81,32 +96,38 @@ export function ProjectCard({ project, currentUserId, onProjectUpdate }: Project
 
   const handleClick = () => {
     if (!isEditingName) {
-      router.push(`/projects/${project.id}`)
+      router.push(`/projects/${displayProject.id}`)
     }
   }
 
   const handleEditName = (e: React.MouseEvent) => {
     e.stopPropagation()
+    setEditedName(displayProject.name)
     setIsEditingName(true)
   }
 
   const handleSaveName = async (e: React.MouseEvent) => {
     e.stopPropagation()
-    if (!editedName.trim() || editedName === project.name) {
+    if (!editedName.trim() || editedName === displayProject.name) {
       setIsEditingName(false)
-      setEditedName(project.name)
+      setEditedName(displayProject.name)
       return
     }
 
     setUpdating(true)
     try {
-      const response = await fetch(`/api/projects/${project.id}`, {
+      const response = await fetch(`/api/projects/${displayProject.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: editedName.trim() }),
       })
 
       if (response.ok) {
+        // Optimistic UI update for name
+        setOptimisticProject({
+          ...displayProject,
+          name: editedName.trim(),
+        })
         toast({
           title: 'Project renamed',
           description: `Project renamed to "${editedName.trim()}"`,
@@ -124,7 +145,7 @@ export function ProjectCard({ project, currentUserId, onProjectUpdate }: Project
         description: 'Failed to update project name',
         variant: 'destructive',
       })
-      setEditedName(project.name)
+      setEditedName(displayProject.name)
     } finally {
       setUpdating(false)
     }
@@ -134,27 +155,40 @@ export function ProjectCard({ project, currentUserId, onProjectUpdate }: Project
     e.stopPropagation()
     if (!isOwner) return
 
+    const newIsShared = !displayProject.isShared
+    
+    // Optimistic UI update - immediately reflect the change
+    setOptimisticProject({
+      ...displayProject,
+      isShared: newIsShared,
+    })
+
     setUpdating(true)
     try {
-      const response = await fetch(`/api/projects/${project.id}`, {
+      const response = await fetch(`/api/projects/${displayProject.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isShared: !project.isShared }),
+        body: JSON.stringify({ isShared: newIsShared }),
       })
 
       if (response.ok) {
         toast({
-          title: project.isShared ? 'Project set to private' : 'Project shared',
-          description: project.isShared
+          title: displayProject.isShared ? 'Project set to private' : 'Project shared',
+          description: displayProject.isShared
             ? 'Only you can see this project now'
             : 'Other users can now see this project',
           variant: 'default',
         })
+        // Trigger refetch with cache bypass to get fresh data
         onProjectUpdate?.()
       } else {
+        // Revert optimistic update on error
+        setOptimisticProject(displayProject)
         throw new Error('Failed to update privacy')
       }
     } catch (error) {
+      // Revert optimistic update on error
+      setOptimisticProject(displayProject)
       console.error('Error updating privacy:', error)
       toast({
         title: 'Update failed',
@@ -174,7 +208,7 @@ export function ProjectCard({ project, currentUserId, onProjectUpdate }: Project
   const handleDeleteConfirm = async () => {
     setIsDeleting(true)
     try {
-      const response = await fetch(`/api/projects/${project.id}`, {
+      const response = await fetch(`/api/projects/${displayProject.id}`, {
         method: 'DELETE',
       })
 
@@ -211,8 +245,8 @@ export function ProjectCard({ project, currentUserId, onProjectUpdate }: Project
   }
 
   const getOwnerName = () => {
-    if (!project.owner) return 'Unknown'
-    return project.owner.displayName || project.owner.username || 'Unknown'
+    if (!displayProject.owner) return 'Unknown'
+    return displayProject.owner.displayName || displayProject.owner.username || 'Unknown'
   }
 
   return (
@@ -227,13 +261,13 @@ export function ProjectCard({ project, currentUserId, onProjectUpdate }: Project
           {thumbnailUrl ? (
             <img
               src={thumbnailUrl}
-              alt={project.name}
+              alt={displayProject.name}
               className="w-full h-full object-cover"
             />
           ) : (
             <div className="w-full h-full flex items-center justify-center">
               <span className="text-4xl text-muted-foreground">
-                {project.name.charAt(0).toUpperCase()}
+                {displayProject.name.charAt(0).toUpperCase()}
               </span>
             </div>
           )}
@@ -243,11 +277,11 @@ export function ProjectCard({ project, currentUserId, onProjectUpdate }: Project
                 onClick={handleTogglePrivacy}
                 disabled={updating}
                 className="bg-background/90 backdrop-blur-sm rounded-full p-1 flex items-center gap-0.5 hover:bg-background/95 transition-all relative"
-                title={project.isShared ? 'Click to make private' : 'Click to make shared'}
+                title={displayProject.isShared ? 'Click to make private' : 'Click to make shared'}
               >
                 {/* Lock Icon - Left */}
                 <div className={`p-1.5 rounded-full transition-all z-10 ${
-                  !project.isShared 
+                  !displayProject.isShared 
                     ? 'text-background' 
                     : 'text-muted-foreground'
                 }`}>
@@ -256,7 +290,7 @@ export function ProjectCard({ project, currentUserId, onProjectUpdate }: Project
                 
                 {/* Globe Icon - Right */}
                 <div className={`p-1.5 rounded-full transition-all z-10 ${
-                  project.isShared 
+                  displayProject.isShared 
                     ? 'text-background' 
                     : 'text-muted-foreground'
                 }`}>
@@ -266,16 +300,16 @@ export function ProjectCard({ project, currentUserId, onProjectUpdate }: Project
                 {/* Sliding Background */}
                 <div
                   className={`absolute top-1 bottom-1 w-7 bg-primary rounded-full transition-all duration-300 ${
-                    project.isShared ? 'left-[calc(50%-2px)]' : 'left-1'
+                    displayProject.isShared ? 'left-[calc(50%-2px)]' : 'left-1'
                   }`}
                 />
               </button>
             ) : (
               <div className="bg-background/80 backdrop-blur-sm rounded-full p-1 flex items-center gap-0.5">
-                <div className={`p-1.5 ${!project.isShared ? 'opacity-100' : 'opacity-40'}`}>
+                <div className={`p-1.5 ${!displayProject.isShared ? 'opacity-100' : 'opacity-40'}`}>
                   <Lock className="h-3.5 w-3.5 text-muted-foreground" />
                 </div>
-                <div className={`p-1.5 ${project.isShared ? 'opacity-100' : 'opacity-40'}`}>
+                <div className={`p-1.5 ${displayProject.isShared ? 'opacity-100' : 'opacity-40'}`}>
                   <Globe className="h-3.5 w-3.5 text-primary" />
                 </div>
               </div>
@@ -284,7 +318,7 @@ export function ProjectCard({ project, currentUserId, onProjectUpdate }: Project
         </div>
       </CardContent>
       <CardFooter className="flex flex-col items-start p-4 space-y-1">
-        {isEditingName ? (
+            {isEditingName ? (
           <div className="flex items-center gap-2 w-full" onClick={(e) => e.stopPropagation()}>
             <Input
               value={editedName}
@@ -295,7 +329,7 @@ export function ProjectCard({ project, currentUserId, onProjectUpdate }: Project
                   handleSaveName(e as any)
                 } else if (e.key === 'Escape') {
                   setIsEditingName(false)
-                  setEditedName(project.name)
+                  setEditedName(displayProject.name)
                 }
               }}
               className="text-lg font-semibold h-9 text-foreground bg-background border-border"
@@ -314,7 +348,7 @@ export function ProjectCard({ project, currentUserId, onProjectUpdate }: Project
         ) : (
           <div className="flex items-center gap-2 w-full group/title">
             <h3 className="font-semibold text-lg group-hover:text-primary transition-colors flex-1">
-              {project.name}
+              {displayProject.name}
             </h3>
             {isOwner && (
               <>
@@ -336,20 +370,20 @@ export function ProjectCard({ project, currentUserId, onProjectUpdate }: Project
             )}
           </div>
         )}
-        {project.description && (
+        {displayProject.description && (
           <p className="text-sm text-muted-foreground line-clamp-2">
-            {project.description}
+            {displayProject.description}
           </p>
         )}
         <div className="flex items-center gap-2 text-xs text-muted-foreground w-full">
           <User className="h-3 w-3" />
           <span>{getOwnerName()}</span>
           <span>•</span>
-          <span>{formatDate(project.updatedAt)}</span>
+          <span>{formatDate(displayProject.updatedAt)}</span>
         </div>
-        {typeof project.sessionCount === 'number' && (
+        {typeof displayProject.sessionCount === 'number' && (
           <div className="text-xs text-muted-foreground">
-            {project.sessionCount} {project.sessionCount === 1 ? 'session' : 'sessions'}
+            {displayProject.sessionCount} {displayProject.sessionCount === 1 ? 'session' : 'sessions'}
           </div>
         )}
       </CardFooter>
@@ -360,7 +394,7 @@ export function ProjectCard({ project, currentUserId, onProjectUpdate }: Project
         onOpenChange={setShowDeleteDialog}
         onConfirm={handleDeleteConfirm}
         title="Delete Project?"
-        description={`⚠️ WARNING: You are about to delete "${project.name}" and ALL of its contents, including all sessions, generations, and images. This action is PERMANENT and CANNOT be undone. Are you absolutely sure?`}
+        description={`⚠️ WARNING: You are about to delete "${displayProject.name}" and ALL of its contents, including all sessions, generations, and images. This action is PERMANENT and CANNOT be undone. Are you absolutely sure?`}
         confirmText={isDeleting ? "Deleting..." : "Delete Forever"}
         cancelText="Cancel"
         variant="destructive"

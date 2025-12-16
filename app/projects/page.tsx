@@ -56,9 +56,11 @@ export default function ProjectsPage() {
 
       setCurrentUserId(user.id)
 
-      // Use optimized endpoint with thumbnails
+      // Use optimized endpoint with thumbnails - bypass cache to get fresh data
       console.log('Fetching projects with thumbnails from API...')
-      const response = await fetch('/api/projects/with-thumbnails')
+      const response = await fetch('/api/projects/with-thumbnails', {
+        cache: 'no-store', // Always fetch fresh data to avoid stale cache
+      })
       
       console.log('API response status:', response.status)
       
