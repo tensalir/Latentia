@@ -205,9 +205,27 @@ export class GeminiAdapter extends BaseModelAdapter {
     }
     
     try {
-      const model = genAiClient.getGenerativeModel({
-        model: 'gemini-3-pro-image-preview',
-      })
+      // Gen AI SDK structure: For Vertex AI, the client might have a different structure
+      // Try to get the model using the correct API pattern
+      let model: any
+      
+      // Check if it's genAiClient.getGenerativeModel (standard pattern)
+      if (typeof genAiClient.getGenerativeModel === 'function') {
+        model = genAiClient.getGenerativeModel({
+          model: 'gemini-3-pro-image-preview',
+        })
+      }
+      // Check if it's genAiClient.models.getGenerativeModel (alternative pattern)
+      else if (genAiClient.models && typeof genAiClient.models.getGenerativeModel === 'function') {
+        model = genAiClient.models.getGenerativeModel({
+          model: 'gemini-3-pro-image-preview',
+        })
+      }
+      // Fallback: try accessing directly
+      else {
+        console.error('[Gen AI SDK] Available methods:', Object.keys(genAiClient))
+        throw new Error('Gen AI SDK getGenerativeModel method not found. Client structure: ' + JSON.stringify(Object.keys(genAiClient)))
+      }
 
       const result = await model.generateContent({
         contents: payload.contents,
@@ -410,9 +428,9 @@ export class GeminiAdapter extends BaseModelAdapter {
     }
 
     // Check for reference image - can be base64 (referenceImage) or URL (referenceImageUrl)
+    // Veo 3.1 requires inline base64 data, not fileUri
     let imageBytes: Buffer | null = null
     let contentType: string = 'image/jpeg'
-    let uploadedReferenceMeta: { name: string; contentType: string; byteLength: number } | null = null
     
     if (request.referenceImage && typeof request.referenceImage === 'string' && request.referenceImage.startsWith('data:')) {
       // Handle base64 data URL directly
@@ -441,124 +459,34 @@ export class GeminiAdapter extends BaseModelAdapter {
         console.error(`[Veo 3.1] Failed to download reference image:`, error)
         imageBytes = null
       }
-    }
-
-    // Upload image to Google Files API if we have image data
-    if (imageBytes) {
-      try {
-        console.log(`[Veo 3.1] Uploading reference image to Google Files API (${contentType}, ${imageBytes.length} bytes)`)
-        
-        // Generate a boundary for multipart data
-        const boundary = `----boundary${Date.now()}`
-        const fileExtension = contentType.includes('png') ? 'png' : 'jpg'
-        const filename = `reference.${fileExtension}`
-        
-        // Build multipart/form-data body manually for Node.js compatibility
-        const parts: Buffer[] = []
-        
-        // Add boundary and headers for the file part
-        parts.push(Buffer.from(`--${boundary}\r\n`))
-        parts.push(Buffer.from(`Content-Disposition: form-data; name="file"; filename="${filename}"\r\n`))
-        parts.push(Buffer.from(`Content-Type: ${contentType}\r\n\r\n`))
-        
-        // Add the file content
-        parts.push(imageBytes)
-        
-        // Add closing boundary
-        parts.push(Buffer.from(`\r\n--${boundary}--\r\n`))
-        
-        // Combine all parts
-        const multipartBody = Buffer.concat(parts)
-        
-        // Upload to Google Files API - note the /upload/ path prefix for file uploads
-        const uploadUrl = this.baseUrl.replace('/v1beta', '/upload/v1beta') + '/files'
-        console.log(`[Veo 3.1] Uploading to: ${uploadUrl}`)
-        
-        const uploadResponse = await fetch(uploadUrl, {
-          method: 'POST',
-          headers: {
-            'x-goog-api-key': this.apiKey,
-            'Content-Type': `multipart/form-data; boundary=${boundary}`,
-          },
-          body: multipartBody,
-        })
-        
-        console.log(`[Veo 3.1] Files API response status: ${uploadResponse.status} ${uploadResponse.statusText}`)
-        
-        // Get response text first to debug
-        const responseText = await uploadResponse.text()
-        console.log(`[Veo 3.1] Files API raw response:`, responseText)
-        
-        if (!uploadResponse.ok) {
-          console.error(`[Veo 3.1] Files API upload failed (${uploadResponse.status}):`, responseText)
-          throw new Error(`Files API upload failed: ${uploadResponse.status} ${responseText}`)
-        }
-        
-        // Parse JSON response
-        let fileData
-        try {
-          fileData = JSON.parse(responseText)
-        } catch (e) {
-          console.error(`[Veo 3.1] Failed to parse Files API response as JSON:`, responseText)
-          throw new Error(`Invalid JSON response from Files API: ${responseText}`)
-        }
-        
-        console.log(`[Veo 3.1] Files API upload response:`, JSON.stringify(fileData, null, 2))
-        
-        // Extract file resource name - format should be "files/abc123"
-        // According to Gemini API docs, the response has a `file` object with a `name` field
-        const fileResourceName = fileData.file?.name || fileData.name
-        const fileUri = fileData.file?.uri
-        
-        if (!fileResourceName) {
-          console.error(`[Veo 3.1] Unexpected Files API response structure:`, fileData)
-          throw new Error(`No file name returned from Files API. Response: ${JSON.stringify(fileData)}`)
-        }
-        
-        uploadedReferenceMeta = {
-          name: fileResourceName,
-          contentType,
-          byteLength: imageBytes.length,
-        }
-        console.log(`[Veo 3.1] Reference image uploaded`, uploadedReferenceMeta)
-        
-        // Store the file reference - will be used in cleanInstance
-        instance.imageFileResource = fileResourceName
-        instance.imageFileUri = fileUri
-        console.log(`[Veo 3.1] Using file resource name for image: ${fileResourceName}`)
-      } catch (error: any) {
-        console.error('[Veo 3.1] Error uploading reference image:', error)
-        console.error('[Veo 3.1] Error details:', {
-          message: error.message,
-          stack: error.stack,
-        })
-        throw new Error(error.message || 'Failed to upload reference image to Google Files API')
-      }
     } else {
       console.log(`[Veo 3.1] No reference image provided, generating text-to-video`)
     }
     
-    if (imageBytes && !instance.imageFileResource) {
-      throw new Error('[Veo 3.1] Reference image upload failed - no file resource returned')
-    }
-    
     // Build clean instance object - only include prompt and image if provided
-    // According to docs: https://ai.google.dev/gemini-api/docs/video
-    // For image-to-video, Veo 3.1 expects the image field as a file reference object
+    // According to Veo 3.1 API docs, reference images should use inline base64 data, not fileUri
+    // Format: referenceImages array with inline base64 encoded images
     const cleanInstance: any = {
       prompt: instance.prompt,
     }
     
-    // Only add image field if we actually have an uploaded image
-    // Based on Veo 3.1 API docs, the image should be a file reference object
-    // The API expects: { "fileUri": "files/xxx" } format
-    if (instance.imageFileResource && uploadedReferenceMeta) {
-      // Veo 3.1 expects image as an object with fileUri field
-      // Use the file resource name (e.g., "files/z1iqte75pus9")
-      cleanInstance.image = {
-        fileUri: instance.imageFileResource,
-      }
-      console.log(`[Veo 3.1] Added image reference to instance:`, cleanInstance.image)
+    // Only add reference images if we have image data
+    // Veo 3.1 requires inline base64 data, not fileUri (fileUri is not supported)
+    if (imageBytes) {
+      // Convert image bytes to base64
+      const base64Image = imageBytes.toString('base64')
+      
+      // Veo 3.1 expects referenceImages array with inline base64 data
+      cleanInstance.referenceImages = [
+        {
+          image: {
+            bytesBase64Encoded: base64Image,
+            mimeType: contentType,
+          },
+          referenceType: 'asset',
+        },
+      ]
+      console.log(`[Veo 3.1] Added reference image with inline base64 data (${base64Image.length} chars, ${contentType})`)
     }
     
     const payload = {
