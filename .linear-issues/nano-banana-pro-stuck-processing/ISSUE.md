@@ -1,6 +1,6 @@
 # VES-003: Nano Banana Pro Generations Get Stuck While Seedream 4.5 Works
 
-## Status: ✅ RESOLVED (Webhook Implementation)
+## Status: 🔴 BLOCKED - Webhook Callbacks Not Received
 
 ## Problem Summary
 
@@ -296,9 +296,72 @@ REPLICATE_WEBHOOK_SECRET=your-secret-here
 USE_REPLICATE_WEBHOOKS=false
 ```
 
+---
+
+## Update (Dec 17, 2025): Webhooks Not Receiving Callbacks
+
+### Problem: Webhook Submissions Succeed, But Callbacks Never Arrive
+
+The webhook implementation is correctly submitting predictions to Replicate:
+
+```
+✅ [28f2cfb5...] Using webhook-based generation for gemini-nano-banana-pro
+✅ [28f2cfb5...] Submitting to Replicate with webhook: https://loopvesper-one.vercel.app/api/webhooks/replicate
+✅ [Replicate] Prediction submitted: zb52qp3e8hrme0cv5dca5xf8xc, status: starting
+✅ [28f2cfb5...] ✅ Prediction submitted: zb52qp3e8hrme0cv5dca5xf8xc
+```
+
+**BUT** there is no corresponding webhook callback log:
+```
+❌ [Replicate Webhook] Received: prediction=zb52qp3e8hrme0cv5dca5xf8xc, status=succeeded
+```
+
+This means **Replicate is not calling our webhook endpoint**, or the call is failing before logging.
+
+### Possible Causes
+
+1. **Webhook URL not accessible**: Vercel might be blocking the incoming webhook
+2. **Replicate not sending webhooks**: Model or API issue
+3. **Webhook endpoint error**: The endpoint might be crashing before logging
+4. **URL mismatch**: The webhook URL might be incorrect
+
+### Debugging Steps
+
+1. **Check Replicate Dashboard**:
+   - Go to https://replicate.com/predictions
+   - Find prediction `zb52qp3e8hrme0cv5dca5xf8xc`
+   - Check if webhook was attempted and what error occurred
+
+2. **Test Webhook Endpoint Manually**:
+   ```bash
+   curl -X POST https://loopvesper-one.vercel.app/api/webhooks/replicate \
+     -H "Content-Type: application/json" \
+     -d '{"id":"test","status":"succeeded","output":["https://example.com/test.png"]}'
+   ```
+
+3. **Check Vercel Logs for Webhook Route**:
+   - Filter by `/api/webhooks/replicate`
+   - Look for any incoming requests or errors
+
+4. **Verify Webhook Endpoint is Deployed**:
+   - Visit: https://loopvesper-one.vercel.app/api/webhooks/replicate
+   - Should return: `{"status":"ok","message":"Replicate webhook endpoint is active"}`
+
+### Additional Fix Applied
+
+Fixed duplicate prediction issue where frontend fallback was also triggering:
+- `b9644ac` - Fix: Prevent duplicate predictions when using webhooks
+
+### Current Status: 🔴 BLOCKED
+
+Webhooks are submitted but callbacks never arrive. Need to:
+1. Verify webhook endpoint is accessible
+2. Check Replicate prediction status/webhook delivery logs
+3. Consider adding webhook retry logic or fallback to polling
+
 ## Next Steps
 
 1. ~~**Immediate**: Confirm Vercel plan~~ ✅ Upgraded to Pro
-2. ~~**Short-term**: Implement webhook solution~~ ✅ Done
-3. **Monitor**: Watch for any webhook delivery issues
-4. **Optional**: Add webhook signature verification for security
+2. ~~**Short-term**: Implement webhook solution~~ ✅ Done (but not working)
+3. **URGENT**: Debug why webhook callbacks are not being received
+4. **Fallback**: Consider re-enabling polling for now until webhooks work
