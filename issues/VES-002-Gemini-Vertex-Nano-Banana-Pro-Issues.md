@@ -113,9 +113,33 @@ Set `USE_REPLICATE_DIRECTLY = false` in `lib/models/adapters/gemini.ts` once quo
 * `255222d` - Temp: Use Replicate directly for Nano Banana Pro
 * `17a4c71` - Fix: Increase function timeout for generation processing
 
+## Update (Dec 17, 2025): Webhook-Based Generation
+
+Implemented Replicate webhooks to eliminate timeout issues entirely. This is the recommended long-term solution.
+
+### New Architecture:
+```
+Generate → Submit to Replicate with webhook URL → Return immediately
+   ... Replicate processes (30-90 seconds) ...
+Replicate → POST /api/webhooks/replicate → Update DB → Frontend updates via realtime
+```
+
+### New Files:
+- `app/api/webhooks/replicate/route.ts` - Handles completion callbacks
+- `lib/models/replicate-utils.ts` - Shared utilities
+
+### Benefits:
+- ✅ Works on any Vercel plan (no timeout issues)
+- ✅ More efficient (no wasted compute polling)
+- ✅ Scales to any model speed
+- ✅ Fallback to polling if webhook fails
+
+### Commit:
+- `1298894` - feat: Add Replicate webhooks for timeout-free generation
+
 ## Notes
 
 - Vertex AI SDK still returns 404 for `gemini-3-pro-image-preview` (Google hasn't made it available yet)
 - Gemini API (AI Studio) has quota limits that reset daily
 - Replicate fallback is paid-per-use but works reliably with reference images
-- **Important**: Vercel Pro plan required for 300s timeout (Hobby is limited to 10s)
+- ~~**Important**: Vercel Pro plan required for 300s timeout~~ Not needed with webhooks!
