@@ -5,8 +5,15 @@ import { prisma } from '@/lib/prisma'
 import { getModel } from '@/lib/models/registry'
 import { logMetric } from '@/lib/metrics'
 import { persistReferenceImage } from '@/lib/reference-images'
+import { 
+  submitReplicatePrediction, 
+  supportsWebhook, 
+  REPLICATE_MODEL_CONFIGS 
+} from '@/lib/models/replicate-utils'
 
 const GENERATION_QUEUE_ENABLED = process.env.GENERATION_QUEUE_ENABLED === 'true'
+// Enable webhook-based generation for Replicate models (eliminates timeout issues)
+const USE_REPLICATE_WEBHOOKS = process.env.USE_REPLICATE_WEBHOOKS !== 'false' // Default: enabled
 
 export async function POST(request: NextRequest) {
   let generation: any = null
@@ -179,11 +186,67 @@ export async function POST(request: NextRequest) {
     } catch (_) {}
 
     if (!GENERATION_QUEUE_ENABLED) {
-      // Trigger background processing asynchronously (fire and forget)
+      const baseUrl = request.nextUrl.origin
+      
+      // NEW: Use webhooks for Replicate models (eliminates polling timeout issues)
+      if (USE_REPLICATE_WEBHOOKS && supportsWebhook(modelId)) {
+        console.log(`[${generation.id}] Using webhook-based generation for ${modelId}`)
+        
+        try {
+          const modelConfig = REPLICATE_MODEL_CONFIGS[modelId]
+          const webhookUrl = `${baseUrl}/api/webhooks/replicate`
+          
+          // Build input for the model
+          const input = modelConfig.buildInput({
+            prompt,
+            negativePrompt,
+            ...generationParameters,
+          })
+          
+          console.log(`[${generation.id}] Submitting to Replicate with webhook: ${webhookUrl}`)
+          
+          // Submit prediction with webhook
+          const prediction = await submitReplicatePrediction({
+            modelPath: modelConfig.modelPath,
+            input,
+            webhookUrl,
+            webhookEventsFilter: ['completed'],
+          })
+          
+          // Store prediction ID for webhook matching
+          await prisma.generation.update({
+            where: { id: generation.id },
+            data: {
+              parameters: {
+                ...generationParameters,
+                replicatePredictionId: prediction.predictionId,
+                webhookUrl,
+                submittedAt: new Date().toISOString(),
+              },
+            },
+          })
+          
+          console.log(`[${generation.id}] ✅ Prediction submitted: ${prediction.predictionId}`)
+          
+          // Return immediately - webhook will handle completion
+          return respond({
+            id: generation.id,
+            status: 'processing',
+            message: 'Generation started. Results will arrive via webhook.',
+            predictionId: prediction.predictionId,
+          })
+          
+        } catch (webhookError: any) {
+          console.error(`[${generation.id}] Webhook submission failed, falling back to polling:`, webhookError.message)
+          // Fall through to polling-based approach
+        }
+      }
+      
+      // FALLBACK: Trigger background processing asynchronously (fire and forget)
+      // Used for non-Replicate models or when webhook submission fails
       // IMPORTANT: The process endpoint takes 30-60+ seconds to complete (Replicate polling)
       // We should NOT wait for completion - just verify the request was accepted
       // TIER 2 FIX: Use request origin as default to avoid URL mismatches with custom domains
-      const baseUrl = request.nextUrl.origin
       
       console.log(`[${generation.id}] Triggering background process at: ${baseUrl}/api/generate/process`)
       
