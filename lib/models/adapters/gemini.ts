@@ -765,9 +765,9 @@ export class GeminiAdapter extends BaseModelAdapter {
 
       console.log(`[Replicate Fallback] Prediction started: ${predictionId}`)
 
-      // Poll for results (max 5 minutes)
+      // Poll for results (max 10 minutes - same as Seedream adapter)
       let attempts = 0
-      const maxAttempts = 60
+      const maxAttempts = 120
 
       while (attempts < maxAttempts) {
         await new Promise(resolve => setTimeout(resolve, 5000)) // Wait 5 seconds
