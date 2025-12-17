@@ -33,6 +33,7 @@ interface GenerateResponse {
   }>
   error?: string
   message?: string
+  predictionId?: string // Present when webhook-based generation is used
 }
 
 async function generateImage(params: GenerateParams): Promise<GenerateResponse> {
@@ -161,7 +162,11 @@ export function useGenerateMutation() {
       
       // If status is 'processing', trigger the background process endpoint from frontend
       // This is a fallback in case the server-side trigger fails (Vercel limitation)
-      if (data.status === 'processing') {
+      // SKIP if predictionId is present - means webhook was used, no fallback needed
+      if (data.predictionId) {
+        console.log(`[${data.id}] Webhook-based generation - skipping frontend fallback (prediction: ${data.predictionId})`)
+      }
+      if (data.status === 'processing' && !data.predictionId) {
         // Trigger background process with retry logic
         const triggerWithRetry = async (retries = 3, delay = 500) => {
           for (let attempt = 1; attempt <= retries; attempt++) {
@@ -188,14 +193,17 @@ export function useGenerateMutation() {
                 console.warn(`[${data.id}] Frontend trigger failed (attempt ${attempt}): ${res.status} ${errorText}`)
                 
                 // If it's a 401, the session might have expired - don't retry
-                if (res.status === 401 && attempt < retries) {
-                  console.error(`[${data.id}] Authentication failed - session may have expired`)
+                if (res.status === 401) {
+                  console.error(`[${data.id}] Authentication failed - session may have expired. Stopping retries.`)
                   return
                 }
                 
-                // Retry on other errors
+                // Retry on other errors (network issues, 500s, etc.)
                 if (attempt < retries) {
+                  console.log(`[${data.id}] Will retry in ${delay * (attempt + 1)}ms...`)
                   continue
+                } else {
+                  console.error(`[${data.id}] All ${retries} attempts exhausted. Generation may be stuck.`)
                 }
               }
             } catch (err) {

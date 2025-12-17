@@ -150,6 +150,18 @@ async function processGenerationById(
       }
     }
 
+    // Skip if webhook-based prediction is already submitted
+    // The generate route submits directly to Replicate with webhook, so we don't need to process again
+    const params = generation.parameters as any
+    if (params?.replicatePredictionId) {
+      console.log(`[${generationId}] Skipping - webhook prediction already submitted: ${params.replicatePredictionId}`)
+      await appendLog('process:skipped-webhook-active', { predictionId: params.replicatePredictionId })
+      return {
+        id: generation.id,
+        status: 'skipped',
+      }
+    }
+
     // Get model adapter
     const model = getModel(generation.modelId)
     if (!model) {
