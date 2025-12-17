@@ -13,7 +13,9 @@ import {
 
 const GENERATION_QUEUE_ENABLED = process.env.GENERATION_QUEUE_ENABLED === 'true'
 // Enable webhook-based generation for Replicate models (eliminates timeout issues)
-const USE_REPLICATE_WEBHOOKS = process.env.USE_REPLICATE_WEBHOOKS !== 'false' // Default: enabled
+// TEMPORARILY DISABLED: Webhook callbacks not being received from Replicate
+// Re-enable once webhook delivery is confirmed working
+const USE_REPLICATE_WEBHOOKS = process.env.USE_REPLICATE_WEBHOOKS === 'true' // Default: DISABLED until webhooks work
 
 export async function POST(request: NextRequest) {
   let generation: any = null
