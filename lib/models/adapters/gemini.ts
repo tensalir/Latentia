@@ -238,6 +238,49 @@ export class GeminiAdapter extends BaseModelAdapter {
     console.log('Nano banana pro: Prompt:', request.prompt)
     const referenceImages = request.referenceImages || (request.referenceImage ? [request.referenceImage] : [])
     console.log('Nano banana pro: Reference images count:', referenceImages.length)
+    
+    // TEMPORARY: Skip Vertex AI and Gemini API, go directly to Replicate
+    // Reason: Vertex AI returns 404 (model not found), Gemini API quota is 0
+    // TODO: Re-enable Vertex AI/Gemini once quota/access is restored
+    const USE_REPLICATE_DIRECTLY = true
+    
+    if (USE_REPLICATE_DIRECTLY && REPLICATE_API_KEY) {
+      console.log('Nano banana pro: Using Replicate directly (Vertex AI/Gemini API temporarily disabled)')
+      const numImages = request.numOutputs || 1
+      const outputs: any[] = []
+      
+      for (let i = 0; i < numImages; i++) {
+        console.log(`Nano banana pro: Generating image ${i + 1}/${numImages} via Replicate`)
+        try {
+          const output = await this.generateImageReplicate(request)
+          outputs.push(output)
+          
+          // Add delay between sequential requests
+          if (i < numImages - 1) {
+            await new Promise(resolve => setTimeout(resolve, 2000))
+          }
+        } catch (error: any) {
+          console.error(`Nano banana pro: Replicate image ${i + 1}/${numImages} failed:`, error.message)
+        }
+      }
+      
+      if (outputs.length === 0) {
+        throw new Error('All image generations failed via Replicate')
+      }
+      
+      return {
+        id: `gen-${Date.now()}`,
+        status: 'completed',
+        outputs,
+        metadata: {
+          model: this.config.id,
+          prompt: request.prompt,
+          backend: 'replicate',
+        },
+      }
+    }
+    
+    // Original Vertex AI / Gemini API path (currently disabled)
     // Gemini 3 Pro Image (Nano banana pro) endpoint
     const endpoint = `${this.baseUrl}/models/gemini-3-pro-image-preview:generateContent`
 
