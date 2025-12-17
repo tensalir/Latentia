@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useMemo } from 'react'
 import dynamic from 'next/dynamic'
 import { ChatInput } from './ChatInput'
 import type { Session } from '@/types/project'
@@ -49,13 +49,19 @@ export function GenerationInterface({
 }: GenerationInterfaceProps) {
   const { toast } = useToast()
   const scrollContainerRef = useRef<HTMLDivElement>(null)
-  const loadMoreRef = useRef<HTMLDivElement | null>(null)
+  const loadOlderRef = useRef<HTMLDivElement | null>(null) // Sentinel at TOP for loading older items
   const [prompt, setPrompt] = useState('')
   const [referenceImageUrl, setReferenceImageUrl] = useState<string | null>(null)
   const [referenceImageUrls, setReferenceImageUrls] = useState<string[]>([]) // For image generation with multiple images
   const [userId, setUserId] = useState<string | null>(null)
   const [currentUser, setCurrentUser] = useState<{ displayName: string | null } | null>(null)
   const previousSessionIdRef = useRef<string | null>(null)
+  
+  // Scroll pinning state
+  const [isPinnedToBottom, setIsPinnedToBottom] = useState(true)
+  const [showNewItemsIndicator, setShowNewItemsIndicator] = useState(false)
+  const previousGenerationsCountRef = useRef(0)
+  const scrollHeightBeforeLoadRef = useRef<number | null>(null)
   
   // Get current user for realtime subscriptions
   useEffect(() => {
@@ -137,40 +143,87 @@ export function GenerationInterface({
     }
   }, [generationType, selectedModel])
 
-  // Auto-scroll to bottom when:
-  // 1. Session changes (user opened a different session)
-  // 2. New generations are added
-  // 3. Data finishes loading
+  // Track scroll position to determine if user is pinned to bottom
+  useEffect(() => {
+    const container = scrollContainerRef.current
+    if (!container) return
+
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = container
+      const distanceFromBottom = scrollHeight - scrollTop - clientHeight
+      // Consider "pinned" if within 100px of bottom
+      const pinned = distanceFromBottom < 100
+      setIsPinnedToBottom(pinned)
+      
+      // Hide new items indicator when user scrolls to bottom
+      if (pinned && showNewItemsIndicator) {
+        setShowNewItemsIndicator(false)
+      }
+    }
+
+    container.addEventListener('scroll', handleScroll, { passive: true })
+    return () => container.removeEventListener('scroll', handleScroll)
+  }, [showNewItemsIndicator])
+
+  // Handle new items: auto-scroll if pinned, show indicator otherwise
   useEffect(() => {
     const isNewSession = session?.id !== previousSessionIdRef.current
     previousSessionIdRef.current = session?.id || null
-
-    if (!isLoading && generations.length > 0 && scrollContainerRef.current) {
-      // Longer delay for new sessions to ensure content is fully rendered
-      // Shorter delay for updates to existing content
-      const delay = isNewSession ? 300 : 100
-
-      setTimeout(() => {
-        scrollContainerRef.current?.scrollTo({
-          top: scrollContainerRef.current.scrollHeight,
-          behavior: isNewSession ? 'auto' : 'smooth', // Instant for new sessions, smooth for updates
-        })
-      }, delay)
+    
+    if (!isLoading && scrollContainerRef.current) {
+      const currentCount = generations.length
+      const previousCount = previousGenerationsCountRef.current
+      const hasNewItems = currentCount > previousCount && previousCount > 0
+      
+      previousGenerationsCountRef.current = currentCount
+      
+      // Always scroll to bottom on session change
+      if (isNewSession && currentCount > 0) {
+        setTimeout(() => {
+          scrollContainerRef.current?.scrollTo({
+            top: scrollContainerRef.current!.scrollHeight,
+            behavior: 'auto',
+          })
+          setIsPinnedToBottom(true)
+          setShowNewItemsIndicator(false)
+        }, 300)
+        return
+      }
+      
+      // For new items: auto-scroll if pinned, show indicator otherwise
+      if (hasNewItems) {
+        if (isPinnedToBottom) {
+          setTimeout(() => {
+            scrollContainerRef.current?.scrollTo({
+              top: scrollContainerRef.current!.scrollHeight,
+              behavior: 'smooth',
+            })
+          }, 100)
+        } else {
+          setShowNewItemsIndicator(true)
+        }
+      }
     }
-  }, [generations, isLoading, session?.id])
+  }, [generations.length, isLoading, session?.id, isPinnedToBottom])
 
+  // Load older items when scrolling to top (sentinel at top)
   useEffect(() => {
-    if (!hasNextPage || !loadMoreRef.current) return
-    const target = loadMoreRef.current
+    if (!hasNextPage || !loadOlderRef.current || !scrollContainerRef.current) return
+    
+    const container = scrollContainerRef.current
+    const target = loadOlderRef.current
+    
     const observer = new IntersectionObserver(
       (entries) => {
         const first = entries[0]
         if (first.isIntersecting && hasNextPage && !isFetchingNextPage) {
+          // Store scroll height before loading to preserve position
+          scrollHeightBeforeLoadRef.current = container.scrollHeight
           fetchNextPage()
         }
       },
       {
-        root: scrollContainerRef.current,
+        root: container,
         rootMargin: '200px',
         threshold: 0,
       }
@@ -178,6 +231,31 @@ export function GenerationInterface({
     observer.observe(target)
     return () => observer.disconnect()
   }, [hasNextPage, isFetchingNextPage, fetchNextPage])
+
+  // Preserve scroll position when older items are prepended
+  useEffect(() => {
+    if (scrollHeightBeforeLoadRef.current !== null && scrollContainerRef.current && !isFetchingNextPage) {
+      const container = scrollContainerRef.current
+      const newScrollHeight = container.scrollHeight
+      const scrollDelta = newScrollHeight - scrollHeightBeforeLoadRef.current
+      
+      if (scrollDelta > 0) {
+        // Adjust scroll position to keep the same content in view
+        container.scrollTop += scrollDelta
+      }
+      
+      scrollHeightBeforeLoadRef.current = null
+    }
+  }, [generations.length, isFetchingNextPage])
+  
+  // Helper to scroll to bottom (for "new items" button)
+  const scrollToBottom = () => {
+    scrollContainerRef.current?.scrollTo({
+      top: scrollContainerRef.current.scrollHeight,
+      behavior: 'smooth',
+    })
+    setShowNewItemsIndicator(false)
+  }
 
   const handleGenerate = async (
     prompt: string,
@@ -452,27 +530,13 @@ export function GenerationInterface({
   // Get video sessions
   const videoSessions = allSessions.filter(s => s.type === 'video')
   
-  // Get all processing generations (in-progress) - exclude cancelled and failed as they shouldn't show progress
-  const processingGenerations = generations.filter(g => 
-    g.status === 'processing'
-  )
-  
-  // Get cancelled generations separately (they will be shown in the gallery but without progress)
-  const cancelledGenerations = generations.filter(g => 
-    g.status === 'cancelled'
-  )
-  
-  // Ensure failed generations are always included in the main generations list
-  // This prevents them from disappearing during status transitions
-  const failedGenerations = generations.filter(g => g.status === 'failed')
-  
-  console.log('🟡 Processing generations:', processingGenerations.length, processingGenerations.map(g => ({ id: g.id, status: g.status })))
-  console.log('🔴 Failed generations:', failedGenerations.length, failedGenerations.map(g => ({ id: g.id, status: g.status })))
-  
-  // Get model name for pending generation display
-  const allModels = getAllModels()
-  const currentModelConfig = allModels.find(m => m.id === selectedModel)
-  const modelName = currentModelConfig?.name || 'Unknown Model'
+  // Build display generations list in chronological order (oldest → newest for display)
+  // API returns newest-first, so we reverse for display (newest at bottom, near the prompt)
+  const displayGenerations = useMemo(() => {
+    // Flatten all pages and reverse so oldest is at top, newest at bottom
+    const allGenerations = [...generations].reverse()
+    return allGenerations
+  }, [generations])
 
   if (!session) {
     return (
@@ -499,35 +563,47 @@ export function GenerationInterface({
         ) : (
           <div className="p-6 flex justify-center">
             <div className="w-full max-w-7xl">
+              {/* Sentinel at TOP for loading older items when scrolling up */}
+              <div ref={loadOlderRef} className="h-1 w-full" />
+              
+              {/* Loading indicator for older items */}
+              {isFetchingNextPage && (
+                <div className="flex justify-center py-4">
+                  <div className="text-sm text-muted-foreground">Loading older generations...</div>
+                </div>
+              )}
+              
+              {/* Show "load older" hint if there are more pages */}
+              {hasNextPage && !isFetchingNextPage && displayGenerations.length > 0 && (
+                <div className="flex justify-center py-2 mb-4">
+                  <span className="text-xs text-muted-foreground">↑ Scroll up to load older generations</span>
+                </div>
+              )}
+              
               <GenerationGallery
-                generations={generations.filter(g => g.status !== 'processing' && g.status !== 'cancelled')}
+                generations={displayGenerations}
                 sessionId={session?.id || null}
                 onReuseParameters={handleReuseParameters}
-                processingGenerations={processingGenerations}
-                cancelledGenerations={cancelledGenerations}
                 videoSessions={videoSessions}
                 onConvertToVideo={handleConvertToVideo}
                 onCreateVideoSession={onSessionCreate}
                 currentGenerationType={generationType}
                 currentUser={currentUser}
               />
-              
-              <div ref={loadMoreRef} className="h-6 w-full" />
-              {hasNextPage && (
-                <div className="flex justify-center mt-4 mb-4">
-                  <button
-                    onClick={() => fetchNextPage()}
-                    disabled={isFetchingNextPage}
-                    className="px-6 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {isFetchingNextPage ? 'Loading...' : 'Load More'}
-                  </button>
-                </div>
-              )}
             </div>
           </div>
         )}
       </div>
+      
+      {/* New items indicator - shown when not pinned to bottom and new items arrive */}
+      {showNewItemsIndicator && (
+        <button
+          onClick={scrollToBottom}
+          className="absolute bottom-28 left-1/2 -translate-x-1/2 z-10 px-4 py-2 bg-primary text-primary-foreground rounded-full shadow-lg hover:bg-primary/90 transition-all animate-bounce"
+        >
+          ↓ New items
+        </button>
+      )}
 
       {/* Chat Input - Floating Card at Bottom */}
       <div className="border-t border-border/50 bg-muted/20 p-6">

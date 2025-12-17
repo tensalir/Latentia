@@ -3,7 +3,28 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 import { prisma } from '@/lib/prisma'
 
+// Helper to encode cursor as base64url
+function encodeCursor(createdAt: Date, id: string): string {
+  const payload = JSON.stringify({ createdAt: createdAt.toISOString(), id })
+  return Buffer.from(payload).toString('base64url')
+}
+
+// Helper to decode cursor from base64url
+function decodeCursor(cursor: string): { createdAt: Date; id: string } | null {
+  try {
+    const payload = Buffer.from(cursor, 'base64url').toString('utf-8')
+    const parsed = JSON.parse(payload)
+    return {
+      createdAt: new Date(parsed.createdAt),
+      id: parsed.id,
+    }
+  } catch {
+    return null
+  }
+}
+
 // GET /api/generations?sessionId=xxx&cursor=xxx - Get generations for a session with cursor pagination
+// Returns newest-first using keyset pagination based on (createdAt, id)
 export async function GET(request: NextRequest) {
   try {
     const supabase = createRouteHandlerClient({ cookies })
@@ -28,18 +49,36 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Build where clause with cursor for pagination
-    const whereClause: any = {
+    // Build base where clause
+    const baseWhere: any = {
       sessionId,
       userId: session.user.id, // Only fetch user's own generations
     }
 
-    // Add cursor for pagination (start after this ID)
+    // Add keyset cursor for pagination (newest-first: createdAt DESC, id DESC)
+    // To get the next page, we need items where:
+    // (createdAt < cursorCreatedAt) OR (createdAt == cursorCreatedAt AND id < cursorId)
+    let whereClause: any = baseWhere
     if (cursor) {
-      whereClause.id = { gt: cursor }
+      const decoded = decodeCursor(cursor)
+      if (decoded) {
+        whereClause = {
+          ...baseWhere,
+          OR: [
+            { createdAt: { lt: decoded.createdAt } },
+            {
+              AND: [
+                { createdAt: decoded.createdAt },
+                { id: { lt: decoded.id } },
+              ],
+            },
+          ],
+        }
+      }
     }
 
     // Fetch generations with their outputs and user profile
+    // Order by createdAt DESC, id DESC (newest first)
     const generations = await prisma.generation.findMany({
       where: whereClause,
       select: {
@@ -74,21 +113,27 @@ export async function GET(request: NextRequest) {
           orderBy: {
             createdAt: 'asc',
           },
+        },
       },
-    },
-    orderBy: {
-      createdAt: 'asc', // Oldest first, newest at bottom
-    },
-    take: limit + 1, // Fetch one extra to check if there's more
-  })
+      orderBy: [
+        { createdAt: 'desc' }, // Newest first
+        { id: 'desc' }, // Tie-breaker for UUID stability
+      ],
+      take: limit + 1, // Fetch one extra to check if there's more
+    })
 
     // Check if there's more data
     const hasMore = generations.length > limit
     const data = hasMore ? generations.slice(0, limit) : generations
-    const nextCursor = hasMore ? generations[limit - 1].id : undefined
+    
+    // Build next cursor from the last item in the returned page
+    const lastItem = data[data.length - 1]
+    const nextCursor = hasMore && lastItem 
+      ? encodeCursor(lastItem.createdAt, lastItem.id) 
+      : undefined
 
     // Fetch bookmarks separately for efficiency
-    const outputIds = generations.flatMap((g: any) => g.outputs.map((o: any) => o.id))
+    const outputIds = data.flatMap((g: any) => g.outputs.map((o: any) => o.id))
     const bookmarks = outputIds.length > 0
       ? await (prisma as any).bookmark.findMany({
           where: {

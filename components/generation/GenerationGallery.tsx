@@ -113,11 +113,13 @@ const ReferenceImageThumbnail = ({ generation }: { generation: GenerationWithOut
 }
 
 interface GenerationGalleryProps {
+  /** 
+   * All generations to display in a single unified list.
+   * Status transitions (processing → completed) happen in-place without moving items.
+   */
   generations: GenerationWithOutputs[]
   sessionId: string | null
   onReuseParameters: (generation: GenerationWithOutputs) => void
-  processingGenerations?: GenerationWithOutputs[]
-  cancelledGenerations?: GenerationWithOutputs[]
   videoSessions?: Session[]
   onConvertToVideo?: (generation: GenerationWithOutputs, videoSessionId: string, imageUrl?: string) => void
   onCreateVideoSession?: ((type: 'image' | 'video', name: string) => Promise<Session | null>) | undefined
@@ -129,8 +131,6 @@ export function GenerationGallery({
   generations,
   sessionId,
   onReuseParameters,
-  processingGenerations = [],
-  cancelledGenerations = [],
   videoSessions = [],
   onConvertToVideo,
   onCreateVideoSession,
@@ -304,7 +304,7 @@ export function GenerationGallery({
   }
 
 
-  if (generations.length === 0 && processingGenerations.length === 0 && cancelledGenerations.length === 0) {
+  if (generations.length === 0) {
     return (
       <div className="flex items-center justify-center h-full">
         <div className="text-center text-muted-foreground">
@@ -319,64 +319,175 @@ export function GenerationGallery({
   const isVideoGeneration = (gen: GenerationWithOutputs) => {
     return gen.outputs?.some(output => output.fileType === 'video') ?? false
   }
+  
+  // Get stable key for React - prefer clientId, fallback to id
+  const getStableKey = (gen: GenerationWithOutputs) => gen.clientId || gen.id
 
   return (
     <>
       <div className="space-y-6 pb-4">
-        {/* Show cancelled generations (without progress) */}
-        {(cancelledGenerations || []).map((generation) => {
-          return (
-            <div key={generation.id} className="flex gap-6 items-start">
-              {/* Left Side: Prompt Display with Cancelled State */}
-              <div className="w-96 flex-shrink-0 bg-muted/30 rounded-xl p-6 border border-destructive/50 flex flex-col relative" style={{ minHeight: '256px' }}>
-                <div className="absolute top-2 left-2 px-2 py-1 bg-destructive/20 text-destructive text-xs font-medium rounded z-10">
-                  Cancelled
-                </div>
-                <div className="flex-1 overflow-hidden hover:overflow-y-auto transition-all group relative mt-6">
-                  <p 
-                    className="text-base font-normal leading-relaxed text-foreground/90 cursor-pointer hover:text-primary transition-colors"
-                    onClick={() => handleCopyPrompt(generation.prompt)}
-                    title="Click to copy"
-                  >
-                    {generation.prompt}
-                  </p>
-                  <Copy className="h-3.5 w-3.5 absolute top-0 right-0 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-                </div>
-                <div className="space-y-2 text-xs text-muted-foreground mt-4">
-                  <div className="flex items-center gap-2 text-destructive/80">
-                    <Info className="h-3.5 w-3.5" />
-                    <span className="font-medium">Cancelled</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-muted-foreground/70">Model:</span>
-                    <span className="font-medium">{(generation.modelId || 'unknown').replace('gemini-', '').replace('fal-', '')}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-muted-foreground/70">Generated:</span>
-                    <span className="font-medium">{formatDate(generation.createdAt)}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Right Side: Empty/Cancelled State */}
-              <div className="flex-1 max-w-2xl flex items-center justify-center">
-                <div className="bg-muted/20 rounded-xl p-8 border border-destructive/30 text-center">
-                  <p className="text-sm text-muted-foreground">Generation was cancelled</p>
-                </div>
-              </div>
-            </div>
-          )
-        })}
-
-        {/* Show completed/failed generations */}
-        {(generations || []).map((generation) => {
+        {/* Single unified list - status transitions happen in-place */}
+        {generations.map((generation) => {
           const isVideo = isVideoGeneration(generation)
+          const stableKey = getStableKey(generation)
+          
+          // Cancelled generation layout
+          if (generation.status === 'cancelled') {
+            return (
+              <div key={stableKey} className="flex gap-6 items-start">
+                {/* Left Side: Prompt Display with Cancelled State */}
+                <div className="w-96 flex-shrink-0 bg-muted/30 rounded-xl p-6 border border-destructive/50 flex flex-col relative" style={{ minHeight: '256px' }}>
+                  <div className="absolute top-2 left-2 px-2 py-1 bg-destructive/20 text-destructive text-xs font-medium rounded z-10">
+                    Cancelled
+                  </div>
+                  <div className="flex-1 overflow-hidden hover:overflow-y-auto transition-all group relative mt-6">
+                    <p 
+                      className="text-base font-normal leading-relaxed text-foreground/90 cursor-pointer hover:text-primary transition-colors"
+                      onClick={() => handleCopyPrompt(generation.prompt)}
+                      title="Click to copy"
+                    >
+                      {generation.prompt}
+                    </p>
+                    <Copy className="h-3.5 w-3.5 absolute top-0 right-0 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </div>
+                  <div className="space-y-2 text-xs text-muted-foreground mt-4">
+                    <div className="flex items-center gap-2 text-destructive/80">
+                      <Info className="h-3.5 w-3.5" />
+                      <span className="font-medium">Cancelled</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground/70">Model:</span>
+                      <span className="font-medium">{(generation.modelId || 'unknown').replace('gemini-', '').replace('fal-', '')}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground/70">Generated:</span>
+                      <span className="font-medium">{formatDate(generation.createdAt)}</span>
+                    </div>
+                  </div>
+                </div>
+                {/* Right Side: Empty/Cancelled State */}
+                <div className="flex-1 max-w-2xl flex items-center justify-center">
+                  <div className="bg-muted/20 rounded-xl p-8 border border-destructive/30 text-center">
+                    <p className="text-sm text-muted-foreground">Generation was cancelled</p>
+                  </div>
+                </div>
+              </div>
+            )
+          }
+          
+          // Processing generation layout
+          if (generation.status === 'processing') {
+            const allModels = getAllModels()
+            const modelConfig = allModels.find(m => m.id === generation.modelId)
+            const modelName = modelConfig?.name || 'Unknown Model'
+            const numOutputs = (generation.parameters as any)?.numOutputs || 1
+            
+            // Check if generation is stuck (> 2 minutes old)
+            const now = Date.now()
+            const createdAt = new Date(generation.createdAt).getTime()
+            const ageMinutes = (now - createdAt) / (60 * 1000)
+            const isStuck = ageMinutes > 2
+            
+            return (
+              <div key={stableKey} className="flex gap-6 items-start">
+                {/* Left Side: Prompt and metadata */}
+                <div className={`w-96 flex-shrink-0 bg-muted/30 rounded-xl p-6 border flex flex-col relative group ${
+                  isStuck
+                    ? 'border-destructive/50 border-destructive'
+                    : 'border-border/50 border-primary/30'
+                }`} style={{ minHeight: '320px' }}>
+                  {/* Cancel button - top left, only visible on hover when processing */}
+                  <button
+                    onClick={() => handleCancelGeneration(generation.id)}
+                    className="absolute top-2 left-2 p-1.5 bg-destructive/90 hover:bg-destructive rounded-full opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                    title="Cancel generation"
+                  >
+                    <X className="h-4 w-4 text-white" />
+                  </button>
+                  
+                  {/* Stuck badge */}
+                  {isStuck && (
+                    <div className="absolute top-2 left-10 px-2 py-1 bg-destructive/20 text-destructive text-xs font-medium rounded z-10">
+                      ⚠️ Stuck ({Math.round(ageMinutes)}min)
+                    </div>
+                  )}
+                  
+                  <div className="flex-1 mb-4 overflow-hidden hover:overflow-y-auto transition-all group relative mt-6" style={{ maxHeight: '200px' }}>
+                    <p className="text-base font-normal leading-relaxed text-foreground/90">
+                      {generation.prompt}
+                    </p>
+                  </div>
+                  <div className="space-y-2 text-xs text-muted-foreground">
+                    {currentUser?.displayName && (
+                      <div className="flex items-center gap-2">
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          className="flex-shrink-0"
+                        >
+                          <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+                          <circle cx="12" cy="7" r="4" />
+                        </svg>
+                        <span className="font-medium">{currentUser.displayName}</span>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2">
+                      <Wand2 className="h-3.5 w-3.5 text-primary" />
+                      <span className="font-medium">{modelName}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground/70">Generated:</span>
+                      <span className="font-medium">{formatDate(generation.createdAt)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right Side: Progress placeholders or stuck message */}
+                {isStuck ? (
+                  <div className="flex-1 max-w-2xl">
+                    <div className="bg-destructive/10 rounded-xl p-6 border border-destructive/50">
+                      <h3 className="text-lg font-semibold text-destructive mb-2">Generation Stuck</h3>
+                      <p className="text-sm text-foreground/80 mb-4">
+                        This generation has been processing for {Math.round(ageMinutes)} minutes and appears to be stuck. 
+                        The cleanup process will mark it as failed shortly.
+                      </p>
+                      <button
+                        onClick={() => onReuseParameters(generation)}
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm font-medium"
+                      >
+                        <RotateCcw className="h-4 w-4" />
+                        Try Again
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex-1 grid grid-cols-2 gap-3 max-w-2xl">
+                    {Array.from({ length: numOutputs }).map((_, idx) => (
+                      <GenerationProgress 
+                        key={`${stableKey}-progress-${idx}`}
+                        estimatedTime={25}
+                        aspectRatio={(generation.parameters as any)?.aspectRatio}
+                        isVideo={false}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          }
           
           // Failed generation layout
           if (generation.status === 'failed') {
             const errorMessage = (generation.parameters as any)?.error || 'Generation failed'
             return (
-              <div key={generation.id} className="flex gap-6 items-start">
+              <div key={stableKey} className="flex gap-6 items-start">
                 {/* Left Side: Prompt Display with Error State */}
                 <div className="w-96 flex-shrink-0 bg-destructive/10 rounded-xl p-6 border border-destructive/50 flex flex-col" style={{ minHeight: '320px' }}>
                   <div className="flex-1 overflow-hidden hover:overflow-y-auto transition-all group relative" style={{ maxHeight: '200px' }}>
@@ -429,7 +540,7 @@ export function GenerationGallery({
           // Video layout: mirror image layout → prompt on the left, video on the right
           if (isVideo) {
             return (
-              <div key={generation.id} className="flex gap-6 items-start">
+              <div key={stableKey} className="flex gap-6 items-start">
                 {/* Left Side: Prompt Display - same styling as images */}
                 <div className="w-96 flex-shrink-0 bg-muted/30 rounded-xl p-6 border border-border/50 flex flex-col" style={{ minHeight: '320px' }}>
                   <div className="flex-1 overflow-hidden hover:overflow-y-auto transition-all group relative" style={{ maxHeight: '200px' }}>
@@ -558,9 +669,9 @@ export function GenerationGallery({
             )
           }
 
-          // Image layout: Original layout with prompt on left
+          // Image layout: Original layout with prompt on left (completed status)
           return (
-            <div key={generation.id} className="flex gap-6 items-start">
+            <div key={stableKey} className="flex gap-6 items-start">
               {/* Left Side: Prompt Display - Increased Height with Scroll on Hover */}
               <div className="w-96 flex-shrink-0 bg-muted/30 rounded-xl p-6 border border-border/50 flex flex-col" style={{ minHeight: '320px' }}>
                 <div className="flex-1 overflow-hidden hover:overflow-y-auto transition-all group relative" style={{ maxHeight: '200px' }}>
@@ -714,124 +825,6 @@ export function GenerationGallery({
           )
         })}
 
-        {/* Show processing generations */}
-        {(processingGenerations || []).map((procGen) => {
-          const allModels = getAllModels()
-          const modelConfig = allModels.find(m => m.id === procGen.modelId)
-          const modelName = modelConfig?.name || 'Unknown Model'
-          const numOutputs = procGen.parameters.numOutputs || 1
-          
-          // Check if generation is stuck (> 2 minutes old)
-          const now = Date.now()
-          const createdAt = new Date(procGen.createdAt).getTime()
-          const ageMinutes = (now - createdAt) / (60 * 1000)
-          const isStuck = ageMinutes > 2
-          
-          return (
-            <div key={procGen.id} className="flex gap-6 items-start mb-6">
-              {/* Left Side: Prompt and metadata */}
-              <div className={`w-96 flex-shrink-0 bg-muted/30 rounded-xl p-6 border flex flex-col relative group ${
-                procGen.status === 'cancelled' 
-                  ? 'border-destructive/50' 
-                  : isStuck
-                  ? 'border-destructive/50 border-destructive'
-                  : 'border-border/50 border-primary/30'
-              }`} style={{ minHeight: '320px' }}>
-                {/* Cancel button - top left, only visible on hover when processing */}
-                {procGen.status === 'processing' && (
-                  <button
-                    onClick={() => handleCancelGeneration(procGen.id)}
-                    className="absolute top-2 left-2 p-1.5 bg-destructive/90 hover:bg-destructive rounded-full opacity-0 group-hover:opacity-100 transition-opacity z-10"
-                    title="Cancel generation"
-                  >
-                    <X className="h-4 w-4 text-white" />
-                  </button>
-                )}
-                
-                {/* Cancelled badge */}
-                {procGen.status === 'cancelled' && (
-                  <div className="absolute top-2 left-2 px-2 py-1 bg-destructive/20 text-destructive text-xs font-medium rounded">
-                    Cancelled
-                  </div>
-                )}
-                
-                {/* Stuck badge */}
-                {isStuck && procGen.status === 'processing' && (
-                  <div className="absolute top-2 left-2 px-2 py-1 bg-destructive/20 text-destructive text-xs font-medium rounded z-10">
-                    ⚠️ Stuck ({Math.round(ageMinutes)}min)
-                  </div>
-                )}
-                
-                <div className="flex-1 mb-4 overflow-hidden hover:overflow-y-auto transition-all group relative" style={{ maxHeight: '200px' }}>
-                  <p className="text-base font-normal leading-relaxed text-foreground/90">
-                    {procGen.prompt}
-                  </p>
-                </div>
-                <div className="space-y-2 text-xs text-muted-foreground">
-                  {currentUser?.displayName && (
-                    <div className="flex items-center gap-2">
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        className="flex-shrink-0"
-                      >
-                        <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
-                        <circle cx="12" cy="7" r="4" />
-                      </svg>
-                      <span className="font-medium">{currentUser.displayName}</span>
-                    </div>
-                  )}
-                  <div className="flex items-center gap-2">
-                    <Wand2 className="h-3.5 w-3.5 text-primary" />
-                    <span className="font-medium">{modelName}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-muted-foreground/70">Generated:</span>
-                    <span className="font-medium">{formatDate(procGen.createdAt)}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Right Side: Progress placeholders or stuck message */}
-              {isStuck ? (
-                <div className="flex-1 max-w-2xl">
-                  <div className="bg-destructive/10 rounded-xl p-6 border border-destructive/50">
-                    <h3 className="text-lg font-semibold text-destructive mb-2">Generation Stuck</h3>
-                    <p className="text-sm text-foreground/80 mb-4">
-                      This generation has been processing for {Math.round(ageMinutes)} minutes and appears to be stuck. 
-                      The cleanup process will mark it as failed shortly.
-                    </p>
-                    <button
-                      onClick={() => onReuseParameters(procGen)}
-                      className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm font-medium"
-                    >
-                      <RotateCcw className="h-4 w-4" />
-                      Try Again
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex-1 grid grid-cols-2 gap-3 max-w-2xl">
-                  {Array.from({ length: numOutputs }).map((_, idx) => (
-                    <GenerationProgress 
-                      key={`${procGen.id}-${idx}`}
-                      estimatedTime={25}
-                      aspectRatio={procGen.parameters.aspectRatio}
-                      isVideo={false}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          )
-        })}
       </div>
 
       {/* Image Lightbox */}

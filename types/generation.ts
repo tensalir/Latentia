@@ -8,6 +8,8 @@ export interface Generation {
   parameters: Record<string, any>
   status: 'queued' | 'processing' | 'completed' | 'failed' | 'cancelled'
   createdAt: Date
+  /** Client-side stable ID for React keys during optimistic updates */
+  clientId?: string
 }
 
 export interface Output {

@@ -71,20 +71,30 @@ export function useGenerateMutation() {
   return useMutation({
     mutationFn: generateImage,
     onMutate: async (variables) => {
-      // Cancel any outgoing refetches
-      await queryClient.cancelQueries({ queryKey: ['generations', variables.sessionId] })
+      // Cancel both caches to prevent race conditions
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: ['generations', variables.sessionId] }),
+        queryClient.cancelQueries({ queryKey: ['generations', 'infinite', variables.sessionId] }),
+      ])
 
-      // Snapshot the previous value
+      // Snapshot the previous values for rollback
       const previousGenerations = queryClient.getQueryData<GenerationWithOutputs[]>([
         'generations',
         variables.sessionId,
       ])
+      const previousInfiniteGenerations = queryClient.getQueryData<InfiniteData<PaginatedGenerationsResponse>>([
+        'generations',
+        'infinite',
+        variables.sessionId,
+      ])
 
-      // Optimistically add a pending generation
-      // Use a timestamp to ensure unique IDs
+      // Create optimistic generation with a stable clientId for React keys
+      // The clientId persists even when the real id replaces the temp id
       const timestamp = Date.now()
+      const clientId = `client-${timestamp}`
       const optimisticGeneration: GenerationWithOutputs = {
         id: `temp-${timestamp}`,
+        clientId, // Stable key for React to prevent remount flicker
         sessionId: variables.sessionId,
         userId: '',
         modelId: variables.modelId,
@@ -96,34 +106,46 @@ export function useGenerateMutation() {
         outputs: [],
       }
       
-      // Store the optimistic ID in context for later matching
+      // Store the optimistic ID and clientId in context for later matching
       const optimisticId = optimisticGeneration.id
 
-      // Add pending generation to cache ONLY if it doesn't already exist
+      // Add pending generation to regular cache
       queryClient.setQueryData<GenerationWithOutputs[]>(
         ['generations', variables.sessionId],
         (old) => {
           if (!old) return [optimisticGeneration]
-          // Check if this exact optimistic generation already exists
-          const exists = old.some(gen => gen.id === optimisticGeneration.id)
+          const exists = old.some(gen => gen.id === optimisticGeneration.id || gen.clientId === clientId)
           if (exists) return old
           return [...old, optimisticGeneration]
         }
       )
       
-      // Also update the infinite query cache
+      // Update the infinite query cache
+      // API returns newest-first, so insert at START of page 0
       queryClient.setQueryData(
         ['generations', 'infinite', variables.sessionId],
         (old: InfiniteData<PaginatedGenerationsResponse> | undefined) => {
-          if (!old || !old.pages.length) return undefined
+          // If cache is empty/undefined, initialize it with a first page
+          if (!old || !old.pages.length) {
+            return {
+              pageParams: [undefined],
+              pages: [{
+                data: [optimisticGeneration],
+                nextCursor: undefined,
+                hasMore: false,
+              }],
+            }
+          }
           
+          // Insert at START of page 0 (newest-first order)
           return {
             ...old,
             pages: old.pages.map((page, pageIndex) => {
               if (pageIndex === 0) {
-                const exists = page.data.some(gen => gen.id === optimisticGeneration.id)
+                const exists = page.data.some(gen => gen.id === optimisticGeneration.id || gen.clientId === clientId)
                 if (exists) return page
-                return { ...page, data: [...page.data, optimisticGeneration] }
+                // Insert at START (newest items first in API response)
+                return { ...page, data: [optimisticGeneration, ...page.data] }
               }
               return page
             }),
@@ -132,7 +154,7 @@ export function useGenerateMutation() {
       )
 
       // Return context with previous state for rollback
-      return { previousGenerations, optimisticId }
+      return { previousGenerations, previousInfiniteGenerations, optimisticId, clientId }
     },
     onSuccess: (data, variables, context) => {
       console.log(`[${data.id}] Generation mutation success - status: ${data.status}`)
@@ -167,17 +189,22 @@ export function useGenerateMutation() {
       }
       
       // Helper to create the updated generation object
+      // Preserves clientId for stable React keys
       const createUpdatedGeneration = (original: GenerationWithOutputs): GenerationWithOutputs => {
+        const base = {
+          ...original,
+          id: data.id,
+          clientId: context?.clientId || original.clientId, // Preserve stable key
+        }
+        
         if (data.status === 'processing') {
           return {
-            ...original,
-            id: data.id,
+            ...base,
             status: 'processing' as const,
           }
         } else if (data.status === 'completed' && data.outputs) {
           return {
-            ...original,
-            id: data.id,
+            ...base,
             status: 'completed' as const,
             outputs: data.outputs.map((output, index) => ({
               id: `${data.id}-${index}`,
@@ -193,8 +220,7 @@ export function useGenerateMutation() {
           }
         } else if (data.status === 'failed') {
           return {
-            ...original,
-            id: data.id,
+            ...base,
             status: 'failed' as const,
             parameters: {
               ...original.parameters,
@@ -202,17 +228,18 @@ export function useGenerateMutation() {
             },
           }
         }
-        return original
+        return base
       }
       
       // Update the regular generations cache
+      // Match by either optimisticId or clientId for robustness
       queryClient.setQueryData<GenerationWithOutputs[]>(
         ['generations', variables.sessionId],
         (old) => {
           if (!old) return []
           return old.map((gen) => {
-            if (gen.id === context?.optimisticId) {
-              console.log('✓ Replacing optimistic generation:', context.optimisticId, '→', data.id)
+            if (gen.id === context?.optimisticId || gen.clientId === context?.clientId) {
+              console.log('✓ Replacing optimistic generation:', context?.optimisticId, '→', data.id)
               return createUpdatedGeneration(gen)
             }
             return gen
@@ -221,6 +248,7 @@ export function useGenerateMutation() {
       )
       
       // Update the infinite generations cache
+      // Match by either optimisticId or clientId for robustness
       queryClient.setQueryData(
         ['generations', 'infinite', variables.sessionId],
         (old: InfiniteData<PaginatedGenerationsResponse> | undefined) => {
@@ -229,9 +257,11 @@ export function useGenerateMutation() {
           return {
             ...old,
             pages: old.pages.map((page) => {
-              const foundIndex = page.data.findIndex(gen => gen.id === context?.optimisticId)
+              const foundIndex = page.data.findIndex(
+                gen => gen.id === context?.optimisticId || gen.clientId === context?.clientId
+              )
               if (foundIndex !== -1) {
-                console.log('✓ Replacing optimistic generation in infinite cache:', context.optimisticId, '→', data.id)
+                console.log('✓ Replacing optimistic generation in infinite cache:', context?.optimisticId, '→', data.id)
                 const newData = [...page.data]
                 newData[foundIndex] = createUpdatedGeneration(newData[foundIndex])
                 return { ...page, data: newData }
@@ -248,22 +278,27 @@ export function useGenerateMutation() {
     onError: (error: Error, variables, context) => {
       console.error('Generation failed:', error)
       
+      // Helper to create failed generation with preserved clientId
+      const createFailedGeneration = (gen: GenerationWithOutputs): GenerationWithOutputs => ({
+        ...gen,
+        clientId: context?.clientId || gen.clientId, // Preserve stable key
+        status: 'failed' as const,
+        parameters: {
+          ...gen.parameters,
+          error: error.message,
+        },
+      })
+      
       // Update the optimistic generation to show the error in both caches
+      // Match by either optimisticId or clientId for robustness
       queryClient.setQueryData<GenerationWithOutputs[]>(
         ['generations', variables.sessionId],
         (old) => {
           if (!old) return []
           
           return old.map((gen) => {
-            if (gen.id === context?.optimisticId) {
-              return {
-                ...gen,
-                status: 'failed' as const,
-                parameters: {
-                  ...gen.parameters,
-                  error: error.message,
-                },
-              }
+            if (gen.id === context?.optimisticId || gen.clientId === context?.clientId) {
+              return createFailedGeneration(gen)
             }
             return gen
           })
@@ -279,17 +314,12 @@ export function useGenerateMutation() {
           return {
             ...old,
             pages: old.pages.map((page) => {
-              const foundIndex = page.data.findIndex(gen => gen.id === context?.optimisticId)
+              const foundIndex = page.data.findIndex(
+                gen => gen.id === context?.optimisticId || gen.clientId === context?.clientId
+              )
               if (foundIndex !== -1) {
                 const newData = [...page.data]
-                newData[foundIndex] = {
-                  ...newData[foundIndex],
-                  status: 'failed' as const,
-                  parameters: {
-                    ...newData[foundIndex].parameters,
-                    error: error.message,
-                  },
-                }
+                newData[foundIndex] = createFailedGeneration(newData[foundIndex])
                 return { ...page, data: newData }
               }
               return page
