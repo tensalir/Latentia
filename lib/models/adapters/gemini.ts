@@ -764,6 +764,9 @@ export class GeminiAdapter extends BaseModelAdapter {
       const predictionId = data.id
 
       console.log(`[Replicate Fallback] Prediction started: ${predictionId}`)
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/e6034d14-134b-41df-97f8-0c4119e294f2',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'gemini.ts:766',message:'Replicate prediction started',data:{predictionId,status:data.status},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'E'})}).catch(()=>{});
+      // #endregion
 
       // Poll for results (max 10 minutes - same as Seedream adapter)
       let attempts = 0
@@ -786,6 +789,9 @@ export class GeminiAdapter extends BaseModelAdapter {
         console.log(`[Replicate Fallback] Status: ${statusData.status} (attempt ${attempts + 1})`)
 
         if (statusData.status === 'succeeded') {
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/e6034d14-134b-41df-97f8-0c4119e294f2',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'gemini.ts:792',message:'Replicate prediction SUCCEEDED',data:{predictionId,attempts:attempts+1,hasOutput:!!statusData.output},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'E'})}).catch(()=>{});
+          // #endregion
           let outputUrl: string | null = null
 
           if (Array.isArray(statusData.output) && statusData.output.length > 0) {

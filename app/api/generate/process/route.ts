@@ -143,7 +143,14 @@ async function processGenerationById(
       return { id: generationId, status: 'not_found', error: 'Generation not found' }
     }
 
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/e6034d14-134b-41df-97f8-0c4119e294f2',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'process/route.ts:146',message:'Process endpoint - generation found',data:{generationId,status:generation.status,modelId:generation.modelId,hasReplicatePredictionId:!!(generation.parameters as any)?.replicatePredictionId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B,C,D'})}).catch(()=>{});
+    // #endregion
+
     if (generation.status === 'completed' || generation.status === 'failed' || generation.status === 'cancelled') {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/e6034d14-134b-41df-97f8-0c4119e294f2',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'process/route.ts:150',message:'Skipping - terminal status',data:{generationId,status:generation.status},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
       return {
         id: generation.id,
         status: 'skipped',
@@ -155,6 +162,9 @@ async function processGenerationById(
     const params = generation.parameters as any
     if (params?.replicatePredictionId) {
       console.log(`[${generationId}] Skipping - webhook prediction already submitted: ${params.replicatePredictionId}`)
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/e6034d14-134b-41df-97f8-0c4119e294f2',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'process/route.ts:163',message:'Skipping - webhook already submitted',data:{generationId,replicatePredictionId:params.replicatePredictionId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D'})}).catch(()=>{});
+      // #endregion
       await appendLog('process:skipped-webhook-active', { predictionId: params.replicatePredictionId })
       return {
         id: generation.id,

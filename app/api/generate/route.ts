@@ -190,6 +190,10 @@ export async function POST(request: NextRequest) {
     if (!GENERATION_QUEUE_ENABLED) {
       const baseUrl = request.nextUrl.origin
       
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/e6034d14-134b-41df-97f8-0c4119e294f2',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'generate/route.ts:190',message:'Generation flow decision',data:{generationId:generation.id,modelId,USE_REPLICATE_WEBHOOKS,supportsWebhook:supportsWebhook(modelId),willUseWebhook:USE_REPLICATE_WEBHOOKS && supportsWebhook(modelId)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
+      
       // NEW: Use webhooks for Replicate models (eliminates polling timeout issues)
       if (USE_REPLICATE_WEBHOOKS && supportsWebhook(modelId)) {
         console.log(`[${generation.id}] Using webhook-based generation for ${modelId}`)
