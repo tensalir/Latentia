@@ -1,6 +1,6 @@
 # VES-003: Nano Banana Pro Generations Get Stuck While Seedream 4.5 Works
 
-## Status: 🔴 INVESTIGATING
+## Status: ✅ RESOLVED (Webhook Implementation)
 
 ## Problem Summary
 
@@ -259,8 +259,46 @@ Use a proper job queue (e.g., Inngest, Trigger.dev, or BullMQ):
 
 ---
 
+## Resolution: Webhook Implementation (Dec 17, 2025)
+
+We implemented the webhook-based solution, eliminating timeout issues entirely.
+
+### New Files Created:
+- `app/api/webhooks/replicate/route.ts` - Receives completion callbacks from Replicate
+- `lib/models/replicate-utils.ts` - Shared utilities for webhook submission
+
+### How It Works Now:
+```
+BEFORE (Polling - caused timeouts):
+Generate → Start polling → Wait 5s → Check → Wait 5s → ... → TIMEOUT ❌
+
+AFTER (Webhooks - no timeouts):
+Generate → Submit to Replicate with webhook URL → Return immediately ✅
+   ... later (30-90 seconds) ...
+Replicate → POST /api/webhooks/replicate → Update DB → Realtime notifies frontend ✅
+```
+
+### Key Changes:
+1. Generate route now submits directly to Replicate with webhook URL
+2. Webhook endpoint handles completion, uploads to storage, updates DB
+3. Existing Supabase realtime handles frontend updates
+4. Polling-based approach kept as fallback for non-Replicate models
+
+### Commit:
+- `1298894` - feat: Add Replicate webhooks for timeout-free generation
+
+### Environment Variables (Optional):
+```bash
+# For webhook signature verification (recommended for production)
+REPLICATE_WEBHOOK_SECRET=your-secret-here
+
+# To disable webhooks and use polling (not recommended)
+USE_REPLICATE_WEBHOOKS=false
+```
+
 ## Next Steps
 
-1. **Immediate**: Confirm Vercel plan
-2. **Short-term**: If on Hobby, upgrade to Pro OR implement webhook solution
-3. **Long-term**: Consider queue-based architecture for all generation tasks
+1. ~~**Immediate**: Confirm Vercel plan~~ ✅ Upgraded to Pro
+2. ~~**Short-term**: Implement webhook solution~~ ✅ Done
+3. **Monitor**: Watch for any webhook delivery issues
+4. **Optional**: Add webhook signature verification for security
