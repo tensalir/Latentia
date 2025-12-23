@@ -113,14 +113,14 @@ export async function GET(request: NextRequest) {
           orderBy: {
             createdAt: 'asc',
           },
-        },
       },
+    },
       orderBy: [
         { createdAt: 'desc' }, // Newest first
         { id: 'desc' }, // Tie-breaker for UUID stability
       ],
-      take: limit + 1, // Fetch one extra to check if there's more
-    })
+    take: limit + 1, // Fetch one extra to check if there's more
+  })
 
     // Check if there's more data
     const hasMore = generations.length > limit

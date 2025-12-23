@@ -26,13 +26,13 @@ export function useGenerationsRealtime(sessionId: string | null, userId: string 
   // Debounce invalidation by 3 seconds to prevent race condition with optimistic updates
   // This gives the mutation's onSuccess time to update the cache first
   const debouncedInvalidate = useCallback(() => {
-    // Clear any existing timeout
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current)
-    }
-    
-    // Set new timeout
-    timeoutRef.current = setTimeout(() => {
+      // Clear any existing timeout
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current)
+      }
+      
+      // Set new timeout
+      timeoutRef.current = setTimeout(() => {
       // Only invalidate if the session is still active
       if (sessionId) {
         queryClient.invalidateQueries({ 
@@ -44,7 +44,7 @@ export function useGenerationsRealtime(sessionId: string | null, userId: string 
           refetchType: 'active'
         })
       }
-      timeoutRef.current = null
+        timeoutRef.current = null
     }, 3000)
   }, [sessionId, queryClient])
 
@@ -125,7 +125,7 @@ export function useGenerationsRealtime(sessionId: string | null, userId: string 
             }
           } else {
             // For INSERT/DELETE, always invalidate
-            debouncedInvalidate()
+          debouncedInvalidate()
           }
         }
       )

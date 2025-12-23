@@ -696,29 +696,36 @@ export class GeminiAdapter extends BaseModelAdapter {
     // Map aspect ratio to Replicate format
     const aspectRatio = request.aspectRatio || '1:1'
 
-    // Build input for Replicate
+    // Build input for Replicate - Nano Banana Pro API
+    // Docs: https://replicate.com/google/nano-banana-pro
+    // MINIMAL INPUT TEST - only prompt to rule out parameter issues
     const input: any = {
       prompt: request.prompt,
-      aspect_ratio: aspectRatio,
-      output_format: 'png',
-      safety_tolerance: 2, // 1-6, higher = more permissive
+    }
+    
+    console.log(`[Nano Banana Pro] Submitting MINIMAL input:`, JSON.stringify(input))
+
+    // Add optional parameters only if they differ from defaults
+    if (aspectRatio && aspectRatio !== '1:1') {
+      input.aspect_ratio = aspectRatio
     }
 
     // Add reference images if provided
+    // Nano Banana Pro uses 'image_urls' parameter (array, up to 14 images)
     const referenceImages = request.referenceImages || (request.referenceImage ? [request.referenceImage] : [])
     if (referenceImages.length > 0) {
-      // Nano Banana Pro on Replicate uses 'image_input' parameter (array, up to 14 images)
-      // Same as Seedream 4.5 - NOT 'image' or 'images'
-      input.image_input = referenceImages
-      console.log(`[Replicate Fallback] Using ${referenceImages.length} reference image(s) via image_input`)
+      input.image_urls = referenceImages
+      console.log(`[Replicate Fallback] Using ${referenceImages.length} reference image(s) via image_urls`)
     }
 
     // Resolution mapping - Nano Banana Pro uses "1K", "2K", "4K" strings
-    if (request.resolution) {
-      const resolution = request.resolution === 4096 ? '4K' : request.resolution === 2048 ? '2K' : '1K'
-      input.resolution = resolution
-      console.log(`[Replicate Fallback] Using resolution: ${resolution}`)
-    }
+    // DISABLED: Resolution parameter may be causing cold start delays
+    // The model defaults to 1K which is fine for most use cases
+    // if (request.resolution) {
+    //   const resolution = request.resolution === 4096 ? '4K' : request.resolution === 2048 ? '2K' : '1K'
+    //   input.resolution = resolution
+    //   console.log(`[Replicate Fallback] Using resolution: ${resolution}`)
+    // }
 
     try {
       // First, fetch the latest version for the model
@@ -764,8 +771,10 @@ export class GeminiAdapter extends BaseModelAdapter {
       const predictionId = data.id
 
       console.log(`[Replicate Fallback] Prediction started: ${predictionId}`)
+      console.log(`[Replicate Fallback] Full prediction response:`, JSON.stringify(data, null, 2))
       // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/e6034d14-134b-41df-97f8-0c4119e294f2',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'gemini.ts:766',message:'Replicate prediction started',data:{predictionId,status:data.status},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'E'})}).catch(()=>{});
+      console.log(`[DEBUG:E] Replicate prediction started: ${predictionId}, status=${data.status}`)
+      fetch('http://127.0.0.1:7242/ingest/e6034d14-134b-41df-97f8-0c4119e294f2',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'local-debug',hypothesisId:'C',location:'gemini.ts:generateImageReplicate',message:'Replicate prediction started - polling',data:{predictionId,initialStatus:data.status,urls:data.urls,model:data.model,version:data.version?.substring(0,20)},timestamp:Date.now()})}).catch(()=>{});
       // #endregion
 
       // Poll for results (max 10 minutes - same as Seedream adapter)
@@ -828,14 +837,23 @@ export class GeminiAdapter extends BaseModelAdapter {
             height: dimensions.height,
           }
         } else if (statusData.status === 'failed' || statusData.status === 'canceled') {
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/e6034d14-134b-41df-97f8-0c4119e294f2',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'local-debug',hypothesisId:'D',location:'gemini.ts:polling-failed',message:'Replicate prediction FAILED',data:{predictionId,status:statusData.status,error:statusData.error,attempts:attempts+1},timestamp:Date.now()})}).catch(()=>{});
+          // #endregion
           throw new Error(`Replicate generation failed: ${statusData.error || 'Unknown error'}`)
         }
 
         attempts++
       }
 
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/e6034d14-134b-41df-97f8-0c4119e294f2',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'local-debug',hypothesisId:'D',location:'gemini.ts:polling-timeout',message:'Replicate polling TIMEOUT',data:{predictionId,maxAttempts,totalWaitSec:maxAttempts*5},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       throw new Error('Replicate generation timeout')
     } catch (error: any) {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/e6034d14-134b-41df-97f8-0c4119e294f2',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'local-debug',hypothesisId:'D',location:'gemini.ts:replicate-error',message:'Replicate threw error',data:{errorMessage:error?.message,errorName:error?.name},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       console.error('[Replicate Fallback] Error:', error.message)
       throw error
     }

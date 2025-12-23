@@ -27,6 +27,17 @@ export async function GET() {
 
     console.log('[with-thumbnails] User authenticated:', user.id)
 
+    // Ensure user profile exists (create if it doesn't)
+    await prisma.profile.upsert({
+      where: { id: user.id },
+      update: {},
+      create: {
+        id: user.id,
+        username: user.email?.split('@')[0],
+        displayName: user.user_metadata?.full_name || user.email,
+      },
+    })
+
     // First, get all projects the user has access to
     console.log('[with-thumbnails] Fetching projects...')
     const projects = await prisma.project.findMany({

@@ -6,10 +6,17 @@ import type { NextRequest } from 'next/server'
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url)
   const code = requestUrl.searchParams.get('code')
+  const cookieStore = cookies()
 
   if (code) {
-    const supabase = createRouteHandlerClient({ cookies })
-    await supabase.auth.exchangeCodeForSession(code)
+    const supabase = createRouteHandlerClient({ cookies: () => cookieStore })
+    const { error } = await supabase.auth.exchangeCodeForSession(code)
+    
+    if (error) {
+      console.error('[auth/callback] Error exchanging code for session:', error.message)
+      // Redirect to login with error
+      return NextResponse.redirect(new URL('/login?error=auth_callback_failed', requestUrl.origin))
+    }
   }
 
   // URL to redirect to after sign in process completes

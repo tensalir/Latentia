@@ -144,12 +144,13 @@ async function processGenerationById(
     }
 
     // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/e6034d14-134b-41df-97f8-0c4119e294f2',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'process/route.ts:146',message:'Process endpoint - generation found',data:{generationId,status:generation.status,modelId:generation.modelId,hasReplicatePredictionId:!!(generation.parameters as any)?.replicatePredictionId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B,C,D'})}).catch(()=>{});
+    console.log(`[DEBUG:B] Process endpoint - id=${generationId}, status=${generation.status}, model=${generation.modelId}, hasWebhookPrediction=${!!(generation.parameters as any)?.replicatePredictionId}`)
+    fetch('http://127.0.0.1:7242/ingest/e6034d14-134b-41df-97f8-0c4119e294f2',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'local-debug',hypothesisId:'B',location:'api/generate/process/route.ts:start',message:'Process endpoint started',data:{generationId,status:generation.status,model:generation.modelId,hasWebhookPrediction:!!(generation.parameters as any)?.replicatePredictionId},timestamp:Date.now()})}).catch(()=>{});
     // #endregion
 
     if (generation.status === 'completed' || generation.status === 'failed' || generation.status === 'cancelled') {
       // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/e6034d14-134b-41df-97f8-0c4119e294f2',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'process/route.ts:150',message:'Skipping - terminal status',data:{generationId,status:generation.status},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
+      console.log(`[DEBUG:B] Skipping - terminal status: ${generation.status}`)
       // #endregion
       return {
         id: generation.id,
@@ -161,15 +162,51 @@ async function processGenerationById(
     // The generate route submits directly to Replicate with webhook, so we don't need to process again
     const params = generation.parameters as any
     if (params?.replicatePredictionId) {
-      console.log(`[${generationId}] Skipping - webhook prediction already submitted: ${params.replicatePredictionId}`)
       // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/e6034d14-134b-41df-97f8-0c4119e294f2',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'process/route.ts:163',message:'Skipping - webhook already submitted',data:{generationId,replicatePredictionId:params.replicatePredictionId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D'})}).catch(()=>{});
+      console.log(`[DEBUG:D] Skipping - webhook prediction exists: ${params.replicatePredictionId}`)
       // #endregion
+      console.log(`[${generationId}] Skipping - webhook prediction already submitted: ${params.replicatePredictionId}`)
       await appendLog('process:skipped-webhook-active', { predictionId: params.replicatePredictionId })
       return {
         id: generation.id,
         status: 'skipped',
       }
+    }
+
+    // ATOMIC LOCK: Prevent duplicate processing by checking/setting processingStartedAt
+    // This prevents race conditions when both server and frontend trigger process endpoint
+    const lockWindow = 60_000 // 60 seconds - if processing started within this window, skip
+    const now = Date.now()
+    const existingLock = params?.processingStartedAt
+    
+    if (existingLock && (now - existingLock) < lockWindow) {
+      // #region agent log
+      console.log(`[DEBUG:B] Skipping - already being processed (lock age: ${now - existingLock}ms)`)
+      fetch('http://127.0.0.1:7242/ingest/e6034d14-134b-41df-97f8-0c4119e294f2',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'local-debug',hypothesisId:'B',location:'api/generate/process/route.ts:lock-skip',message:'Skipping - duplicate process call blocked',data:{generationId,lockAge:now-existingLock},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
+      console.log(`[${generationId}] Skipping - already being processed by another request (${now - existingLock}ms ago)`)
+      await appendLog('process:skipped-duplicate', { lockAge: now - existingLock })
+      return {
+        id: generation.id,
+        status: 'skipped',
+      }
+    }
+
+    // Set the processing lock atomically
+    try {
+      await prisma.generation.update({
+        where: { id: generationId },
+        data: {
+          parameters: {
+            ...params,
+            processingStartedAt: now,
+          },
+        },
+      })
+      console.log(`[${generationId}] Acquired processing lock at ${now}`)
+    } catch (lockError) {
+      console.error(`[${generationId}] Failed to acquire lock:`, lockError)
+      // Continue anyway - the lock is best-effort
     }
 
     // Get model adapter
@@ -310,8 +347,14 @@ async function processGenerationById(
     }
 
     // Generate using the model
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/e6034d14-134b-41df-97f8-0c4119e294f2',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'local-debug',hypothesisId:'B',location:'api/generate/process/route.ts:pre-generate',message:'About to call model.generate()',data:{generationId,modelId:generation.modelId},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     const result = await model.generate(generationRequest)
     stopHeartbeat()
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/e6034d14-134b-41df-97f8-0c4119e294f2',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'local-debug',hypothesisId:'B',location:'api/generate/process/route.ts:post-generate',message:'model.generate() completed',data:{generationId,status:result?.status,outputCount:result?.outputs?.length||0},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     await appendLog('model:generate:end', { status: result?.status })
 
     console.log(`[${generationId}] Generation result:`, result.status)
