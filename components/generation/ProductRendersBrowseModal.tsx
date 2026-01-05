@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -11,7 +11,6 @@ import {
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Search, Loader2, X } from 'lucide-react'
-import Image from 'next/image'
 
 interface ProductRender {
   id: string
@@ -39,104 +38,18 @@ export function ProductRendersBrowseModal({
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedProduct, setSelectedProduct] = useState<string | null>(null)
 
-  // Perf/debug refs (debug mode)
-  const openCountRef = useRef(0)
-  const fetchSeqRef = useRef(0)
-  const perfRef = useRef<{ openAt: number; fetchStartAt: number; fetchEndAt: number }>({
-    openAt: 0,
-    fetchStartAt: 0,
-    fetchEndAt: 0,
-  })
-  const totalCountRef = useRef(0)
-  const loadedCountRef = useRef(0)
-  const errorCountRef = useRef(0)
-  const firstLoadLoggedRef = useRef(false)
-  const firstErrorLoggedRef = useRef(false)
-  const latestRunIdRef = useRef('product-renders-open-0')
-
-  useEffect(() => {
-    if (!isOpen) return
-
-    openCountRef.current += 1
-    fetchSeqRef.current = 0
-    perfRef.current.openAt = typeof performance !== 'undefined' ? performance.now() : Date.now()
-    loadedCountRef.current = 0
-    errorCountRef.current = 0
-    totalCountRef.current = 0
-    firstLoadLoggedRef.current = false
-    firstErrorLoggedRef.current = false
-    latestRunIdRef.current = `product-renders-open-${openCountRef.current}`
-
-    // #region agent log
-    fetch('http://127.0.0.1:7246/ingest/3373e882-99ce-4b60-8658-40ddbcfb2d4b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:latestRunIdRef.current,hypothesisId:'A',location:'ProductRendersBrowseModal.tsx:open',message:'Modal opened',data:{selectedProduct: selectedProduct || null, searchQueryLen: searchQuery.length},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
-  }, [isOpen])
-
-  // Log summary on close (debug mode)
-  useEffect(() => {
-    if (isOpen) return
-    if (openCountRef.current === 0) return
-
-    const nowPerf = typeof performance !== 'undefined' ? performance.now() : Date.now()
-    const sinceOpenMs = Math.max(0, nowPerf - perfRef.current.openAt)
-
-    // #region agent log
-    fetch('http://127.0.0.1:7246/ingest/3373e882-99ce-4b60-8658-40ddbcfb2d4b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:latestRunIdRef.current,hypothesisId:'D',location:'ProductRendersBrowseModal.tsx:close',message:'Modal closed (summary)',data:{sinceOpenMs: Math.round(sinceOpenMs), fetchCalls: fetchSeqRef.current, total: totalCountRef.current, loaded: loadedCountRef.current, errors: errorCountRef.current},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
-  }, [isOpen])
-
   const fetchRenders = useCallback(async () => {
     setLoading(true)
     try {
       const params = new URLSearchParams()
       if (searchQuery) params.set('search', searchQuery)
       if (selectedProduct) params.set('name', selectedProduct)
-
-      const fetchSeq = ++fetchSeqRef.current
-      const localStart = typeof performance !== 'undefined' ? performance.now() : Date.now()
-
-      // #region agent log
-      fetch('http://127.0.0.1:7246/ingest/3373e882-99ce-4b60-8658-40ddbcfb2d4b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:latestRunIdRef.current,hypothesisId:'A',location:'ProductRendersBrowseModal.tsx:fetch-start2',message:'Fetch start (sequenced)',data:{fetchSeq, params: params.toString()},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
-
-      perfRef.current.fetchStartAt = typeof performance !== 'undefined' ? performance.now() : Date.now()
-      // #region agent log
-      fetch('http://127.0.0.1:7246/ingest/3373e882-99ce-4b60-8658-40ddbcfb2d4b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:latestRunIdRef.current,hypothesisId:'A',location:'ProductRendersBrowseModal.tsx:fetch-start',message:'Fetch /api/product-renders start',data:{params: params.toString()},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       
       const response = await fetch(`/api/product-renders?${params.toString()}`)
       if (!response.ok) throw new Error('Failed to fetch renders')
       
       const data = await response.json()
       const fetchedRenders = data.renders || []
-      perfRef.current.fetchEndAt = typeof performance !== 'undefined' ? performance.now() : Date.now()
-      totalCountRef.current = fetchedRenders.length
-      loadedCountRef.current = 0
-      firstLoadLoggedRef.current = false
-      firstErrorLoggedRef.current = false
-
-      const sourceCounts = fetchedRenders.reduce(
-        (acc: Record<string, number>, r: ProductRender) => {
-          acc[r.source] = (acc[r.source] || 0) + 1
-          return acc
-        },
-        {}
-      )
-      const uniqueProducts = new Set(fetchedRenders.map((r: ProductRender) => r.name)).size
-      const fetchDurationMs = Math.max(0, perfRef.current.fetchEndAt - perfRef.current.fetchStartAt)
-
-      const localEnd = typeof performance !== 'undefined' ? performance.now() : Date.now()
-      const localDurationMs = Math.max(0, localEnd - localStart)
-
-      // #region agent log
-      fetch('http://127.0.0.1:7246/ingest/3373e882-99ce-4b60-8658-40ddbcfb2d4b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:latestRunIdRef.current,hypothesisId:'A',location:'ProductRendersBrowseModal.tsx:fetch-end2',message:'Fetch end (sequenced)',data:{fetchSeq, status: response.status, durationMs: Math.round(localDurationMs), total: fetchedRenders.length, uniqueProducts, sourceCounts},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
-
-      // #region agent log
-      fetch('http://127.0.0.1:7246/ingest/3373e882-99ce-4b60-8658-40ddbcfb2d4b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:latestRunIdRef.current,hypothesisId:'A',location:'ProductRendersBrowseModal.tsx:fetch-end',message:'Fetch /api/product-renders end',data:{status: response.status, durationMs: Math.round(fetchDurationMs), total: fetchedRenders.length, uniqueProducts, sourceCounts},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
-
-      console.log('[ProductRenders] Fetched renders:', fetchedRenders.length, fetchedRenders)
       setRenders(fetchedRenders)
       
       // Only update product names on initial load (not when filtering)
@@ -312,21 +225,6 @@ export function ProductRendersBrowseModal({
                                           style={{ minHeight: '100%', minWidth: '100%' }}
                                           onError={(e) => {
                                             console.error('[ProductRenders] Failed to load image:', render.imageUrl, render)
-
-                                            errorCountRef.current += 1
-
-                                            if (!firstErrorLoggedRef.current) {
-                                              firstErrorLoggedRef.current = true
-                                              let safe: any = { urlLen: render.imageUrl.length }
-                                              try {
-                                                const u = new URL(render.imageUrl)
-                                                safe = { host: u.host, pathSuffix: u.pathname.slice(-80) }
-                                              } catch {}
-                                              // #region agent log
-                                              fetch('http://127.0.0.1:7246/ingest/3373e882-99ce-4b60-8658-40ddbcfb2d4b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:latestRunIdRef.current,hypothesisId:'E',location:'ProductRendersBrowseModal.tsx:img-error',message:'Image failed to load (first error)',data:{renderId: render.id, source: render.source, safeUrl: safe},timestamp:Date.now()})}).catch(()=>{});
-                                              // #endregion
-                                            }
-
                                             e.currentTarget.style.display = 'none'
                                             const placeholder = e.currentTarget.nextElementSibling as HTMLElement
                                             if (placeholder) {
@@ -334,58 +232,6 @@ export function ProductRendersBrowseModal({
                                             }
                                           }}
                                           onLoad={(e) => {
-                                            console.log('[ProductRenders] Image loaded successfully:', render.imageUrl)
-
-                                            // Timing measurements
-                                            const nowPerf = typeof performance !== 'undefined' ? performance.now() : Date.now()
-                                            loadedCountRef.current += 1
-                                            const loaded = loadedCountRef.current
-                                            const total = totalCountRef.current || renders.length
-                                            const sinceFetchEndMs = Math.max(0, nowPerf - perfRef.current.fetchEndAt)
-                                            const sinceOpenMs = Math.max(0, nowPerf - perfRef.current.openAt)
-
-                                            let safe: any = { urlLen: render.imageUrl.length }
-                                            try {
-                                              const u = new URL(render.imageUrl)
-                                              safe = { host: u.host, pathSuffix: u.pathname.slice(-80) }
-                                            } catch {}
-
-                                            if (!firstLoadLoggedRef.current) {
-                                              firstLoadLoggedRef.current = true
-
-                                              // Resource timing (only for first successful load)
-                                              let timing: any = null
-                                              try {
-                                                const entries = performance.getEntriesByName(render.imageUrl) as PerformanceResourceTiming[]
-                                                const last = entries[entries.length - 1]
-                                                if (last) {
-                                                  timing = {
-                                                    durationMs: Math.round(last.duration),
-                                                    transferSize: (last as any).transferSize,
-                                                    encodedBodySize: (last as any).encodedBodySize,
-                                                    decodedBodySize: (last as any).decodedBodySize,
-                                                    nextHopProtocol: (last as any).nextHopProtocol,
-                                                  }
-                                                }
-                                              } catch {}
-
-                                              // #region agent log
-                                              fetch('http://127.0.0.1:7246/ingest/3373e882-99ce-4b60-8658-40ddbcfb2d4b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:latestRunIdRef.current,hypothesisId:'B',location:'ProductRendersBrowseModal.tsx:first-img-load',message:'First image loaded',data:{renderId: render.id, source: render.source, loaded, total, sinceFetchEndMs: Math.round(sinceFetchEndMs), sinceOpenMs: Math.round(sinceOpenMs), safeUrl: safe, timing},timestamp:Date.now()})}).catch(()=>{});
-                                              // #endregion
-                                            }
-
-                                            if (loaded === Math.min(6, total)) {
-                                              // #region agent log
-                                              fetch('http://127.0.0.1:7246/ingest/3373e882-99ce-4b60-8658-40ddbcfb2d4b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:latestRunIdRef.current,hypothesisId:'D',location:'ProductRendersBrowseModal.tsx:six-img-load',message:'Six images loaded',data:{loaded, total, sinceFetchEndMs: Math.round(sinceFetchEndMs), sinceOpenMs: Math.round(sinceOpenMs)},timestamp:Date.now()})}).catch(()=>{});
-                                              // #endregion
-                                            }
-
-                                            if (loaded === Math.min(12, total)) {
-                                              // #region agent log
-                                              fetch('http://127.0.0.1:7246/ingest/3373e882-99ce-4b60-8658-40ddbcfb2d4b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:latestRunIdRef.current,hypothesisId:'D',location:'ProductRendersBrowseModal.tsx:twelve-img-load',message:'Twelve images loaded',data:{loaded, total, sinceFetchEndMs: Math.round(sinceFetchEndMs), sinceOpenMs: Math.round(sinceOpenMs)},timestamp:Date.now()})}).catch(()=>{});
-                                              // #endregion
-                                            }
-
                                             // Hide placeholder when image loads successfully
                                             const placeholder = e.currentTarget.nextElementSibling as HTMLElement
                                             if (placeholder) {
