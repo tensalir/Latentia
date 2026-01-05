@@ -227,6 +227,9 @@ export function GenerationGallery({
         isApproved: !currentApproved,
       })
       
+      // Invalidate approved outputs query so review tab updates
+      queryClient.invalidateQueries({ queryKey: ['approvedOutputs'] })
+      
       toast({
         title: currentApproved ? "Approval removed" : "Approved",
         description: currentApproved ? "Image unapproved" : "Image approved for review",
