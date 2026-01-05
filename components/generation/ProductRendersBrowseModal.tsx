@@ -17,6 +17,7 @@ interface ProductRender {
   id: string
   name: string
   colorway: string | null
+  angle: string | null
   imageUrl: string
   source: 'local' | 'frontify'
 }
@@ -156,38 +157,101 @@ export function ProductRendersBrowseModal({
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3 p-2">
-              {renders.map((render) => (
-                <button
-                  key={render.id}
-                  onClick={() => handleSelectImage(render.imageUrl)}
-                  className="group relative aspect-square rounded-lg overflow-hidden border-2 border-border hover:border-primary transition-all duration-200 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-primary bg-muted/30"
-                  title={`${render.name}${render.colorway ? ` - ${render.colorway}` : ''}`}
-                >
-                  {/* Use img for external URLs, handling transparent PNGs */}
-                  <img
-                    src={render.imageUrl}
-                    alt={`${render.name}${render.colorway ? ` - ${render.colorway}` : ''}`}
-                    className="w-full h-full object-contain p-2"
-                  />
+            <div className="space-y-6 p-2">
+              {(() => {
+                // Group renders by product, then by colorway
+                const grouped = renders.reduce((acc, render) => {
+                  const productName = render.name
+                  const colorway = render.colorway || 'Default'
                   
-                  {/* Hover overlay with info */}
-                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/60 transition-colors duration-200" />
-                  <div className="absolute inset-x-0 bottom-0 p-2 bg-gradient-to-t from-black/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                    <p className="text-white text-xs font-medium truncate">{render.name}</p>
-                    {render.colorway && (
-                      <p className="text-white/70 text-[10px] truncate">{render.colorway}</p>
-                    )}
-                  </div>
-                  
-                  {/* Source badge */}
-                  {render.source === 'frontify' && (
-                    <div className="absolute top-1 right-1 px-1.5 py-0.5 bg-blue-500/80 text-white text-[8px] font-medium rounded opacity-0 group-hover:opacity-100 transition-opacity">
-                      Frontify
+                  if (!acc[productName]) {
+                    acc[productName] = {}
+                  }
+                  if (!acc[productName][colorway]) {
+                    acc[productName][colorway] = []
+                  }
+                  acc[productName][colorway].push(render)
+                  return acc
+                }, {} as Record<string, Record<string, ProductRender[]>>)
+
+                // Sort products alphabetically
+                const sortedProducts = Object.keys(grouped).sort()
+
+                return sortedProducts.map((productName, productIndex) => {
+                  const colorways = grouped[productName]
+                  const sortedColorways = Object.keys(colorways).sort()
+
+                  return (
+                    <div key={productName}>
+                      {/* Product Header with Tag */}
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className="px-3 py-1 bg-primary/10 text-primary rounded-full text-sm font-medium">
+                          {productName}
+                        </div>
+                        <div className="flex-1 h-px bg-border" />
+                        <span className="text-xs text-muted-foreground">
+                          {Object.values(colorways).flat().length} render{Object.values(colorways).flat().length !== 1 ? 's' : ''}
+                        </span>
+                      </div>
+
+                      {/* Colorway Groups */}
+                      <div className="space-y-4">
+                        {sortedColorways.map((colorway) => {
+                          const colorwayRenders = colorways[colorway]
+                          return (
+                            <div key={`${productName}-${colorway}`} className="space-y-2">
+                              {/* Colorway Label (subtle) */}
+                              <p className="text-xs text-muted-foreground px-1">
+                                {colorway} ({colorwayRenders.length})
+                              </p>
+                              
+                              {/* Renders Grid for this colorway */}
+                              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
+                                {colorwayRenders.map((render) => (
+                                  <button
+                                    key={render.id}
+                                    onClick={() => handleSelectImage(render.imageUrl)}
+                                    className="group relative aspect-square rounded-lg overflow-hidden border-2 border-border hover:border-primary transition-all duration-200 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-primary bg-muted/30"
+                                    title={`${render.name}${render.colorway ? ` - ${render.colorway}` : ''}`}
+                                  >
+                                    {/* Thumbnail Image */}
+                                    <img
+                                      src={render.imageUrl}
+                                      alt={`${render.name}${render.colorway ? ` - ${render.colorway}` : ''}`}
+                                      className="w-full h-full object-contain p-2"
+                                      loading="lazy"
+                                    />
+                                    
+                                    {/* Hover overlay with info */}
+                                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/60 transition-colors duration-200" />
+                                    <div className="absolute inset-x-0 bottom-0 p-2 bg-gradient-to-t from-black/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                                      {render.angle && (
+                                        <p className="text-white/90 text-[9px] font-medium mb-0.5">{render.angle}</p>
+                                      )}
+                                    </div>
+                                    
+                                    {/* Source badge */}
+                                    {render.source === 'frontify' && (
+                                      <div className="absolute top-1 right-1 px-1.5 py-0.5 bg-blue-500/80 text-white text-[8px] font-medium rounded opacity-0 group-hover:opacity-100 transition-opacity">
+                                        Frontify
+                                      </div>
+                                    )}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+
+                      {/* Separator line between products (except last) */}
+                      {productIndex < sortedProducts.length - 1 && (
+                        <div className="mt-6 h-px bg-border" />
+                      )}
                     </div>
-                  )}
-                </button>
-              ))}
+                  )
+                })
+              })()}
             </div>
           )}
         </div>
