@@ -265,7 +265,7 @@ export function RendersManagementSettings() {
     }
   }
 
-  // Analyze images with Claude Vision
+  // Analyze images with Claude Vision (in batches to avoid payload limits)
   const analyzeImages = async () => {
     if (pendingImages.length === 0) return
     
@@ -273,47 +273,67 @@ export function RendersManagementSettings() {
     setAnalysisError(null)
     setAnalysisComplete(false)
     
+    const BATCH_SIZE = 6 // Process 6 images at a time to stay under 4.5MB limit
+    const allResults: Array<{ id: string; suggestedColorway: string; suggestedAngle: string; colorDescription: string; confidence: number }> = []
+    
     try {
-      const imagesToAnalyze = pendingImages.map(img => ({
-        id: img.id,
-        base64: img.base64,
-        filename: img.file.name,
-      }))
-
-      console.log(`[Analyze] Sending ${imagesToAnalyze.length} images to Claude Vision...`)
-
-      const response = await fetch('/api/admin/product-renders/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          images: imagesToAnalyze,
-          productName: productName || undefined,
-        }),
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
-        throw new Error(errorData.error || `Analysis failed: ${response.status}`)
+      // Split images into batches
+      const batches: typeof pendingImages[] = []
+      for (let i = 0; i < pendingImages.length; i += BATCH_SIZE) {
+        batches.push(pendingImages.slice(i, i + BATCH_SIZE))
       }
 
-      const result = await response.json()
-      console.log(`[Analyze] Received results:`, result)
+      console.log(`[Analyze] Processing ${pendingImages.length} images in ${batches.length} batches...`)
 
-      // Update pending images with analysis results
-      setPendingImages(prev => prev.map(img => {
-        const analysis = result.images.find((a: any) => a.id === img.id)
-        if (analysis) {
-          return {
-            ...img,
-            suggestedColorway: analysis.suggestedColorway || 'Default',
-            suggestedAngle: analysis.suggestedAngle || 'front',
-            colorDescription: analysis.colorDescription || '',
-            confidence: analysis.confidence || 0.5,
-          }
+      // Process each batch
+      for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+        const batch = batches[batchIndex]
+        const imagesToAnalyze = batch.map(img => ({
+          id: img.id,
+          base64: img.base64,
+          filename: img.file.name,
+        }))
+
+        console.log(`[Analyze] Batch ${batchIndex + 1}/${batches.length}: ${batch.length} images`)
+
+        const response = await fetch('/api/admin/product-renders/analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            images: imagesToAnalyze,
+            productName: productName || undefined,
+          }),
+        })
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}))
+          throw new Error(errorData.error || `Batch ${batchIndex + 1} failed: ${response.status}`)
         }
-        return img
-      }))
-      
+
+        const result = await response.json()
+        console.log(`[Analyze] Batch ${batchIndex + 1} results:`, result.images?.length || 0, 'images')
+        
+        if (result.images) {
+          allResults.push(...result.images)
+        }
+
+        // Update progress after each batch
+        setPendingImages(prev => prev.map(img => {
+          const analysis = result.images?.find((a: any) => a.id === img.id)
+          if (analysis) {
+            return {
+              ...img,
+              suggestedColorway: analysis.suggestedColorway || 'Default',
+              suggestedAngle: analysis.suggestedAngle || 'front',
+              colorDescription: analysis.colorDescription || '',
+              confidence: analysis.confidence || 0.5,
+            }
+          }
+          return img
+        }))
+      }
+
+      console.log(`[Analyze] Complete: ${allResults.length} images analyzed`)
       setAnalysisComplete(true)
     } catch (error: any) {
       console.error('[Analyze] Error:', error)
@@ -753,12 +773,12 @@ export function RendersManagementSettings() {
                     {isAnalyzing ? (
                       <>
                         <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        Analyzing {pendingImages.length} images...
+                        Analyzing... ({pendingImages.filter(i => i.confidence > 0).length}/{pendingImages.length})
                       </>
                     ) : (
                       <>
                         <Sparkles className="h-4 w-4 mr-2" />
-                        {analysisComplete ? 'Re-analyze' : 'Analyze with AI'}
+                        {analysisComplete ? 'Re-analyze' : `Analyze ${pendingImages.length} images`}
                       </>
                     )}
                   </Button>
