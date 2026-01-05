@@ -201,6 +201,43 @@ export function RendersManagementSettings() {
     })
   }
 
+  // Compress image to reduce payload size
+  const compressImage = (file: File, maxWidth = 1024, quality = 0.85): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        const img = new Image()
+        img.onload = () => {
+          const canvas = document.createElement('canvas')
+          let width = img.width
+          let height = img.height
+
+          // Scale down if too large
+          if (width > maxWidth) {
+            height = (height * maxWidth) / width
+            width = maxWidth
+          }
+
+          canvas.width = width
+          canvas.height = height
+          const ctx = canvas.getContext('2d')
+          if (!ctx) {
+            reject(new Error('Could not get canvas context'))
+            return
+          }
+
+          ctx.drawImage(img, 0, 0, width, height)
+          const compressedBase64 = canvas.toDataURL('image/jpeg', quality)
+          resolve(compressedBase64)
+        }
+        img.onerror = reject
+        img.src = e.target?.result as string
+      }
+      reader.onerror = reject
+      reader.readAsDataURL(file)
+    })
+  }
+
   // Handle file drop/selection for bulk upload
   const handleFilesSelected = async (files: FileList | File[]) => {
     const fileArray = Array.from(files)
@@ -208,20 +245,24 @@ export function RendersManagementSettings() {
     
     if (imageFiles.length === 0) return
 
-    // Convert files to base64 and create pending images
+    // Convert files to compressed base64 and create pending images
     const newPending: PendingImage[] = await Promise.all(
       imageFiles.map(async (file) => {
-        const base64 = await new Promise<string>((resolve) => {
+        // Use original for preview, compressed for analysis
+        const previewBase64 = await new Promise<string>((resolve) => {
           const reader = new FileReader()
           reader.onload = () => resolve(reader.result as string)
           reader.readAsDataURL(file)
         })
 
+        // Compress for API calls (smaller payload)
+        const compressedBase64 = await compressImage(file, 1024, 0.85)
+
         return {
           id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           file,
-          base64,
-          preview: base64,
+          base64: compressedBase64, // Use compressed version for API
+          preview: previewBase64, // Use original for preview
           suggestedColorway: 'Unanalyzed',
           suggestedAngle: 'front',
           colorDescription: '',
@@ -273,7 +314,7 @@ export function RendersManagementSettings() {
     setAnalysisError(null)
     setAnalysisComplete(false)
     
-    const BATCH_SIZE = 6 // Process 6 images at a time to stay under 4.5MB limit
+    const BATCH_SIZE = 2 // Process 2 images at a time to stay under 4.5MB limit (base64 is ~33% larger)
     const allResults: Array<{ id: string; suggestedColorway: string; suggestedAngle: string; colorDescription: string; confidence: number }> = []
     
     try {
@@ -294,7 +335,17 @@ export function RendersManagementSettings() {
           filename: img.file.name,
         }))
 
-        console.log(`[Analyze] Batch ${batchIndex + 1}/${batches.length}: ${batch.length} images`)
+        // Calculate payload size
+        const payload = JSON.stringify({
+          images: imagesToAnalyze,
+          productName: productName || undefined,
+        })
+        const payloadSizeMB = new Blob([payload]).size / (1024 * 1024)
+        console.log(`[Analyze] Batch ${batchIndex + 1}/${batches.length}: ${batch.length} images, payload: ${payloadSizeMB.toFixed(2)}MB`)
+
+        if (payloadSizeMB > 4) {
+          console.warn(`[Analyze] Warning: Payload size (${payloadSizeMB.toFixed(2)}MB) is close to limit`)
+        }
 
         const response = await fetch('/api/admin/product-renders/analyze', {
           method: 'POST',
