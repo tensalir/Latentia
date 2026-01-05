@@ -41,6 +41,7 @@ export function ProductRendersBrowseModal({
 
   // Perf/debug refs (debug mode)
   const openCountRef = useRef(0)
+  const fetchSeqRef = useRef(0)
   const perfRef = useRef<{ openAt: number; fetchStartAt: number; fetchEndAt: number }>({
     openAt: 0,
     fetchStartAt: 0,
@@ -48,21 +49,39 @@ export function ProductRendersBrowseModal({
   })
   const totalCountRef = useRef(0)
   const loadedCountRef = useRef(0)
+  const errorCountRef = useRef(0)
   const firstLoadLoggedRef = useRef(false)
   const firstErrorLoggedRef = useRef(false)
+  const latestRunIdRef = useRef('product-renders-open-0')
 
   useEffect(() => {
     if (!isOpen) return
 
     openCountRef.current += 1
+    fetchSeqRef.current = 0
     perfRef.current.openAt = typeof performance !== 'undefined' ? performance.now() : Date.now()
     loadedCountRef.current = 0
+    errorCountRef.current = 0
     totalCountRef.current = 0
     firstLoadLoggedRef.current = false
     firstErrorLoggedRef.current = false
+    latestRunIdRef.current = `product-renders-open-${openCountRef.current}`
 
     // #region agent log
-    fetch('http://127.0.0.1:7246/ingest/3373e882-99ce-4b60-8658-40ddbcfb2d4b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:`product-renders-open-${openCountRef.current}`,hypothesisId:'A',location:'ProductRendersBrowseModal.tsx:open',message:'Modal opened',data:{selectedProduct: selectedProduct || null, searchQueryLen: searchQuery.length},timestamp:Date.now()})}).catch(()=>{});
+    fetch('http://127.0.0.1:7246/ingest/3373e882-99ce-4b60-8658-40ddbcfb2d4b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:latestRunIdRef.current,hypothesisId:'A',location:'ProductRendersBrowseModal.tsx:open',message:'Modal opened',data:{selectedProduct: selectedProduct || null, searchQueryLen: searchQuery.length},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+  }, [isOpen])
+
+  // Log summary on close (debug mode)
+  useEffect(() => {
+    if (isOpen) return
+    if (openCountRef.current === 0) return
+
+    const nowPerf = typeof performance !== 'undefined' ? performance.now() : Date.now()
+    const sinceOpenMs = Math.max(0, nowPerf - perfRef.current.openAt)
+
+    // #region agent log
+    fetch('http://127.0.0.1:7246/ingest/3373e882-99ce-4b60-8658-40ddbcfb2d4b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:latestRunIdRef.current,hypothesisId:'D',location:'ProductRendersBrowseModal.tsx:close',message:'Modal closed (summary)',data:{sinceOpenMs: Math.round(sinceOpenMs), fetchCalls: fetchSeqRef.current, total: totalCountRef.current, loaded: loadedCountRef.current, errors: errorCountRef.current},timestamp:Date.now()})}).catch(()=>{});
     // #endregion
   }, [isOpen])
 
@@ -73,9 +92,16 @@ export function ProductRendersBrowseModal({
       if (searchQuery) params.set('search', searchQuery)
       if (selectedProduct) params.set('name', selectedProduct)
 
+      const fetchSeq = ++fetchSeqRef.current
+      const localStart = typeof performance !== 'undefined' ? performance.now() : Date.now()
+
+      // #region agent log
+      fetch('http://127.0.0.1:7246/ingest/3373e882-99ce-4b60-8658-40ddbcfb2d4b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:latestRunIdRef.current,hypothesisId:'A',location:'ProductRendersBrowseModal.tsx:fetch-start2',message:'Fetch start (sequenced)',data:{fetchSeq, params: params.toString()},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
+
       perfRef.current.fetchStartAt = typeof performance !== 'undefined' ? performance.now() : Date.now()
       // #region agent log
-      fetch('http://127.0.0.1:7246/ingest/3373e882-99ce-4b60-8658-40ddbcfb2d4b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:`product-renders-open-${openCountRef.current}`,hypothesisId:'A',location:'ProductRendersBrowseModal.tsx:fetch-start',message:'Fetch /api/product-renders start',data:{params: params.toString()},timestamp:Date.now()})}).catch(()=>{});
+      fetch('http://127.0.0.1:7246/ingest/3373e882-99ce-4b60-8658-40ddbcfb2d4b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:latestRunIdRef.current,hypothesisId:'A',location:'ProductRendersBrowseModal.tsx:fetch-start',message:'Fetch /api/product-renders start',data:{params: params.toString()},timestamp:Date.now()})}).catch(()=>{});
       // #endregion
       
       const response = await fetch(`/api/product-renders?${params.toString()}`)
@@ -99,8 +125,15 @@ export function ProductRendersBrowseModal({
       const uniqueProducts = new Set(fetchedRenders.map((r: ProductRender) => r.name)).size
       const fetchDurationMs = Math.max(0, perfRef.current.fetchEndAt - perfRef.current.fetchStartAt)
 
+      const localEnd = typeof performance !== 'undefined' ? performance.now() : Date.now()
+      const localDurationMs = Math.max(0, localEnd - localStart)
+
       // #region agent log
-      fetch('http://127.0.0.1:7246/ingest/3373e882-99ce-4b60-8658-40ddbcfb2d4b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:`product-renders-open-${openCountRef.current}`,hypothesisId:'A',location:'ProductRendersBrowseModal.tsx:fetch-end',message:'Fetch /api/product-renders end',data:{status: response.status, durationMs: Math.round(fetchDurationMs), total: fetchedRenders.length, uniqueProducts, sourceCounts},timestamp:Date.now()})}).catch(()=>{});
+      fetch('http://127.0.0.1:7246/ingest/3373e882-99ce-4b60-8658-40ddbcfb2d4b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:latestRunIdRef.current,hypothesisId:'A',location:'ProductRendersBrowseModal.tsx:fetch-end2',message:'Fetch end (sequenced)',data:{fetchSeq, status: response.status, durationMs: Math.round(localDurationMs), total: fetchedRenders.length, uniqueProducts, sourceCounts},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
+
+      // #region agent log
+      fetch('http://127.0.0.1:7246/ingest/3373e882-99ce-4b60-8658-40ddbcfb2d4b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:latestRunIdRef.current,hypothesisId:'A',location:'ProductRendersBrowseModal.tsx:fetch-end',message:'Fetch /api/product-renders end',data:{status: response.status, durationMs: Math.round(fetchDurationMs), total: fetchedRenders.length, uniqueProducts, sourceCounts},timestamp:Date.now()})}).catch(()=>{});
       // #endregion
 
       console.log('[ProductRenders] Fetched renders:', fetchedRenders.length, fetchedRenders)
@@ -280,6 +313,8 @@ export function ProductRendersBrowseModal({
                                           onError={(e) => {
                                             console.error('[ProductRenders] Failed to load image:', render.imageUrl, render)
 
+                                            errorCountRef.current += 1
+
                                             if (!firstErrorLoggedRef.current) {
                                               firstErrorLoggedRef.current = true
                                               let safe: any = { urlLen: render.imageUrl.length }
@@ -288,7 +323,7 @@ export function ProductRendersBrowseModal({
                                                 safe = { host: u.host, pathSuffix: u.pathname.slice(-80) }
                                               } catch {}
                                               // #region agent log
-                                              fetch('http://127.0.0.1:7246/ingest/3373e882-99ce-4b60-8658-40ddbcfb2d4b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:`product-renders-open-${openCountRef.current}`,hypothesisId:'E',location:'ProductRendersBrowseModal.tsx:img-error',message:'Image failed to load (first error)',data:{renderId: render.id, source: render.source, safeUrl: safe},timestamp:Date.now()})}).catch(()=>{});
+                                              fetch('http://127.0.0.1:7246/ingest/3373e882-99ce-4b60-8658-40ddbcfb2d4b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:latestRunIdRef.current,hypothesisId:'E',location:'ProductRendersBrowseModal.tsx:img-error',message:'Image failed to load (first error)',data:{renderId: render.id, source: render.source, safeUrl: safe},timestamp:Date.now()})}).catch(()=>{});
                                               // #endregion
                                             }
 
@@ -317,20 +352,37 @@ export function ProductRendersBrowseModal({
 
                                             if (!firstLoadLoggedRef.current) {
                                               firstLoadLoggedRef.current = true
+
+                                              // Resource timing (only for first successful load)
+                                              let timing: any = null
+                                              try {
+                                                const entries = performance.getEntriesByName(render.imageUrl) as PerformanceResourceTiming[]
+                                                const last = entries[entries.length - 1]
+                                                if (last) {
+                                                  timing = {
+                                                    durationMs: Math.round(last.duration),
+                                                    transferSize: (last as any).transferSize,
+                                                    encodedBodySize: (last as any).encodedBodySize,
+                                                    decodedBodySize: (last as any).decodedBodySize,
+                                                    nextHopProtocol: (last as any).nextHopProtocol,
+                                                  }
+                                                }
+                                              } catch {}
+
                                               // #region agent log
-                                              fetch('http://127.0.0.1:7246/ingest/3373e882-99ce-4b60-8658-40ddbcfb2d4b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:`product-renders-open-${openCountRef.current}`,hypothesisId:'B',location:'ProductRendersBrowseModal.tsx:first-img-load',message:'First image loaded',data:{renderId: render.id, source: render.source, loaded, total, sinceFetchEndMs: Math.round(sinceFetchEndMs), sinceOpenMs: Math.round(sinceOpenMs), safeUrl: safe},timestamp:Date.now()})}).catch(()=>{});
+                                              fetch('http://127.0.0.1:7246/ingest/3373e882-99ce-4b60-8658-40ddbcfb2d4b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:latestRunIdRef.current,hypothesisId:'B',location:'ProductRendersBrowseModal.tsx:first-img-load',message:'First image loaded',data:{renderId: render.id, source: render.source, loaded, total, sinceFetchEndMs: Math.round(sinceFetchEndMs), sinceOpenMs: Math.round(sinceOpenMs), safeUrl: safe, timing},timestamp:Date.now()})}).catch(()=>{});
                                               // #endregion
                                             }
 
                                             if (loaded === Math.min(6, total)) {
                                               // #region agent log
-                                              fetch('http://127.0.0.1:7246/ingest/3373e882-99ce-4b60-8658-40ddbcfb2d4b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:`product-renders-open-${openCountRef.current}`,hypothesisId:'D',location:'ProductRendersBrowseModal.tsx:six-img-load',message:'Six images loaded',data:{loaded, total, sinceFetchEndMs: Math.round(sinceFetchEndMs), sinceOpenMs: Math.round(sinceOpenMs)},timestamp:Date.now()})}).catch(()=>{});
+                                              fetch('http://127.0.0.1:7246/ingest/3373e882-99ce-4b60-8658-40ddbcfb2d4b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:latestRunIdRef.current,hypothesisId:'D',location:'ProductRendersBrowseModal.tsx:six-img-load',message:'Six images loaded',data:{loaded, total, sinceFetchEndMs: Math.round(sinceFetchEndMs), sinceOpenMs: Math.round(sinceOpenMs)},timestamp:Date.now()})}).catch(()=>{});
                                               // #endregion
                                             }
 
                                             if (loaded === Math.min(12, total)) {
                                               // #region agent log
-                                              fetch('http://127.0.0.1:7246/ingest/3373e882-99ce-4b60-8658-40ddbcfb2d4b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:`product-renders-open-${openCountRef.current}`,hypothesisId:'D',location:'ProductRendersBrowseModal.tsx:twelve-img-load',message:'Twelve images loaded',data:{loaded, total, sinceFetchEndMs: Math.round(sinceFetchEndMs), sinceOpenMs: Math.round(sinceOpenMs)},timestamp:Date.now()})}).catch(()=>{});
+                                              fetch('http://127.0.0.1:7246/ingest/3373e882-99ce-4b60-8658-40ddbcfb2d4b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:latestRunIdRef.current,hypothesisId:'D',location:'ProductRendersBrowseModal.tsx:twelve-img-load',message:'Twelve images loaded',data:{loaded, total, sinceFetchEndMs: Math.round(sinceFetchEndMs), sinceOpenMs: Math.round(sinceOpenMs)},timestamp:Date.now()})}).catch(()=>{});
                                               // #endregion
                                             }
 
