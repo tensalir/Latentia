@@ -387,17 +387,16 @@ export function ChatInput({
                 : isDragging && supportsImageEditing
                 ? 'border-primary/50'
                 : 'border-border focus-visible:ring-2 focus-visible:ring-primary focus-visible:border-primary'
-            }`}
+            } ${isEnhancing ? 'enhancing-text' : ''}`}
           />
           <PromptEnhancementButton
             prompt={prompt}
             modelId={selectedModel}
             referenceImage={referenceImage}
             onEnhancementComplete={(enhancedPrompt) => {
-              setIsEnhancing(true)
               onPromptChange(enhancedPrompt)
-              setTimeout(() => setIsEnhancing(false), 1500)
             }}
+            onEnhancingChange={setIsEnhancing}
             disabled={isGenerating}
           />
         </div>

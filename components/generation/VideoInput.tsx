@@ -53,6 +53,7 @@ export function VideoInput({
   const [rendersModalOpen, setRendersModalOpen] = useState(false)
   const [stylePopoverOpen, setStylePopoverOpen] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
+  const [isEnhancing, setIsEnhancing] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const createReferenceId = () => {
     if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -274,10 +275,12 @@ export function VideoInput({
             onChange={(e) => onPromptChange(e.target.value)}
             onKeyDown={handleKeyDown}
             className={`resize-none min-h-[52px] max-h-[104px] px-4 py-3 text-sm rounded-lg bg-muted/50 border transition-all ${
-              isDragging && supportsImageToVideo
+              isEnhancing
+                ? 'border-primary/50 bg-primary/5 shadow-lg shadow-primary/10'
+                : isDragging && supportsImageToVideo
                 ? 'border-primary/50'
                 : 'border-border focus-visible:ring-2 focus-visible:ring-primary focus-visible:border-primary'
-            }`}
+            } ${isEnhancing ? 'enhancing-text' : ''}`}
             disabled={generating}
           />
           <PromptEnhancementButton
@@ -285,6 +288,7 @@ export function VideoInput({
             modelId={selectedModel}
             referenceImage={referenceImage || imagePreviewUrl || null}
             onEnhancementComplete={(enhanced) => onPromptChange(enhanced)}
+            onEnhancingChange={setIsEnhancing}
             disabled={generating}
           />
         </div>

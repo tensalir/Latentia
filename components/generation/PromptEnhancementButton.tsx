@@ -1,15 +1,15 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
-import { Wand2, Loader2, Sparkles } from 'lucide-react'
-import { useToast } from '@/components/ui/use-toast'
+import { Wand2, Loader2 } from 'lucide-react'
 
 interface PromptEnhancementButtonProps {
   prompt: string
   modelId: string
   referenceImage?: string | File | null
   onEnhancementComplete: (enhancedPrompt: string) => void
+  onEnhancingChange?: (isEnhancing: boolean) => void
   disabled?: boolean
 }
 
@@ -18,11 +18,16 @@ export function PromptEnhancementButton({
   modelId,
   referenceImage,
   onEnhancementComplete,
+  onEnhancingChange,
   disabled = false,
 }: PromptEnhancementButtonProps) {
   const [loading, setLoading] = useState(false)
   const [enhancing, setEnhancing] = useState(false)
-  const { toast } = useToast()
+
+  // Notify parent when enhancing state changes
+  useEffect(() => {
+    onEnhancingChange?.(enhancing)
+  }, [enhancing, onEnhancingChange])
 
   const handleEnhance = async () => {
     if (!prompt.trim() || loading) return
@@ -126,27 +131,13 @@ export function PromptEnhancementButton({
 
       const data = await response.json()
       
-      // Wait a moment for visual effect before applying
-      await new Promise(resolve => setTimeout(resolve, 800))
-      
-      // Show success toast
-      toast({
-        title: '✨ Prompt Enhanced',
-        description: 'Your prompt has been optimized with AI',
-      })
-      
-      // Apply the enhanced prompt with animation trigger
+      // Apply the enhanced prompt - glitch effect will continue until this completes
       onEnhancementComplete(data.enhancedPrompt)
       
-      // Keep enhancing state briefly for fade effect
-      setTimeout(() => setEnhancing(false), 1000)
+      // Stop enhancing state after a brief moment to allow smooth transition
+      setTimeout(() => setEnhancing(false), 300)
     } catch (error: any) {
       console.error('Error enhancing prompt:', error)
-      toast({
-        title: 'Enhancement Failed',
-        description: error.message || 'Failed to enhance prompt. Please try again.',
-        variant: 'destructive',
-      })
       setEnhancing(false)
     } finally {
       setLoading(false)
@@ -170,14 +161,6 @@ export function PromptEnhancementButton({
           <Wand2 className="h-4 w-4" />
         )}
       </Button>
-      
-      {/* Enhancement Animation Indicator */}
-      {enhancing && (
-        <div className="absolute right-12 top-3 flex items-center gap-1.5 text-primary animate-pulse">
-          <Sparkles className="h-3 w-3 animate-spin" />
-          <span className="text-xs font-medium">Enhancing...</span>
-        </div>
-      )}
     </>
   )
 }
