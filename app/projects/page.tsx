@@ -340,11 +340,10 @@ export default function ProjectsPage() {
         <Navbar theme={theme} showGenerationToggle={false} standalone={false} />
         <Button
           onClick={() => setShowNewProject(true)}
-          className="h-12 px-4 rounded-lg border border-border bg-background/95 backdrop-blur-sm shadow-sm hover:bg-primary hover:text-primary-foreground transition-colors"
-          variant="ghost"
+          className="h-12 px-4 rounded-lg shadow-sm"
         >
           <Plus className="mr-2 h-4 w-4" />
-          New
+          New Project
         </Button>
       </div>
 
