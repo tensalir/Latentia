@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { Plus, Image as ImageIcon, Video, Loader2 } from 'lucide-react'
+import { useState, useEffect, useMemo } from 'react'
+import { Plus, Image as ImageIcon, Video, Loader2, Pencil, Trash2 } from 'lucide-react'
 import type { Session } from '@/types/project'
 
 interface FloatingSessionBarProps {
@@ -10,6 +10,8 @@ interface FloatingSessionBarProps {
   generationType: 'image' | 'video'
   onSessionSelect: (session: Session) => void
   onSessionCreate: (type: 'image' | 'video') => void
+  onSessionRename?: (session: Session) => void
+  onSessionDelete?: (session: Session) => void
 }
 
 interface SessionThumbnail {
@@ -24,23 +26,39 @@ export function FloatingSessionBar({
   generationType,
   onSessionSelect,
   onSessionCreate,
+  onSessionRename,
+  onSessionDelete,
 }: FloatingSessionBarProps) {
   const [thumbnails, setThumbnails] = useState<Record<string, SessionThumbnail>>({})
   const [hoveredSession, setHoveredSession] = useState<string | null>(null)
 
-  const filteredSessions = sessions.filter((s) => s.type === generationType)
+  const filteredSessions = useMemo(
+    () => sessions.filter((s) => s.type === generationType),
+    [sessions, generationType]
+  )
+  
+  // Create a stable dependency key for filtered sessions
+  const filteredSessionIds = useMemo(
+    () => filteredSessions.map(s => s.id).join(','),
+    [filteredSessions]
+  )
 
   // Fetch latest image for each session
   useEffect(() => {
     const fetchThumbnails = async () => {
       for (const session of filteredSessions) {
-        if (thumbnails[session.id]?.imageUrl !== undefined) continue // Already fetched
-        
-        setThumbnails(prev => ({
-          ...prev,
-          [session.id]: { sessionId: session.id, imageUrl: null, isLoading: true }
-        }))
-
+        // Check if we already have this thumbnail (using functional update to avoid stale closure)
+        setThumbnails(prev => {
+          if (prev[session.id]?.imageUrl !== undefined) return prev // Already fetched
+          return {
+            ...prev,
+            [session.id]: { sessionId: session.id, imageUrl: null, isLoading: true }
+          }
+        })
+      }
+      
+      // Fetch thumbnails for sessions that need them
+      for (const session of filteredSessions) {
         try {
           const response = await fetch(`/api/generations?sessionId=${session.id}&limit=1`)
           if (response.ok) {
@@ -69,28 +87,28 @@ export function FloatingSessionBar({
     }
 
     fetchThumbnails()
-  }, [filteredSessions.map(s => s.id).join(',')])
+  }, [filteredSessionIds, filteredSessions])
 
   return (
-    <div className="fixed left-4 top-1/2 -translate-y-1/2 z-40 flex flex-col items-start gap-2">
+    <div className="fixed left-4 top-1/2 -translate-y-1/2 z-40 flex flex-col items-start gap-3">
       {/* New Session Button */}
       <button
         onClick={() => onSessionCreate(generationType)}
-        className="w-12 h-12 rounded-xl bg-card/90 backdrop-blur-lg border border-border/50 shadow-lg
+        className="w-14 h-14 rounded-2xl bg-card/90 backdrop-blur-lg border border-border/50 shadow-lg
           flex items-center justify-center text-muted-foreground hover:text-primary hover:border-primary/50
-          transition-all duration-200"
+          transition-all duration-300"
         title={`New ${generationType} session`}
       >
-        <Plus className="h-5 w-5" />
+        <Plus className="h-6 w-6" />
       </button>
 
       {/* Divider */}
       {filteredSessions.length > 0 && (
-        <div className="w-6 h-px bg-border/50 my-1 ml-3" />
+        <div className="w-8 h-px bg-border/50 ml-3" />
       )}
 
-      {/* Session Thumbnails - container allows horizontal expansion */}
-      <div className="flex flex-col gap-2 max-h-[60vh] overflow-y-auto scrollbar-hide py-1 pr-2">
+      {/* Session Thumbnails */}
+      <div className="flex flex-col gap-3 max-h-[60vh] overflow-y-auto scrollbar-hide py-1">
         {filteredSessions.map((session) => {
           const thumbnail = thumbnails[session.id]
           const isActive = activeSession?.id === session.id
@@ -103,56 +121,120 @@ export function FloatingSessionBar({
               onMouseEnter={() => setHoveredSession(session.id)}
               onMouseLeave={() => setHoveredSession(null)}
             >
-              {/* Expandable Session Card - square by default, expands on hover */}
-              <button
-                onClick={() => onSessionSelect(session)}
+              {/* Fluid Expandable Session Card */}
+              <div
                 className={`
-                  h-12 rounded-xl transition-all duration-200 ease-out
-                  border-2 shadow-lg flex items-center gap-3
-                  ${isHovered ? 'w-auto pr-4' : 'w-12'}
+                  relative rounded-2xl overflow-hidden
+                  border-2 shadow-lg backdrop-blur-lg
+                  transition-all duration-300 ease-out
                   ${isActive 
-                    ? 'border-primary ring-2 ring-primary/30 bg-primary/10' 
-                    : 'border-border/50 hover:border-primary/50 bg-card/90 backdrop-blur-lg'
+                    ? 'border-primary ring-2 ring-primary/30' 
+                    : 'border-border/50 hover:border-primary/50'
                   }
                 `}
+                style={{
+                  width: isHovered ? '220px' : '56px',
+                  height: isHovered ? '80px' : '56px',
+                }}
               >
-                {/* Thumbnail */}
-                <div className="w-12 h-12 flex-shrink-0 rounded-l-[10px] overflow-hidden">
+                {/* Background - thumbnail or placeholder */}
+                <div className="absolute inset-0">
                   {thumbnail?.isLoading ? (
-                    <div className="w-full h-full bg-muted/80 backdrop-blur flex items-center justify-center">
-                      <Loader2 className="h-4 w-4 text-muted-foreground animate-spin" />
+                    <div className="w-full h-full bg-card/95 flex items-center justify-center">
+                      <Loader2 className="h-5 w-5 text-muted-foreground animate-spin" />
                     </div>
                   ) : thumbnail?.imageUrl ? (
-                    <img
-                      src={thumbnail.imageUrl}
-                      alt={session.name}
-                      className="w-full h-full object-cover"
-                    />
+                    <>
+                      <img
+                        src={thumbnail.imageUrl}
+                        alt={session.name}
+                        className="w-full h-full object-cover"
+                      />
+                      {/* Gradient overlay for text readability when expanded */}
+                      <div 
+                        className="absolute inset-0 transition-opacity duration-300"
+                        style={{
+                          background: isHovered 
+                            ? 'linear-gradient(to right, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.4) 50%, rgba(0,0,0,0.2) 100%)'
+                            : 'none',
+                          opacity: isHovered ? 1 : 0,
+                        }}
+                      />
+                    </>
                   ) : (
-                    <div className="w-full h-full bg-muted/80 backdrop-blur flex items-center justify-center">
+                    <div className="w-full h-full bg-card/95 flex items-center justify-center">
                       {session.type === 'video' ? (
-                        <Video className="h-4 w-4 text-muted-foreground" />
+                        <Video className="h-5 w-5 text-muted-foreground" />
                       ) : (
-                        <ImageIcon className="h-4 w-4 text-muted-foreground" />
+                        <ImageIcon className="h-5 w-5 text-muted-foreground" />
                       )}
                     </div>
                   )}
                 </div>
 
-                {/* Session Name - visible on hover */}
-                {isHovered && (
-                  <div className="flex flex-col items-start animate-in fade-in slide-in-from-left-2 duration-150">
-                    <span className="text-sm font-medium whitespace-nowrap">
+                {/* Content Layer */}
+                <button
+                  onClick={() => onSessionSelect(session)}
+                  className="relative w-full h-full flex items-center cursor-pointer"
+                >
+                  {/* Session info - visible when expanded */}
+                  <div 
+                    className="flex flex-col items-start justify-center px-4 transition-opacity duration-200"
+                    style={{
+                      opacity: isHovered ? 1 : 0,
+                      pointerEvents: isHovered ? 'auto' : 'none',
+                    }}
+                  >
+                    <span className="text-sm font-semibold text-white whitespace-nowrap drop-shadow-md">
                       {session.name}
                     </span>
                     {session.creator?.displayName && (
-                      <span className="text-xs text-muted-foreground whitespace-nowrap">
+                      <span className="text-xs text-white/70 whitespace-nowrap drop-shadow-md">
                         {session.creator.displayName}
                       </span>
                     )}
                   </div>
+                </button>
+
+                {/* Action buttons - visible when expanded */}
+                <div 
+                  className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1.5 transition-opacity duration-200"
+                  style={{
+                    opacity: isHovered ? 1 : 0,
+                    pointerEvents: isHovered ? 'auto' : 'none',
+                  }}
+                >
+                  {onSessionRename && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onSessionRename(session)
+                      }}
+                      className="p-1.5 rounded-lg bg-white/20 hover:bg-white/30 transition-colors"
+                      title="Rename session"
+                    >
+                      <Pencil className="h-3.5 w-3.5 text-white" />
+                    </button>
+                  )}
+                  {onSessionDelete && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onSessionDelete(session)
+                      }}
+                      className="p-1.5 rounded-lg bg-white/20 hover:bg-red-500/80 transition-colors"
+                      title="Delete session"
+                    >
+                      <Trash2 className="h-3.5 w-3.5 text-white" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Active indicator dot */}
+                {isActive && !isHovered && (
+                  <div className="absolute bottom-1 right-1 w-2 h-2 rounded-full bg-primary shadow-lg" />
                 )}
-              </button>
+              </div>
             </div>
           )
         })}
@@ -160,7 +242,7 @@ export function FloatingSessionBar({
 
       {/* Empty State */}
       {filteredSessions.length === 0 && (
-        <div className="w-12 h-12 rounded-xl bg-card/50 border border-dashed border-border/50 
+        <div className="w-14 h-14 rounded-2xl bg-card/50 border border-dashed border-border/50 
           flex items-center justify-center">
           <span className="text-xs text-muted-foreground">—</span>
         </div>

@@ -197,6 +197,64 @@ export default function ProjectPage() {
     }
   }
 
+  const handleSessionRename = async (session: Session) => {
+    const newName = window.prompt('Enter new session name:', session.name)
+    if (!newName || newName === session.name) return
+
+    try {
+      const response = await fetch(`/api/sessions/${session.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newName }),
+      })
+
+      if (response.ok) {
+        // Update cache
+        queryClient.setQueryData(['sessions', params.id], (oldData: Session[] | undefined) => {
+          if (!oldData) return []
+          return oldData.map(s => s.id === session.id ? { ...s, name: newName } : s)
+        })
+        // Update active session if it's the renamed one
+        if (activeSession?.id === session.id) {
+          setActiveSession({ ...activeSession, name: newName })
+        }
+      }
+    } catch (error) {
+      console.error('Error renaming session:', error)
+    }
+  }
+
+  const handleSessionDelete = async (session: Session) => {
+    if (!window.confirm(`Delete "${session.name}"? This will delete all generations in this session.`)) {
+      return
+    }
+
+    try {
+      const response = await fetch(`/api/sessions/${session.id}`, {
+        method: 'DELETE',
+      })
+
+      if (response.ok) {
+        // Remove from cache
+        queryClient.setQueryData(['sessions', params.id], (oldData: Session[] | undefined) => {
+          if (!oldData) return []
+          return oldData.filter(s => s.id !== session.id)
+        })
+        // If deleted session was active, switch to another
+        if (activeSession?.id === session.id) {
+          const remainingSessions = sessions.filter(s => s.id !== session.id && s.type === generationType)
+          if (remainingSessions.length > 0) {
+            setActiveSession(remainingSessions[0])
+          } else {
+            setActiveSession(null)
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error deleting session:', error)
+    }
+  }
+
   return (
     <div className="h-screen flex flex-col bg-background">
       {/* Header */}
@@ -308,6 +366,8 @@ export default function ProjectPage() {
           generationType={generationType}
           onSessionSelect={setActiveSession}
           onSessionCreate={handleSessionCreate}
+          onSessionRename={handleSessionRename}
+          onSessionDelete={handleSessionDelete}
         />
 
         {/* Generation Interface - Full Width */}
