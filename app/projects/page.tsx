@@ -334,89 +334,99 @@ export default function ProjectsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Navbar + New Button - Centered */}
-      <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2">
-        <Navbar theme={theme} showGenerationToggle={false} standalone={false} />
-        <Button
-          onClick={() => setShowNewProject(true)}
-          className="h-12 px-4 rounded-lg shadow-sm"
-        >
-          <Plus className="mr-2 h-4 w-4" />
-          New Project
-        </Button>
-      </div>
-
-      {/* Utility Icons - Fixed Top Right */}
-      <div className="fixed top-4 right-4 z-50 flex items-center gap-1">
-        <SpendingTracker isAdmin={isAdmin} />
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={toggleTheme}
-          className="h-8 w-8 transition-transform hover:rotate-12"
-          title={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
-        >
-          {theme === 'light' ? (
-            <Moon className="h-4 w-4" />
-          ) : (
-            <Sun className="h-4 w-4" />
-          )}
-        </Button>
-        <Link href="/settings">
-          <Button variant="ghost" size="icon" title="Settings" className="h-8 w-8">
-            <Settings className="h-4 w-4" />
+    <div className="min-h-screen flex flex-col bg-background">
+      {/* Header Section - Clean background for navbar */}
+      <header className="h-20 flex items-center justify-between px-6 relative z-50">
+        {/* Navbar + New Button - Centered */}
+        <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2">
+          <Navbar theme={theme} showGenerationToggle={false} standalone={false} />
+          <Button
+            onClick={() => setShowNewProject(true)}
+            className="h-12 px-4 rounded-lg shadow-sm"
+          >
+            <Plus className="mr-2 h-4 w-4" />
+            New Project
           </Button>
-        </Link>
-        <Button variant="ghost" size="icon" onClick={handleSignOut} title="Sign out" className="h-8 w-8">
-          <LogOut className="h-4 w-4" />
-        </Button>
-      </div>
-
-      {/* Main Content */}
-      <main
-        className="w-full min-h-screen bg-cover bg-center bg-no-repeat"
-        style={{ 
-          backgroundImage: `url('/images/Full page_Sketch${theme === 'light' ? ' (Light)' : ''}.png')` 
-        }}
-      >
-        {/* Floating Tab Navigation */}
-        <div className="pt-24 pb-6 flex justify-center">
-          <div className="inline-flex items-center gap-1 p-1.5 rounded-xl bg-background/80 backdrop-blur-md border border-border shadow-lg">
-            <button
-              onClick={() => setActiveTab('briefings')}
-              className={`px-5 py-2.5 text-sm font-semibold rounded-lg transition-all uppercase tracking-wide ${
-                activeTab === 'briefings'
-                  ? 'bg-primary text-primary-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
-              }`}
-            >
-              Briefings
-            </button>
-            <button
-              onClick={() => setActiveTab('projects')}
-              className={`px-5 py-2.5 text-sm font-semibold rounded-lg transition-all uppercase tracking-wide ${
-                activeTab === 'projects'
-                  ? 'bg-primary text-primary-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
-              }`}
-            >
-              Projects
-            </button>
-            <button
-              onClick={() => setActiveTab('review')}
-              className={`px-5 py-2.5 text-sm font-semibold rounded-lg transition-all uppercase tracking-wide ${
-                activeTab === 'review'
-                  ? 'bg-primary text-primary-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
-              }`}
-            >
-              Review
-            </button>
-          </div>
         </div>
 
-        <div className="container mx-auto px-4 pb-8">
+        {/* Spacer for left side */}
+        <div />
+
+        {/* Utility Icons - Right */}
+        <div className="flex items-center gap-1">
+          <SpendingTracker isAdmin={isAdmin} />
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={toggleTheme}
+            className="h-8 w-8 transition-transform hover:rotate-12"
+            title={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+          >
+            {theme === 'light' ? (
+              <Moon className="h-4 w-4" />
+            ) : (
+              <Sun className="h-4 w-4" />
+            )}
+          </Button>
+          <Link href="/settings">
+            <Button variant="ghost" size="icon" title="Settings" className="h-8 w-8">
+              <Settings className="h-4 w-4" />
+            </Button>
+          </Link>
+          <Button variant="ghost" size="icon" onClick={handleSignOut} title="Sign out" className="h-8 w-8">
+            <LogOut className="h-4 w-4" />
+          </Button>
+        </div>
+      </header>
+
+      {/* Main Content Frame - Full width with background */}
+      <main className="flex-1 relative">
+        {/* Content Frame with rounded top corners */}
+        <div
+          className="absolute inset-0 rounded-t-3xl overflow-hidden border-t border-x border-border bg-cover bg-center bg-no-repeat"
+          style={{ 
+            backgroundImage: `url('/images/Full page_Sketch${theme === 'light' ? ' (Light)' : ''}.png')` 
+          }}
+        >
+          {/* Tab Navigation - Protruding at top of frame */}
+          <div className="pt-6 pb-6 flex justify-center">
+            <div className="inline-flex items-center gap-1 p-1.5 rounded-xl bg-background/90 backdrop-blur-md border border-border shadow-lg">
+              <button
+                onClick={() => setActiveTab('briefings')}
+                className={`px-5 py-2.5 text-sm font-semibold rounded-lg transition-all uppercase tracking-wide ${
+                  activeTab === 'briefings'
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+                }`}
+              >
+                Briefings
+              </button>
+              <button
+                onClick={() => setActiveTab('projects')}
+                className={`px-5 py-2.5 text-sm font-semibold rounded-lg transition-all uppercase tracking-wide ${
+                  activeTab === 'projects'
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+                }`}
+              >
+                Projects
+              </button>
+              <button
+                onClick={() => setActiveTab('review')}
+                className={`px-5 py-2.5 text-sm font-semibold rounded-lg transition-all uppercase tracking-wide ${
+                  activeTab === 'review'
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+                }`}
+              >
+                Review
+              </button>
+            </div>
+          </div>
+
+          {/* Scrollable Content Area */}
+          <div className="h-[calc(100%-88px)] overflow-y-auto">
+            <div className="container mx-auto px-6 pb-8">
                 {/* Briefings Tab */}
                 {activeTab === 'briefings' && (
           <div className="flex flex-col items-center justify-center py-20">
@@ -479,8 +489,10 @@ export default function ProjectsPage() {
           </>
         )}
 
-        {/* Review Tab */}
-        {activeTab === 'review' && <ReviewTabContent />}
+              {/* Review Tab */}
+              {activeTab === 'review' && <ReviewTabContent />}
+            </div>
+          </div>
         </div>
       </main>
 
