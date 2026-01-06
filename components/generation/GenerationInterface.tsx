@@ -64,6 +64,7 @@ export function GenerationInterface({
   const [userId, setUserId] = useState<string | null>(null)
   const [currentUser, setCurrentUser] = useState<{ displayName: string | null } | null>(null)
   const previousSessionIdRef = useRef<string | null>(null)
+  const pendingScrollToBottomRef = useRef(false) // Flag to scroll after data loads
   
   // Scroll pinning state
   const [isPinnedToBottom, setIsPinnedToBottom] = useState(true)
@@ -211,20 +212,30 @@ export function GenerationInterface({
     return () => container.removeEventListener('scroll', handleScroll)
   }, [showNewItemsIndicator])
 
-  // Handle new items: auto-scroll if pinned, show indicator otherwise
+  // Detect session change and mark pending scroll
   useEffect(() => {
     const isNewSession = session?.id !== previousSessionIdRef.current
+    if (isNewSession && session?.id) {
+      // Mark that we need to scroll to bottom once data loads
+      pendingScrollToBottomRef.current = true
+      previousGenerationsCountRef.current = 0 // Reset count for new session
+    }
     previousSessionIdRef.current = session?.id || null
+  }, [session?.id])
+
+  // Handle scrolling: on session load completion and new items
+  useEffect(() => {
+    if (!scrollContainerRef.current) return
     
-    if (!isLoading && scrollContainerRef.current) {
-      const currentCount = generations.length
-      const previousCount = previousGenerationsCountRef.current
-      const hasNewItems = currentCount > previousCount && previousCount > 0
-      
-      previousGenerationsCountRef.current = currentCount
-      
-      // Always scroll to bottom on session change
-      if (isNewSession && currentCount > 0) {
+    const currentCount = generations.length
+    const previousCount = previousGenerationsCountRef.current
+    const hasNewItems = currentCount > previousCount && previousCount > 0
+    
+    // Scroll to bottom when session data finishes loading
+    if (!isLoading && pendingScrollToBottomRef.current && currentCount > 0) {
+      pendingScrollToBottomRef.current = false
+      // Use requestAnimationFrame to ensure DOM is updated
+      requestAnimationFrame(() => {
         setTimeout(() => {
           scrollContainerRef.current?.scrollTo({
             top: scrollContainerRef.current!.scrollHeight,
@@ -232,25 +243,29 @@ export function GenerationInterface({
           })
           setIsPinnedToBottom(true)
           setShowNewItemsIndicator(false)
-        }, 300)
-        return
-      }
-      
-      // For new items: auto-scroll if pinned, show indicator otherwise
-      if (hasNewItems) {
-        if (isPinnedToBottom) {
-          setTimeout(() => {
-            scrollContainerRef.current?.scrollTo({
-              top: scrollContainerRef.current!.scrollHeight,
-              behavior: 'smooth',
-            })
-          }, 100)
-        } else {
-          setShowNewItemsIndicator(true)
-        }
+        }, 100)
+      })
+      previousGenerationsCountRef.current = currentCount
+      return
+    }
+    
+    // Update count reference
+    previousGenerationsCountRef.current = currentCount
+    
+    // For new items (not session change): auto-scroll if pinned, show indicator otherwise
+    if (hasNewItems && !pendingScrollToBottomRef.current) {
+      if (isPinnedToBottom) {
+        setTimeout(() => {
+          scrollContainerRef.current?.scrollTo({
+            top: scrollContainerRef.current!.scrollHeight,
+            behavior: 'smooth',
+          })
+        }, 100)
+      } else {
+        setShowNewItemsIndicator(true)
       }
     }
-  }, [generations.length, isLoading, session?.id, isPinnedToBottom])
+  }, [generations.length, isLoading, isPinnedToBottom])
 
   // Load older items when scrolling to top (sentinel at top)
   useEffect(() => {
