@@ -187,9 +187,9 @@ export function ImageToVideoOverlay({
       <div className="fixed inset-4 md:inset-6 lg:inset-10 z-50 flex items-center justify-center">
         <div 
           className="relative w-full max-w-5xl max-h-full overflow-hidden rounded-2xl
-                     bg-background/25 backdrop-blur-2xl 
-                     border border-white/10 
-                     shadow-2xl shadow-black/30
+                     bg-card/95 dark:bg-background/95 backdrop-blur-2xl 
+                     border border-border dark:border-white/10 
+                     shadow-2xl shadow-black/20
                      animate-in zoom-in-95 fade-in duration-300"
           onClick={(e) => e.stopPropagation()}
         >
@@ -208,13 +208,13 @@ export function ImageToVideoOverlay({
           />
           
           {/* Header */}
-          <div className="relative z-10 flex items-center justify-between px-6 py-4 border-b border-white/10">
+          <div className="relative z-10 flex items-center justify-between px-6 py-4 border-b border-border dark:border-white/10">
             <div className="flex items-center gap-4">
               <div className="p-2 rounded-lg bg-primary/10 text-primary border border-primary/20">
                 <Video className="h-5 w-5" />
               </div>
               <div>
-                <h2 className="text-lg font-semibold tracking-tight text-white">Animate Still</h2>
+                <h2 className="text-lg font-semibold tracking-tight text-foreground">Animate Still</h2>
                 <p className="text-xs text-muted-foreground">Transform your image into a cinematic video iteration</p>
               </div>
             </div>
@@ -222,7 +222,7 @@ export function ImageToVideoOverlay({
               variant="ghost"
               size="icon"
               onClick={onClose}
-              className="rounded-lg hover:bg-white/10 h-9 w-9 transition-colors"
+              className="rounded-lg hover:bg-muted h-9 w-9 transition-colors text-foreground"
             >
               <X className="h-5 w-5" />
             </Button>
@@ -231,7 +231,7 @@ export function ImageToVideoOverlay({
           {/* Content */}
           <div className="relative z-10 flex flex-col lg:flex-row gap-0 max-h-[calc(100vh-12rem)] overflow-hidden">
             {/* Left Panel: Source Image + Controls */}
-            <div className="flex-1 p-6 space-y-6 overflow-y-auto border-r border-white/10 custom-scrollbar">
+            <div className="flex-1 p-6 space-y-6 overflow-y-auto border-r border-border dark:border-white/10 custom-scrollbar">
               {/* Source Image Preview */}
               <div className="relative aspect-video rounded-xl overflow-hidden bg-black/40 border border-white/10 shadow-inner group">
                 <img
@@ -254,17 +254,17 @@ export function ImageToVideoOverlay({
                       value={sessionMode} 
                       onValueChange={(v) => setSessionMode(v as 'existing' | 'new')}
                     >
-                      <TabsList className="h-8 bg-white/5 p-0.5 rounded-lg border border-white/5">
+                      <TabsList className="h-8 bg-muted/50 p-0.5 rounded-lg border border-border/50">
                         <TabsTrigger 
                           value="existing" 
                           disabled={videoSessions.length === 0}
-                          className="px-3 py-1 text-[11px] font-semibold rounded-md data-[state=active]:bg-white/10 data-[state=active]:text-white transition-all"
+                          className="px-3 py-1 text-[11px] font-semibold rounded-md data-[state=active]:bg-background data-[state=active]:text-foreground transition-all"
                         >
                           Existing
                         </TabsTrigger>
                         <TabsTrigger 
                           value="new"
-                          className="px-3 py-1 text-[11px] font-semibold rounded-md data-[state=active]:bg-white/10 data-[state=active]:text-white transition-all"
+                          className="px-3 py-1 text-[11px] font-semibold rounded-md data-[state=active]:bg-background data-[state=active]:text-foreground transition-all"
                         >
                           <Plus className="h-3 w-3 mr-1" />
                           New
@@ -276,10 +276,10 @@ export function ImageToVideoOverlay({
                   <div className="flex gap-2">
                     {sessionMode === 'existing' ? (
                       <Select value={selectedSessionId} onValueChange={setSelectedSessionId}>
-                        <SelectTrigger className="flex-1 bg-white/5 border-white/10 h-10 text-sm rounded-lg hover:bg-white/10 transition-colors">
+                        <SelectTrigger className="flex-1 bg-muted/50 border-border h-10 text-sm rounded-lg hover:bg-muted transition-colors">
                           <SelectValue placeholder="Select video session..." />
                         </SelectTrigger>
-                        <SelectContent className="bg-background/95 backdrop-blur-xl border-white/10 rounded-lg">
+                        <SelectContent className="bg-card/95 backdrop-blur-xl border-border rounded-lg">
                           {videoSessions.map((session) => (
                             <SelectItem key={session.id} value={session.id} className="rounded-md">
                               <div className="flex items-center gap-2">
@@ -296,7 +296,7 @@ export function ImageToVideoOverlay({
                           placeholder="Enter new session name..."
                           value={newSessionName}
                           onChange={(e) => setNewSessionName(e.target.value)}
-                          className="bg-white/5 border-white/10 h-10 text-sm rounded-lg focus:ring-primary/20 pl-10"
+                          className="bg-muted/50 border-border h-10 text-sm rounded-lg focus:ring-primary/20 pl-10"
                         />
                         <Plus className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                       </div>
@@ -305,7 +305,7 @@ export function ImageToVideoOverlay({
                 </div>
                 
                 {/* Video Generation Controls */}
-                <div className="space-y-3 pt-2 border-t border-white/5">
+                <div className="space-y-3 pt-2 border-t border-border/50">
                   <label className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">Generation Settings</label>
                   <VideoInput
                     prompt={prompt}
@@ -328,7 +328,7 @@ export function ImageToVideoOverlay({
               
               {/* Generation status indicator */}
               {generateMutation.isPending && (
-                <div className="flex items-center gap-3 text-xs text-white bg-primary/15 border border-primary/25 rounded-lg px-4 py-3">
+                <div className="flex items-center gap-3 text-xs text-foreground bg-primary/15 border border-primary/25 rounded-lg px-4 py-3">
                   <Loader2 className="h-4 w-4 animate-spin text-primary" />
                   <div className="flex flex-col">
                     <span className="font-semibold">Generating video...</span>
@@ -339,14 +339,14 @@ export function ImageToVideoOverlay({
             </div>
             
             {/* Right Panel: Iteration History */}
-            <div className="w-full lg:w-96 flex flex-col bg-black/30 border-l border-white/5 shadow-2xl">
-              <div className="px-5 py-4 border-b border-white/10 flex items-center justify-between">
+            <div className="w-full lg:w-96 flex flex-col bg-muted/30 dark:bg-black/30 border-l border-border/50 dark:border-white/5 shadow-2xl">
+              <div className="px-5 py-4 border-b border-border dark:border-white/10 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Clock className="h-4 w-4 text-muted-foreground" />
                   <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Iterations</h3>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-semibold text-white bg-white/10 px-2 py-0.5 rounded-md border border-white/10">
+                  <span className="text-[10px] font-semibold text-foreground bg-muted px-2 py-0.5 rounded-md border border-border">
                     {count}
                   </span>
                 </div>
@@ -363,10 +363,10 @@ export function ImageToVideoOverlay({
                 
                 {iterations.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-20 text-center px-6">
-                    <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mb-4 border border-white/10">
+                    <div className="w-16 h-16 rounded-full bg-muted/50 flex items-center justify-center mb-4 border border-border">
                       <Video className="h-8 w-8 text-muted-foreground/30" />
                     </div>
-                    <p className="text-sm font-semibold text-white/80">No iterations yet</p>
+                    <p className="text-sm font-semibold text-foreground/80">No iterations yet</p>
                     <p className="text-xs text-muted-foreground mt-2 max-w-[200px]">Enter a prompt and click generate to create your first video iteration.</p>
                   </div>
                 ) : (
@@ -394,7 +394,7 @@ function IterationCard({ iteration }: { iteration: VideoIteration }) {
     processing: 'bg-primary/10 text-primary border-primary/20',
     completed: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
     failed: 'bg-destructive/10 text-destructive border-destructive/20',
-    cancelled: 'bg-white/5 text-muted-foreground border-white/10',
+    cancelled: 'bg-muted/50 text-muted-foreground border-border',
     queued: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
   }
   
@@ -407,9 +407,9 @@ function IterationCard({ iteration }: { iteration: VideoIteration }) {
   }[iteration.status] || Clock
   
   return (
-    <div className="group rounded-xl border border-white/5 bg-white/[0.03] overflow-hidden hover:border-white/20 transition-all duration-300 shadow-sm hover:shadow-xl">
+    <div className="group rounded-xl border border-border bg-card/50 overflow-hidden hover:border-primary/30 transition-all duration-300 shadow-sm hover:shadow-xl">
       {/* Video Preview / Placeholder */}
-      <div className="aspect-video bg-black/40 relative overflow-hidden">
+      <div className="aspect-video bg-muted relative overflow-hidden">
         {hasOutput && iteration.status === 'completed' ? (
           <video
             src={videoOutput.fileUrl}
@@ -418,11 +418,11 @@ function IterationCard({ iteration }: { iteration: VideoIteration }) {
             preload="metadata"
           />
         ) : (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/20 backdrop-blur-sm">
-            <div className={`p-3 rounded-full ${statusColors[iteration.status].split(' ')[0]} border border-white/5 mb-3`}>
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-muted/50 backdrop-blur-sm">
+            <div className={`p-3 rounded-full ${statusColors[iteration.status].split(' ')[0]} border border-border mb-3`}>
               <StatusIcon className={`h-6 w-6 ${iteration.status === 'processing' ? 'animate-spin' : ''}`} />
             </div>
-            <span className="text-[10px] font-semibold uppercase tracking-widest text-white/60">
+            <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
               {iteration.status === 'processing' ? 'Creating...' : iteration.status}
             </span>
           </div>
@@ -445,7 +445,7 @@ function IterationCard({ iteration }: { iteration: VideoIteration }) {
         
         {/* Prompt Preview */}
         <div className="relative">
-          <p className="text-xs leading-relaxed text-muted-foreground line-clamp-3 group-hover:text-white/80 transition-colors" title={iteration.prompt}>
+          <p className="text-xs leading-relaxed text-muted-foreground line-clamp-3 group-hover:text-foreground transition-colors" title={iteration.prompt}>
             {iteration.prompt}
           </p>
         </div>

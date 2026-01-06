@@ -260,5 +260,14 @@
       linear-gradient(to right, hsl(var(--border) / 0.15) 1px, transparent 1px),
       linear-gradient(to bottom, hsl(var(--border) / 0.15) 1px, transparent 1px);
   }
+  
+  /* Prompt card - solid background with better contrast in light mode */
+  .bg-prompt-card {
+    background-color: rgb(215, 212, 208); /* Solid warm gray for light mode */
+  }
+  
+  .dark .bg-prompt-card {
+    background-color: hsl(var(--muted)); /* Use muted for dark mode */
+  }
 }
 

@@ -386,7 +386,7 @@ export function GenerationGallery({
               >
               <div className="flex gap-6 items-start">
                 {/* Left Side: Prompt Display with Cancelled State */}
-                <div className="w-96 flex-shrink-0 bg-muted/30 rounded-xl p-6 border border-destructive/50 flex flex-col relative" style={{ minHeight: '256px' }}>
+                <div className="w-96 flex-shrink-0 bg-prompt-card rounded-xl p-6 border border-destructive/50 flex flex-col relative" style={{ minHeight: '256px' }}>
                   <div className="absolute top-2 left-2 px-2 py-1 bg-destructive/20 text-destructive text-xs font-medium rounded z-10">
                     Cancelled
                   </div>
@@ -449,7 +449,7 @@ export function GenerationGallery({
               >
               <div className="flex gap-6 items-start">
                 {/* Left Side: Prompt and metadata */}
-                <div className={`w-96 flex-shrink-0 bg-muted/30 rounded-xl p-6 border flex flex-col relative group ${
+                <div className={`w-96 flex-shrink-0 bg-prompt-card rounded-xl p-6 border flex flex-col relative group ${
                   isStuck
                     ? 'border-destructive/50 border-destructive'
                     : 'border-border/50 border-primary/30'
@@ -627,7 +627,7 @@ export function GenerationGallery({
               >
               <div className="flex gap-6 items-start">
                 {/* Left Side: Prompt Display - same styling as images */}
-                <div className="w-96 flex-shrink-0 bg-muted/30 rounded-xl p-6 border border-border/50 flex flex-col" style={{ minHeight: '320px' }}>
+                <div className="w-96 flex-shrink-0 bg-prompt-card rounded-xl p-6 border border-border flex flex-col" style={{ minHeight: '320px' }}>
                   <div className="flex-1 overflow-hidden hover:overflow-y-auto transition-all group relative" style={{ maxHeight: '200px' }}>
                     <p 
                       className="text-base font-normal leading-relaxed text-foreground/90 cursor-pointer hover:text-primary transition-colors"
@@ -764,7 +764,7 @@ export function GenerationGallery({
             >
             <div className="flex gap-6 items-start">
               {/* Left Side: Prompt Display - Increased Height with Scroll on Hover */}
-              <div className="w-96 flex-shrink-0 bg-muted/30 rounded-xl p-6 border border-border/50 flex flex-col" style={{ minHeight: '320px' }}>
+              <div className="w-96 flex-shrink-0 bg-prompt-card rounded-xl p-6 border border-border flex flex-col" style={{ minHeight: '320px' }}>
                 <div className="flex-1 overflow-hidden hover:overflow-y-auto transition-all group relative" style={{ maxHeight: '200px' }}>
                   <p 
                     className="text-base font-normal leading-relaxed text-foreground/90 cursor-pointer hover:text-primary transition-colors"
