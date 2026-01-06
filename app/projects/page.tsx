@@ -373,64 +373,50 @@ export default function ProjectsPage() {
         </Button>
       </div>
 
-      {/* Tab Navigation - with top padding for fixed navbar */}
-      <div className="border-b border-border bg-muted/30 pt-20">
-        <div className="container mx-auto px-4">
-          <div className="flex items-center justify-center gap-12">
+      {/* Main Content */}
+      <main
+        className="w-full min-h-screen bg-cover bg-center bg-no-repeat"
+        style={{ 
+          backgroundImage: `url('/images/Full page_Sketch${theme === 'light' ? ' (Light)' : ''}.png')` 
+        }}
+      >
+        {/* Floating Tab Navigation */}
+        <div className="pt-24 pb-6 flex justify-center">
+          <div className="inline-flex items-center gap-1 p-1.5 rounded-xl bg-background/80 backdrop-blur-md border border-border shadow-lg">
             <button
               onClick={() => setActiveTab('briefings')}
-              className={`px-6 py-4 text-lg font-bold transition-all relative uppercase ${
+              className={`px-5 py-2.5 text-sm font-semibold rounded-lg transition-all uppercase tracking-wide ${
                 activeTab === 'briefings'
-                  ? 'text-primary'
-                  : 'text-muted-foreground hover:text-foreground'
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
               }`}
-              style={{ fontFamily: 'Avantt, -apple-system, BlinkMacSystemFont, sans-serif', fontWeight: 700 }}
             >
               Briefings
-              {activeTab === 'briefings' && (
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
-              )}
             </button>
             <button
               onClick={() => setActiveTab('projects')}
-              className={`px-6 py-4 text-lg font-bold transition-all relative uppercase ${
+              className={`px-5 py-2.5 text-sm font-semibold rounded-lg transition-all uppercase tracking-wide ${
                 activeTab === 'projects'
-                  ? 'text-primary'
-                  : 'text-muted-foreground hover:text-foreground'
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
               }`}
-              style={{ fontFamily: 'Avantt, -apple-system, BlinkMacSystemFont, sans-serif', fontWeight: 700 }}
             >
               Projects
-              {activeTab === 'projects' && (
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
-              )}
             </button>
             <button
               onClick={() => setActiveTab('review')}
-              className={`px-6 py-4 text-lg font-bold transition-all relative uppercase ${
+              className={`px-5 py-2.5 text-sm font-semibold rounded-lg transition-all uppercase tracking-wide ${
                 activeTab === 'review'
-                  ? 'text-primary'
-                  : 'text-muted-foreground hover:text-foreground'
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
               }`}
-              style={{ fontFamily: 'Avantt, -apple-system, BlinkMacSystemFont, sans-serif', fontWeight: 700 }}
             >
               Review
-              {activeTab === 'review' && (
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
-              )}
             </button>
           </div>
         </div>
-      </div>
 
-            {/* Main Content */}
-            <main
-              className="w-full min-h-screen bg-cover bg-center bg-no-repeat"
-              style={{ 
-                backgroundImage: `url('/images/Full page_Sketch${theme === 'light' ? ' (Light)' : ''}.png')` 
-              }}
-            >
-              <div className="container mx-auto px-4 py-8">
+        <div className="container mx-auto px-4 pb-8">
                 {/* Briefings Tab */}
                 {activeTab === 'briefings' && (
           <div className="flex flex-col items-center justify-center py-20">
@@ -495,16 +481,15 @@ export default function ProjectsPage() {
 
         {/* Review Tab */}
         {activeTab === 'review' && <ReviewTabContent />}
-              </div>
-            </main>
+        </div>
+      </main>
 
-            {/* New Project Dialog */}
+      {/* New Project Dialog */}
       <NewProjectDialog
         open={showNewProject}
         onOpenChange={setShowNewProject}
         onProjectCreated={handleProjectCreated}
       />
-
     </div>
   )
 }
