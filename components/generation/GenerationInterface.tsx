@@ -594,7 +594,7 @@ export function GenerationInterface({
             </div>
           </div>
         ) : (
-          <div className="p-6 pb-52 pl-24 flex justify-center">
+          <div className="pt-24 pb-52 pl-24 flex justify-center">
             <div className="w-full max-w-7xl">
               {/* Sentinel at TOP for loading older items when scrolling up */}
               <div ref={loadOlderRef} className="h-1 w-full" />

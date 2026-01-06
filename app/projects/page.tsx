@@ -7,8 +7,9 @@ import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
 import { useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
-import { Plus, LogOut, Settings, Sun, Moon, Bookmark, Check, ExternalLink, Download } from 'lucide-react'
+import { Plus, LogOut, Settings, Sun, Moon, Check, ExternalLink, Download } from 'lucide-react'
 import { SpendingTracker } from '@/components/navbar/SpendingTracker'
+import { Navbar } from '@/components/navbar/Navbar'
 import { ProjectGrid } from '@/components/projects/ProjectGrid'
 import { NewProjectDialog } from '@/components/projects/NewProjectDialog'
 import { useProjects } from '@/hooks/useProjects'
@@ -334,61 +335,41 @@ export default function ProjectsPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="border-b border-border">
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <img 
-              src={theme === 'light' ? "/images/Loop Vesper (Black).svg" : "/images/Loop Vesper (White).svg"}
-              alt="Loop Vesper Logo" 
-              className="h-8 object-contain"
-            />
-          </div>
-          <div className="flex items-center gap-2">
-            <Button onClick={() => setShowNewProject(true)}>
-              <Plus className="mr-2 h-4 w-4" />
-              New Project
-            </Button>
-            <Button 
-              variant="ghost" 
-              size="icon"
-              onClick={() => router.push('/bookmarks')}
-              title="Bookmarks"
-            >
-              <Bookmark className="h-4 w-4" />
-            </Button>
-            <SpendingTracker isAdmin={isAdmin} />
-            <Button 
-              variant="ghost" 
-              size="icon"
-              onClick={toggleTheme}
-              className="transition-transform hover:rotate-12"
-              title={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
-            >
-              {theme === 'light' ? (
-                <Moon className="h-4 w-4" />
-              ) : (
-                <Sun className="h-4 w-4" />
-              )}
-            </Button>
-            <Link href="/settings">
-              <Button 
-                variant="ghost" 
-                size="icon"
-                title="Settings"
-              >
-                <Settings className="h-4 w-4" />
-              </Button>
-            </Link>
-            <Button variant="ghost" size="icon" onClick={handleSignOut} title="Sign out">
-              <LogOut className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      </header>
+      {/* Navbar */}
+      <Navbar theme={theme} showGenerationToggle={false} />
 
-      {/* Tab Navigation */}
-      <div className="border-b border-border bg-muted/30">
+      {/* Utility Icons - Fixed Top Right */}
+      <div className="fixed top-4 right-4 z-50 flex items-center gap-1">
+        <Button onClick={() => setShowNewProject(true)} size="sm" className="h-8">
+          <Plus className="mr-1.5 h-3.5 w-3.5" />
+          New
+        </Button>
+        <SpendingTracker isAdmin={isAdmin} />
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={toggleTheme}
+          className="h-8 w-8 transition-transform hover:rotate-12"
+          title={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+        >
+          {theme === 'light' ? (
+            <Moon className="h-4 w-4" />
+          ) : (
+            <Sun className="h-4 w-4" />
+          )}
+        </Button>
+        <Link href="/settings">
+          <Button variant="ghost" size="icon" title="Settings" className="h-8 w-8">
+            <Settings className="h-4 w-4" />
+          </Button>
+        </Link>
+        <Button variant="ghost" size="icon" onClick={handleSignOut} title="Sign out" className="h-8 w-8">
+          <LogOut className="h-4 w-4" />
+        </Button>
+      </div>
+
+      {/* Tab Navigation - with top padding for fixed navbar */}
+      <div className="border-b border-border bg-muted/30 pt-20">
         <div className="container mx-auto px-4">
           <div className="flex items-center justify-center gap-12">
             <button

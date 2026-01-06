@@ -90,7 +90,7 @@ export function FloatingSessionBar({
   }, [filteredSessionIds, filteredSessions])
 
   return (
-    <div className="fixed left-4 top-1/2 -translate-y-1/2 z-40 flex flex-col items-start gap-3">
+    <div className="flex flex-col items-start gap-3">
       {/* New Session Button */}
       <button
         onClick={() => onSessionCreate(generationType)}

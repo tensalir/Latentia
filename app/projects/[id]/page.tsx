@@ -1,31 +1,36 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
-import { Settings, Sun, Moon } from 'lucide-react'
+import { Settings, Sun, Moon, Lock, Globe } from 'lucide-react'
 import { FloatingSessionBar } from '@/components/sessions/FloatingSessionBar'
 import { GenerationInterface } from '@/components/generation/GenerationInterface'
 import { useSessions } from '@/hooks/useSessions'
 import { Navbar } from '@/components/navbar/Navbar'
 import { SpendingTracker } from '@/components/navbar/SpendingTracker'
-import type { Session } from '@/types/project'
+import { useToast } from '@/components/ui/use-toast'
+import type { Session, Project } from '@/types/project'
 
 export default function ProjectPage() {
   const params = useParams()
   const router = useRouter()
+  const { toast } = useToast()
+  const [project, setProject] = useState<Project | null>(null)
   const [projectName, setProjectName] = useState('Loading...')
   const [projectOwnerId, setProjectOwnerId] = useState<string>('')
   const [currentUserId, setCurrentUserId] = useState<string>('')
   const [isAdmin, setIsAdmin] = useState(false)
+  const [updating, setUpdating] = useState(false)
   const [activeSession, setActiveSession] = useState<Session | null>(null)
   const [generationType, setGenerationType] = useState<'image' | 'video'>('image')
   const [theme, setTheme] = useState<'light' | 'dark'>('light')
   const supabase = createClient()
   const queryClient = useQueryClient()
+  const hasProcessedInitialSessionsRef = useRef(false)
 
   // Use React Query for sessions with intelligent caching
   const { data: sessions = [], isLoading: sessionsLoading } = useSessions(params.id as string)
@@ -50,25 +55,39 @@ export default function ProjectPage() {
     fetchProject()
   }, [params.id])
 
-  // Set active session when sessions data loads
+  // Set active session when sessions data loads (do NOT auto-create sessions)
   useEffect(() => {
-    if (!sessionsLoading && sessions.length > 0) {
-      if (!activeSession) {
-        // Set first session as active
-        setActiveSession(sessions[0])
-        setGenerationType(sessions[0].type)
-      } else {
-        // Preserve active session if it still exists
-        const updatedActiveSession = sessions.find(s => s.id === activeSession.id)
-        if (updatedActiveSession) {
-          setActiveSession(updatedActiveSession)
-        }
-      }
-    } else if (!sessionsLoading && sessions.length === 0) {
-      // No sessions - create default
-      handleSessionCreate('image')
+    if (sessionsLoading) return
+
+    const isFirstProcess = !hasProcessedInitialSessionsRef.current
+    if (isFirstProcess) {
+      hasProcessedInitialSessionsRef.current = true
     }
-  }, [sessions, sessionsLoading])
+
+    if (sessions.length === 0) {
+      if (activeSession) setActiveSession(null)
+      return
+    }
+
+    if (activeSession) {
+      const updatedActiveSession = sessions.find((s) => s.id === activeSession.id)
+      setActiveSession(updatedActiveSession || null)
+      return
+    }
+
+    // If the user has selected a type, prefer a session of that type (if any)
+    const sessionsOfType = sessions.filter((s) => s.type === generationType)
+    if (sessionsOfType.length > 0) {
+      setActiveSession(sessionsOfType[0])
+      return
+    }
+
+    // Only on first load: fall back to the newest session and adopt its type
+    if (isFirstProcess) {
+      setActiveSession(sessions[0])
+      setGenerationType(sessions[0].type)
+    }
+  }, [sessionsLoading, sessions, activeSession, generationType])
 
   const fetchProject = async () => {
     try {
@@ -88,12 +107,59 @@ export default function ProjectPage() {
       // Fetch project details
       const response = await fetch(`/api/projects/${params.id}`)
       if (response.ok) {
-        const project = await response.json()
-        setProjectName(project.name)
-        setProjectOwnerId(project.ownerId)
+        const projectData = await response.json()
+        setProject(projectData)
+        setProjectName(projectData.name)
+        setProjectOwnerId(projectData.ownerId)
       }
     } catch (error) {
       console.error('Error fetching project:', error)
+    }
+  }
+
+  const handleTogglePrivacy = async () => {
+    if (!project || project.ownerId !== currentUserId) return
+
+    const newIsShared = !project.isShared
+    
+    // Optimistic UI update
+    setProject({
+      ...project,
+      isShared: newIsShared,
+    })
+
+    setUpdating(true)
+    try {
+      const response = await fetch(`/api/projects/${project.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isShared: newIsShared }),
+      })
+
+      if (response.ok) {
+        toast({
+          title: newIsShared ? 'Sharing enabled' : 'Project set to private',
+          description: newIsShared
+            ? 'Invited members can now view this project'
+            : 'Only you can see this project now',
+          variant: 'default',
+        })
+      } else {
+        // Revert optimistic update on error
+        setProject(project)
+        throw new Error('Failed to update privacy')
+      }
+    } catch (error) {
+      // Revert optimistic update on error
+      setProject(project)
+      console.error('Error updating privacy:', error)
+      toast({
+        title: 'Update failed',
+        description: 'Failed to update project privacy',
+        variant: 'destructive',
+      })
+    } finally {
+      setUpdating(false)
     }
   }
 
@@ -149,6 +215,8 @@ export default function ProjectPage() {
           if (!oldData) return [parsedSession]
           return oldData.map(s => s.id === tempId ? parsedSession : s)
         })
+        // Invalidate projects cache so session count updates on home page
+        queryClient.invalidateQueries({ queryKey: ['projects'] })
         
         // Update active session to real one
         setActiveSession(parsedSession)
@@ -185,17 +253,9 @@ export default function ProjectPage() {
   }
 
   const handleGenerationTypeChange = (type: 'image' | 'video') => {
-    // Find sessions of the target type
-    const sessionsOfType = sessions.filter(s => s.type === type)
-    
-    if (sessionsOfType.length > 0) {
-      // Switch to the first session of that type
-      setActiveSession(sessionsOfType[0])
-      setGenerationType(type)
-    } else {
-      // No sessions of this type exist, create one
-      handleSessionCreate(type)
-    }
+    setGenerationType(type)
+    const sessionsOfType = sessions.filter((s) => s.type === type)
+    setActiveSession(sessionsOfType[0] || null)
   }
 
   const handleSessionRename = async (session: Session) => {
@@ -236,11 +296,13 @@ export default function ProjectPage() {
       })
 
       if (response.ok) {
-        // Remove from cache
+        // Remove from sessions cache
         queryClient.setQueryData(['sessions', params.id], (oldData: Session[] | undefined) => {
           if (!oldData) return []
           return oldData.filter(s => s.id !== session.id)
         })
+        // Invalidate projects cache so session count updates on home page
+        queryClient.invalidateQueries({ queryKey: ['projects'] })
         // If deleted session was active, switch to another
         if (activeSession?.id === session.id) {
           const remainingSessions = sessions.filter(s => s.id !== session.id && s.type === generationType)
@@ -295,25 +357,47 @@ export default function ProjectPage() {
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 flex overflow-hidden relative pt-16">
-        {/* Project Title - Subtle, positioned above session bar */}
-        <div className="fixed left-4 top-[72px] z-40 px-2">
-          <h1 className="text-xs font-medium text-muted-foreground/80 truncate max-w-[180px] hover:text-muted-foreground transition-colors" title={projectName}>
-            {projectName}
-          </h1>
+      <div className="flex-1 flex overflow-hidden relative">
+        {/* Project Header Frame - Left Side */}
+        <div className="fixed left-4 top-20 z-40 flex flex-col gap-4 pointer-events-none">
+          {/* Title Frame */}
+          <div className="bg-background/95 backdrop-blur-md border border-border px-4 py-2 rounded-2xl shadow-xl flex items-center gap-3 pointer-events-auto min-w-[180px] max-w-[320px] ring-1 ring-black/5 dark:ring-white/5">
+            <h1 className="text-sm font-bold truncate flex-1 tracking-tight" title={projectName}>
+              {projectName}
+            </h1>
+            
+            <div className="w-px h-4 bg-border/60" />
+            
+            {project && project.ownerId === currentUserId && (
+              <button
+                onClick={handleTogglePrivacy}
+                disabled={updating}
+                className="flex items-center gap-1 p-1.5 hover:bg-muted rounded-lg transition-all text-muted-foreground hover:text-foreground"
+                title={project.isShared ? 'Shared - Click to make private' : 'Private - Click to enable sharing'}
+              >
+                {project.isShared ? (
+                  <Globe className="h-4 w-4 text-primary animate-in zoom-in duration-300" />
+                ) : (
+                  <Lock className="h-4 w-4 animate-in zoom-in duration-300" />
+                )}
+              </button>
+            )}
+          </div>
+          
+          {/* Floating Session Thumbnails */}
+          <div className="pointer-events-auto">
+            <FloatingSessionBar
+              sessions={sessions}
+              activeSession={activeSession}
+              generationType={generationType}
+              onSessionSelect={setActiveSession}
+              onSessionCreate={handleSessionCreate}
+              onSessionRename={handleSessionRename}
+              onSessionDelete={handleSessionDelete}
+            />
+          </div>
         </div>
         
-        {/* Floating Session Thumbnails - Left Side (keeps its own fixed positioning) */}
-        <FloatingSessionBar
-          sessions={sessions}
-          activeSession={activeSession}
-          generationType={generationType}
-          onSessionSelect={setActiveSession}
-          onSessionCreate={handleSessionCreate}
-          onSessionRename={handleSessionRename}
-          onSessionDelete={handleSessionDelete}
-        />
-
         {/* Generation Interface - Full Width */}
         <GenerationInterface
           session={activeSession}
