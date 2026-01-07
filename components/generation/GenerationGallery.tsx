@@ -504,6 +504,9 @@ export function GenerationGallery({
                       <span className="text-muted-foreground/70">Generated:</span>
                       <span className="font-medium">{formatDate(generation.createdAt)}</span>
                     </div>
+                    
+                    {/* Reference Image Thumbnail - shown during processing too */}
+                    <ReferenceImageThumbnail generation={generation} />
                   </div>
                 </div>
 

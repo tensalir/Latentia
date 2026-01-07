@@ -17,6 +17,7 @@ import {
   ArrowRight,
   Copy,
   Check as CheckIcon,
+  GripHorizontal,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -72,6 +73,12 @@ export function BrainstormChatWidget({ projectId, isOpen: controlledIsOpen, onOp
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const activeThreadIdRef = useRef<string | null>(null)
+  
+  // Resizable input height
+  const [inputHeight, setInputHeight] = useState(44) // Default min height
+  const [isResizing, setIsResizing] = useState(false)
+  const resizeStartY = useRef(0)
+  const resizeStartHeight = useRef(0)
 
   useEffect(() => {
     activeThreadIdRef.current = activeThreadId
@@ -377,6 +384,44 @@ export function BrainstormChatWidget({ projectId, isOpen: controlledIsOpen, onOp
     
     setAttachedFiles(prev => [...prev, ...files])
   }
+
+  // Resize handlers for expanding/collapsing input area
+  const handleResizeStart = useCallback((e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault()
+    setIsResizing(true)
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY
+    resizeStartY.current = clientY
+    resizeStartHeight.current = inputHeight
+  }, [inputHeight])
+
+  const handleResizeMove = useCallback((e: MouseEvent | TouchEvent) => {
+    if (!isResizing) return
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY
+    // Calculate delta (negative because we're dragging up to expand)
+    const delta = resizeStartY.current - clientY
+    const newHeight = Math.min(Math.max(resizeStartHeight.current + delta, 44), 200) // Min 44px, max 200px
+    setInputHeight(newHeight)
+  }, [isResizing])
+
+  const handleResizeEnd = useCallback(() => {
+    setIsResizing(false)
+  }, [])
+
+  // Global mouse/touch events for resizing
+  useEffect(() => {
+    if (isResizing) {
+      document.addEventListener('mousemove', handleResizeMove)
+      document.addEventListener('mouseup', handleResizeEnd)
+      document.addEventListener('touchmove', handleResizeMove)
+      document.addEventListener('touchend', handleResizeEnd)
+      return () => {
+        document.removeEventListener('mousemove', handleResizeMove)
+        document.removeEventListener('mouseup', handleResizeEnd)
+        document.removeEventListener('touchmove', handleResizeMove)
+        document.removeEventListener('touchend', handleResizeEnd)
+      }
+    }
+  }, [isResizing, handleResizeMove, handleResizeEnd])
 
   // Drag and drop handlers
   const handleDragEnter = (e: React.DragEvent) => {
@@ -863,15 +908,32 @@ export function BrainstormChatWidget({ projectId, isOpen: controlledIsOpen, onOp
                 className="hidden"
               />
               
-              {/* Input with attachment button inside */}
+              {/* Input with attachment button inside and resize handle */}
               <div className="flex-1 relative">
+                {/* Resize handle at top of input */}
+                <div 
+                  className="absolute -top-2 left-1/2 -translate-x-1/2 z-10 cursor-ns-resize group"
+                  onMouseDown={handleResizeStart}
+                  onTouchStart={handleResizeStart}
+                >
+                  <div className={cn(
+                    "flex items-center justify-center w-10 h-4 rounded-full transition-all",
+                    isResizing 
+                      ? "bg-primary/20 text-primary" 
+                      : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  )}>
+                    <GripHorizontal className="w-4 h-3" />
+                  </div>
+                </div>
+                
                 <Textarea
                   ref={textareaRef}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
                   placeholder="What would you like to explore?"
-                  className="min-h-[44px] max-h-[120px] resize-none rounded-xl text-sm py-3 pl-3 pr-10"
+                  style={{ height: `${inputHeight}px` }}
+                  className="resize-none rounded-xl text-sm py-3 pl-3 pr-10 overflow-y-auto"
                   disabled={isLoading}
                 />
                 {/* Attachment button inside input - right side, vertically centered */}
