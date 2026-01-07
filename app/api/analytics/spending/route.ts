@@ -23,7 +23,7 @@ export async function GET() {
     }
 
     // SECURITY: Only admins can view spending
-    const profile = await prisma.profile.findUnique({
+    const profile = await prisma.profiles.findUnique({
       where: { id: session.user.id },
       select: { role: true },
     })

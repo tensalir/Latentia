@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
     }
 
     // SECURITY: Require admin role to clean up all stuck generations
-    const profile = await prisma.profile.findUnique({
+    const profile = await prisma.profiles.findUnique({
       where: { id: session.user.id },
       select: { role: true },
     })

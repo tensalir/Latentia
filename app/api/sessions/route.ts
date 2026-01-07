@@ -64,7 +64,7 @@ export async function GET(request: Request) {
     })
 
     // Get project owner profile for display
-    const ownerProfile = await prisma.profile.findUnique({
+    const ownerProfile = await prisma.profiles.findUnique({
       where: { id: project.ownerId },
       select: {
         id: true,

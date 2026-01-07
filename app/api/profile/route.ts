@@ -17,13 +17,13 @@ export async function GET(request: NextRequest) {
     }
 
     // Get or create profile
-    let profile = await prisma.profile.findUnique({
+    let profile = await prisma.profiles.findUnique({
       where: { id: session.user.id },
     })
 
     if (!profile) {
       // Create profile if it doesn't exist (default role: user)
-      profile = await prisma.profile.create({
+      profile = await prisma.profiles.create({
         data: {
           id: session.user.id,
           username: session.user.email?.split('@')[0] || null,
@@ -60,7 +60,7 @@ export async function PATCH(request: NextRequest) {
     const { displayName, username, avatarUrl } = body
 
     // Update profile (note: role cannot be changed via this endpoint for security)
-    const profile = await prisma.profile.upsert({
+    const profile = await prisma.profiles.upsert({
       where: { id: session.user.id },
       update: {
         displayName: displayName?.trim() || null,

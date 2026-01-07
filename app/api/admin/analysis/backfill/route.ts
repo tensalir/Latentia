@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const profile = await prisma.profile.findUnique({
+    const profile = await prisma.profiles.findUnique({
       where: { id: user.id },
       select: { role: true },
     })
@@ -146,7 +146,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const profile = await prisma.profile.findUnique({
+    const profile = await prisma.profiles.findUnique({
       where: { id: user.id },
       select: { role: true },
     })

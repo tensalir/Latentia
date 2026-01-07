@@ -260,7 +260,7 @@ export async function POST(request: NextRequest) {
       }
 
       // Check admin role
-      const profile = await prisma.profile.findUnique({
+      const profile = await prisma.profiles.findUnique({
         where: { id: session.user.id },
         select: { role: true },
       })
@@ -444,7 +444,7 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
       }
 
-      const profile = await prisma.profile.findUnique({
+      const profile = await prisma.profiles.findUnique({
         where: { id: session.user.id },
         select: { role: true },
       })

@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Ensure user profile exists (create if it doesn't)
-    await prisma.profile.upsert({
+    await prisma.profiles.upsert({
       where: { id: user.id },
       update: {},
       create: {

@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Check admin role
-    const profile = await prisma.profile.findUnique({
+    const profile = await prisma.profiles.findUnique({
       where: { id: user.id },
       select: { role: true },
     })
