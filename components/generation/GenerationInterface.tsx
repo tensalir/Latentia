@@ -839,8 +839,8 @@ export function GenerationInterface({
                 onRegisterPasteHandler={registerPasteHandler}
               />
             )}
-          </div>
         </div>
+      </div>
     </div>
   )
 }

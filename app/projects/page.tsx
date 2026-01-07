@@ -334,8 +334,13 @@ function ProjectsPageContent() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-background">
-      {/* Header Section - Clean background for navbar */}
+    <div 
+      className="min-h-screen flex flex-col bg-cover bg-center bg-no-repeat bg-fixed"
+      style={{ 
+        backgroundImage: `url('/images/Full page_Sketch${theme === 'light' ? ' (Light)' : ''}.png')` 
+      }}
+    >
+      {/* Header Section */}
       <header className="h-20 flex items-center justify-between px-6 relative z-50">
         {/* Navbar + New Button - Centered */}
         <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2">
@@ -379,53 +384,60 @@ function ProjectsPageContent() {
         </div>
       </header>
 
-      {/* Main Content Frame - Full width with background */}
+      {/* Main Content Frame */}
       <main className="flex-1 relative">
-        {/* Content Frame with rounded top corners */}
-        <div
-          className="absolute inset-0 rounded-t-3xl overflow-hidden border-t border-x border-border bg-cover bg-center bg-no-repeat"
-          style={{ 
-            backgroundImage: `url('/images/Full page_Sketch${theme === 'light' ? ' (Light)' : ''}.png')` 
-          }}
-        >
-          {/* Tab Navigation - Protruding at top of frame */}
-          <div className="pt-6 pb-6 flex justify-center">
-            <div className="inline-flex items-center gap-1 p-1.5 rounded-xl bg-background/90 backdrop-blur-md border border-border shadow-lg">
+        <div className="absolute inset-0 overflow-hidden">
+          {/* Tab Navigation - Clean underline style tabs */}
+          <div className="pt-8 pb-2 flex justify-center">
+            <div className="relative flex items-center gap-8">
+              {/* Tab buttons */}
               <button
                 onClick={() => setActiveTab('briefings')}
-                className={`px-5 py-2.5 text-sm font-semibold rounded-lg transition-all uppercase tracking-wide ${
+                className={`relative px-1 pb-3 text-sm font-medium transition-colors ${
                   activeTab === 'briefings'
-                    ? 'bg-primary text-primary-foreground shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+                    ? 'text-foreground'
+                    : 'text-muted-foreground/70 hover:text-muted-foreground'
                 }`}
               >
                 Briefings
+                {activeTab === 'briefings' && (
+                  <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full" />
+                )}
               </button>
               <button
                 onClick={() => setActiveTab('projects')}
-                className={`px-5 py-2.5 text-sm font-semibold rounded-lg transition-all uppercase tracking-wide ${
+                className={`relative px-1 pb-3 text-sm font-medium transition-colors ${
                   activeTab === 'projects'
-                    ? 'bg-primary text-primary-foreground shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+                    ? 'text-foreground'
+                    : 'text-muted-foreground/70 hover:text-muted-foreground'
                 }`}
               >
                 Projects
+                {activeTab === 'projects' && (
+                  <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full" />
+                )}
               </button>
               <button
                 onClick={() => setActiveTab('review')}
-                className={`px-5 py-2.5 text-sm font-semibold rounded-lg transition-all uppercase tracking-wide ${
+                className={`relative px-1 pb-3 text-sm font-medium transition-colors ${
                   activeTab === 'review'
-                    ? 'bg-primary text-primary-foreground shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+                    ? 'text-foreground'
+                    : 'text-muted-foreground/70 hover:text-muted-foreground'
                 }`}
               >
                 Review
+                {activeTab === 'review' && (
+                  <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full" />
+                )}
               </button>
+              
+              {/* Subtle baseline that connects all tabs */}
+              <span className="absolute bottom-0 left-0 right-0 h-px bg-border/50" />
             </div>
           </div>
 
           {/* Scrollable Content Area */}
-          <div className="h-[calc(100%-88px)] overflow-y-auto">
+          <div className="h-[calc(100%-56px)] overflow-y-auto">
             <div className="container mx-auto px-6 pb-8">
                 {/* Briefings Tab */}
                 {activeTab === 'briefings' && (

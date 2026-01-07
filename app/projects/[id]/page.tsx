@@ -364,44 +364,58 @@ export default function ProjectPage() {
 
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden relative">
-        {/* Project Header Frame - Left Side */}
-        <div className="fixed left-4 top-20 z-40 flex flex-col gap-4 pointer-events-none">
-          {/* Title Frame */}
-          <div className="bg-background/95 backdrop-blur-md border border-border px-4 py-2 rounded-2xl shadow-xl flex items-center gap-3 pointer-events-auto min-w-[180px] max-w-[320px] ring-1 ring-black/5 dark:ring-white/5">
-            <h1 className="text-sm font-bold truncate flex-1 tracking-tight" title={projectName}>
-              {projectName}
-            </h1>
-            
-            <div className="w-px h-4 bg-border/60" />
-            
-            {project && project.ownerId === currentUserId && (
-              <button
-                onClick={handleTogglePrivacy}
-                disabled={updating}
-                className="flex items-center gap-1 p-1.5 hover:bg-muted rounded-lg transition-all text-muted-foreground hover:text-foreground"
-                title={project.isShared ? 'Shared - Click to make private' : 'Private - Click to enable sharing'}
-              >
-                {project.isShared ? (
-                  <Globe className="h-4 w-4 text-primary animate-in zoom-in duration-300" />
-                ) : (
-                  <Lock className="h-4 w-4 animate-in zoom-in duration-300" />
-                )}
-              </button>
-            )}
-          </div>
+        {/* Project Title - Top Left, aligned with navbar */}
+        <div className="fixed left-4 top-4 z-40 flex items-center gap-3 h-12">
+          <h1 className="text-sm font-bold truncate max-w-[240px] tracking-tight" title={projectName}>
+            {projectName}
+          </h1>
           
-          {/* Floating Session Thumbnails */}
-          <div className="pointer-events-auto">
-            <FloatingSessionBar
-              sessions={sessions}
-              activeSession={activeSession}
-              generationType={generationType}
-              onSessionSelect={setActiveSession}
-              onSessionCreate={handleSessionCreate}
-              onSessionRename={handleSessionRename}
-              onSessionDelete={handleSessionDelete}
-            />
-          </div>
+          {project && project.ownerId === currentUserId && (
+            <button
+              onClick={handleTogglePrivacy}
+              disabled={updating}
+              className="bg-background/90 backdrop-blur-sm rounded-full p-1 flex items-center gap-0.5 hover:bg-background/95 transition-all relative"
+              title={project.isShared ? 'Click to make private' : 'Click to enable sharing'}
+            >
+              {/* Lock Icon - Left */}
+              <div className={`p-1.5 rounded-full transition-all z-10 ${
+                !project.isShared 
+                  ? 'text-background' 
+                  : 'text-muted-foreground'
+              }`}>
+                <Lock className="h-3.5 w-3.5" />
+              </div>
+              
+              {/* Globe Icon - Right */}
+              <div className={`p-1.5 rounded-full transition-all z-10 ${
+                project.isShared 
+                  ? 'text-background' 
+                  : 'text-muted-foreground'
+              }`}>
+                <Globe className="h-3.5 w-3.5" />
+              </div>
+
+              {/* Sliding Background */}
+              <div
+                className={`absolute top-1 bottom-1 w-7 bg-primary rounded-full transition-all duration-300 ${
+                  project.isShared ? 'left-[calc(50%-2px)]' : 'left-1'
+                }`}
+              />
+            </button>
+          )}
+        </div>
+        
+        {/* Floating Session Thumbnails - Vertically centered on left */}
+        <div className="fixed left-4 top-1/2 -translate-y-1/2 z-40">
+          <FloatingSessionBar
+            sessions={sessions}
+            activeSession={activeSession}
+            generationType={generationType}
+            onSessionSelect={setActiveSession}
+            onSessionCreate={handleSessionCreate}
+            onSessionRename={handleSessionRename}
+            onSessionDelete={handleSessionDelete}
+          />
         </div>
         
         {/* Generation Interface - Full Width */}
