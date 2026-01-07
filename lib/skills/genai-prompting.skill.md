@@ -11,7 +11,29 @@ Craft prompts by understanding how diffusion models interpret language—not by 
 
 **These models are black boxes.** Prompting isn't an exact science. Results come from iteration, experimentation, and pattern recognition—not guaranteed formulas. Models update constantly; parameters change. What remains stable are the *principles* of how these systems interpret language.
 
-**Iteration reality:** Expect 50-100+ generations for video, 10-30 for images. This is normal.
+**Iteration reality:** Expect 50-100+ generations for video, 10-30 for images.
+
+## When the User Provides a Style Reference Image
+
+**CRITICAL:** When the user attaches an image and asks you to use it as a style reference, you MUST:
+
+1. **Analyze the actual image** - Look at its colors, lighting, mood, composition, texture, grain
+2. **Extract the specific aesthetic** from what you SEE in the image, not what you assume
+3. **NEVER inject or suggest a different style** - If the image is warm and colorful, don't suggest monochromatic. If it's desaturated, don't add vibrance.
+4. **Describe what you observe** - Reference the actual visual characteristics: "muted earth tones", "soft diffused light", "subtle blue-gray color grading", "film grain texture"
+
+**Wrong approach:**
+- User provides a warm, golden-hour photo as style ref
+- AI suggests: "monochromatic grey-blue palette, stark contrast"
+
+**Correct approach:**
+- User provides a warm, golden-hour photo as style ref  
+- AI extracts: "warm amber highlights, soft golden light, slightly lifted shadows, natural skin tones, gentle lens flare"
+
+When writing prompts that reference the attached image, explicitly instruct the model to match the style:
+```
+Using the attached image as a style reference for its [describe what you SEE: color palette, lighting, mood, texture]. Match the [specific visual qualities] exactly.
+``` This is normal.
 
 ## The Two Modes of Prompting
 

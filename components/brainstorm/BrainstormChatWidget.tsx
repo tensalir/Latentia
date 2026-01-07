@@ -247,6 +247,16 @@ export function BrainstormChatWidget({ projectId, isOpen: controlledIsOpen, onOp
     }
   }, [isOpen, activeThreadId])
 
+  // Convert file to base64 data URL for Claude vision
+  const fileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result as string)
+      reader.onerror = reject
+      reader.readAsDataURL(file)
+    })
+  }
+
   // Upload files to Supabase
   const uploadFilesToSupabase = async (files: File[]): Promise<{ name: string; url: string; type: string }[]> => {
     const formData = new FormData()
@@ -280,24 +290,38 @@ export function BrainstormChatWidget({ projectId, isOpen: controlledIsOpen, onOp
     try {
       // Build message with attachments
       let messageText = text
+      const attachments: { name: string; contentType: string; url: string }[] = []
       
-      // If we have files, upload to Supabase and include URLs in message
+      // If we have files, process them for Claude vision + upload to Supabase for persistence
       if (hasFiles) {
         setIsUploading(true)
         
         try {
+          // Upload files to Supabase for persistence/display
           const uploadedFiles = await uploadFilesToSupabase(attachedFiles)
           const fileDescriptions: string[] = []
           
-          for (const file of uploadedFiles) {
+          for (let i = 0; i < uploadedFiles.length; i++) {
+            const file = uploadedFiles[i]
+            const originalFile = attachedFiles[i]
+            
             if (file.type.startsWith('image/')) {
+              // For images: Add to attachments array so Claude can SEE them
+              // Convert to base64 data URL for Claude vision
+              const base64 = await fileToBase64(originalFile)
+              attachments.push({
+                name: file.name,
+                contentType: file.type,
+                url: base64, // Send base64 data URL for Claude to analyze
+              })
               fileDescriptions.push(`[Attached image: ${file.name}](${file.url})`)
             } else {
+              // For documents: Include as text reference
               fileDescriptions.push(`[Attached file: ${file.name}](${file.url})`)
             }
           }
           
-          // Prepend file descriptions to message
+          // Prepend file descriptions to message for display/persistence
           if (fileDescriptions.length > 0 && !text) {
             messageText = fileDescriptions.join('\n')
           } else if (fileDescriptions.length > 0) {
@@ -317,7 +341,11 @@ export function BrainstormChatWidget({ projectId, isOpen: controlledIsOpen, onOp
         }
       }
       
-      await sendMessage({ text: messageText })
+      // Send message with attachments for Claude vision
+      await sendMessage({ 
+        text: messageText,
+        experimental_attachments: attachments.length > 0 ? attachments : undefined,
+      })
       setInput('')
       setAttachedFiles([])
       setFilePreviews([])
