@@ -29,6 +29,7 @@ export default function ProjectPage() {
   const [activeSession, setActiveSession] = useState<Session | null>(null)
   const [generationType, setGenerationType] = useState<'image' | 'video'>('image')
   const [theme, setTheme] = useState<'light' | 'dark'>('light')
+  const [isChatOpen, setIsChatOpen] = useState(false)
   const supabase = createClient()
   const queryClient = useQueryClient()
   const hasProcessedInitialSessionsRef = useRef(false)
@@ -265,8 +266,7 @@ export default function ProjectPage() {
     setActiveSession(sessionsOfType[0] || null)
   }
 
-  const handleSessionRename = async (session: Session) => {
-    const newName = window.prompt('Enter new session name:', session.name)
+  const handleSessionRename = async (session: Session, newName: string) => {
     if (!newName || newName === session.name) return
 
     try {
@@ -286,9 +286,19 @@ export default function ProjectPage() {
         if (activeSession?.id === session.id) {
           setActiveSession({ ...activeSession, name: newName })
         }
+        
+        toast({
+          title: 'Session renamed',
+          description: `Session renamed to "${newName}"`,
+        })
       }
     } catch (error) {
       console.error('Error renaming session:', error)
+      toast({
+        title: 'Rename failed',
+        description: 'Failed to rename session',
+        variant: 'destructive',
+      })
     }
   }
 
@@ -426,11 +436,18 @@ export default function ProjectPage() {
           allSessions={sessions}
           onSessionCreate={handleSessionCreate}
           onSessionSwitch={handleSessionSwitch}
+          onGenerationTypeChange={handleGenerationTypeChange}
+          onToggleChat={() => setIsChatOpen(!isChatOpen)}
+          isChatOpen={isChatOpen}
         />
       </div>
 
       {/* Brainstorm Chat Widget - Bottom Right */}
-      <BrainstormChatWidget projectId={params.id as string} />
+      <BrainstormChatWidget 
+        projectId={params.id as string}
+        isOpen={isChatOpen}
+        onOpenChange={setIsChatOpen}
+      />
     </div>
   )
 }

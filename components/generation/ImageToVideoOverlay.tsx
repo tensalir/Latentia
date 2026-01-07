@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { X, Video, Plus, Play, Loader2, Check, Clock, AlertCircle } from 'lucide-react'
+import { X, Video, Plus, Play, Loader2, Check, Clock, AlertCircle, ChevronDown, ChevronUp, RotateCcw, Download } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -153,6 +153,10 @@ export function ImageToVideoOverlay({
       
       // Invalidate the video session's generations
       queryClient.invalidateQueries({ queryKey: ['generations', sessionId] })
+      
+      // Close the overlay immediately after generation starts
+      // User stays in image view - they can switch to video tab manually when ready
+      onClose()
     } catch (error) {
       console.error('Video generation failed:', error)
     }
@@ -184,7 +188,10 @@ export function ImageToVideoOverlay({
       />
       
       {/* Overlay Container */}
-      <div className="fixed inset-4 md:inset-6 lg:inset-10 z-50 flex items-center justify-center">
+      <div 
+        className="fixed inset-4 md:inset-6 lg:inset-10 z-50 flex items-center justify-center"
+        onClick={onClose}
+      >
         <div 
           className="relative w-full max-w-5xl max-h-full overflow-hidden rounded-2xl
                      bg-card/95 dark:bg-background/95 backdrop-blur-2xl 
@@ -297,6 +304,12 @@ export function ImageToVideoOverlay({
                           value={newSessionName}
                           onChange={(e) => setNewSessionName(e.target.value)}
                           onFocus={(e) => e.target.select()}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && newSessionName.trim()) {
+                              e.preventDefault()
+                              handleGenerate(prompt)
+                            }
+                          }}
                           className="bg-muted/50 border-border h-10 text-sm rounded-lg focus:ring-primary/20 focus:bg-background pl-10"
                           autoFocus={sessionMode === 'new'}
                         />
@@ -373,7 +386,23 @@ export function ImageToVideoOverlay({
                   </div>
                 ) : (
                   iterations.map((iteration) => (
-                    <IterationCard key={iteration.id} iteration={iteration} />
+                    <IterationCard 
+                      key={iteration.id} 
+                      iteration={iteration}
+                      onReuseParameters={(iter) => {
+                        setPrompt(iter.prompt)
+                        if (iter.modelId) setSelectedModel(iter.modelId)
+                        const params = iter.parameters as any
+                        if (params) {
+                          setParameters(prev => ({
+                            ...prev,
+                            ...(params.aspectRatio && { aspectRatio: params.aspectRatio }),
+                            ...(params.resolution && { resolution: params.resolution }),
+                            ...(params.duration && { duration: params.duration }),
+                          }))
+                        }
+                      }}
+                    />
                   ))
                 )}
               </div>
@@ -388,9 +417,19 @@ export function ImageToVideoOverlay({
 /**
  * Card showing a single video iteration
  */
-function IterationCard({ iteration }: { iteration: VideoIteration }) {
+function IterationCard({ 
+  iteration,
+  onReuseParameters 
+}: { 
+  iteration: VideoIteration
+  onReuseParameters?: (iteration: VideoIteration) => void
+}) {
+  const [isExpanded, setIsExpanded] = useState(false)
   const hasOutput = iteration.outputs.length > 0
   const videoOutput = iteration.outputs[0]
+  
+  // Check if prompt is long enough to need expand
+  const promptNeedsExpand = iteration.prompt.length > 150
   
   const statusColors = {
     processing: 'bg-primary/10 text-primary border-primary/20',
@@ -407,6 +446,26 @@ function IterationCard({ iteration }: { iteration: VideoIteration }) {
     cancelled: X,
     queued: Clock,
   }[iteration.status] || Clock
+
+  // Handle video download
+  const handleDownload = useCallback(async () => {
+    if (!videoOutput?.fileUrl) return
+    
+    try {
+      const response = await fetch(videoOutput.fileUrl)
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `video-${iteration.id.slice(0, 8)}.mp4`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      window.URL.revokeObjectURL(url)
+    } catch (error) {
+      console.error('Download failed:', error)
+    }
+  }, [videoOutput?.fileUrl, iteration.id])
   
   return (
     <div className="group rounded-xl border border-border bg-card/50 overflow-hidden hover:border-primary/30 transition-all duration-300 shadow-sm hover:shadow-xl">
@@ -433,23 +492,62 @@ function IterationCard({ iteration }: { iteration: VideoIteration }) {
       
       {/* Metadata */}
       <div className="p-4 space-y-3">
-        {/* Status Badge + Time */}
+        {/* Status Badge + Action Buttons */}
         <div className="flex items-center justify-between">
           <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-semibold uppercase tracking-tight border ${statusColors[iteration.status]}`}>
             <StatusIcon className={`h-3 w-3 ${iteration.status === 'processing' ? 'animate-spin' : ''}`} />
             <span>{iteration.status}</span>
           </div>
-          <div className="flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground/60">
-            <Clock className="h-3 w-3" />
-            <span>{new Date(iteration.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+          
+          {/* Action Buttons */}
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => onReuseParameters?.(iteration)}
+              className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+              title="Reuse parameters"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+            </button>
+            {hasOutput && iteration.status === 'completed' && (
+              <button
+                onClick={handleDownload}
+                className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                title="Download video"
+              >
+                <Download className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
         </div>
         
-        {/* Prompt Preview */}
+        {/* Prompt Preview with Expand */}
         <div className="relative">
-          <p className="text-xs leading-relaxed text-muted-foreground line-clamp-3 group-hover:text-foreground transition-colors" title={iteration.prompt}>
+          <p 
+            className={`text-xs leading-relaxed text-muted-foreground group-hover:text-foreground transition-colors ${
+              !isExpanded && promptNeedsExpand ? 'line-clamp-3' : ''
+            }`}
+          >
             {iteration.prompt}
           </p>
+          
+          {promptNeedsExpand && (
+            <button
+              onClick={() => setIsExpanded(!isExpanded)}
+              className="mt-2 flex items-center gap-1 text-[10px] font-medium text-primary hover:text-primary/80 transition-colors"
+            >
+              {isExpanded ? (
+                <>
+                  <ChevronUp className="h-3 w-3" />
+                  <span>Show less</span>
+                </>
+              ) : (
+                <>
+                  <ChevronDown className="h-3 w-3" />
+                  <span>Show more</span>
+                </>
+              )}
+            </button>
+          )}
         </div>
       </div>
     </div>

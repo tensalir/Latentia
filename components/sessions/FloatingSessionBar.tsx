@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
-import { Plus, Image as ImageIcon, Video, Loader2, Pencil, Trash2 } from 'lucide-react'
+import { useState, useEffect, useMemo, useRef } from 'react'
+import { Plus, Image as ImageIcon, Video, Loader2, Pencil, Trash2, Check, X } from 'lucide-react'
 import type { Session } from '@/types/project'
 
 interface FloatingSessionBarProps {
@@ -10,7 +10,7 @@ interface FloatingSessionBarProps {
   generationType: 'image' | 'video'
   onSessionSelect: (session: Session) => void
   onSessionCreate: (type: 'image' | 'video') => void
-  onSessionRename?: (session: Session) => void
+  onSessionRename?: (session: Session, newName: string) => Promise<void>
   onSessionDelete?: (session: Session) => void
 }
 
@@ -31,6 +31,56 @@ export function FloatingSessionBar({
 }: FloatingSessionBarProps) {
   const [thumbnails, setThumbnails] = useState<Record<string, SessionThumbnail>>({})
   const [hoveredSession, setHoveredSession] = useState<string | null>(null)
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null)
+  const [editingName, setEditingName] = useState('')
+  const [isSaving, setIsSaving] = useState(false)
+  const editInputRef = useRef<HTMLInputElement>(null)
+
+  // Focus input when editing starts
+  useEffect(() => {
+    if (editingSessionId && editInputRef.current) {
+      editInputRef.current.focus()
+      editInputRef.current.select()
+    }
+  }, [editingSessionId])
+
+  const handleStartEditing = (session: Session, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setEditingSessionId(session.id)
+    setEditingName(session.name)
+  }
+
+  const handleSaveEdit = async () => {
+    if (!editingSessionId || !editingName.trim() || isSaving) return
+    
+    const session = sessions.find(s => s.id === editingSessionId)
+    if (!session || session.name === editingName.trim()) {
+      setEditingSessionId(null)
+      return
+    }
+
+    setIsSaving(true)
+    try {
+      await onSessionRename?.(session, editingName.trim())
+    } finally {
+      setIsSaving(false)
+      setEditingSessionId(null)
+    }
+  }
+
+  const handleCancelEdit = () => {
+    setEditingSessionId(null)
+    setEditingName('')
+  }
+
+  const handleEditKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      handleSaveEdit()
+    } else if (e.key === 'Escape') {
+      handleCancelEdit()
+    }
+  }
 
   const filteredSessions = useMemo(
     () => sessions.filter((s) => s.type === generationType),
@@ -173,62 +223,100 @@ export function FloatingSessionBar({
                 </div>
 
                 {/* Content Layer */}
-                <button
-                  onClick={() => onSessionSelect(session)}
-                  className="relative w-full h-full flex items-center cursor-pointer"
-                >
-                  {/* Session info - visible when expanded */}
+                {editingSessionId === session.id ? (
+                  /* Editing mode */
                   <div 
-                    className="flex flex-col items-start justify-center px-4 transition-opacity duration-200"
+                    className="relative w-full h-full flex items-center px-3 gap-2"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <input
+                      ref={editInputRef}
+                      type="text"
+                      value={editingName}
+                      onChange={(e) => setEditingName(e.target.value)}
+                      onKeyDown={handleEditKeyDown}
+                      onBlur={handleSaveEdit}
+                      className="flex-1 bg-black/50 text-white text-sm font-semibold px-2 py-1 rounded border border-white/30 focus:border-primary focus:outline-none"
+                      disabled={isSaving}
+                    />
+                    <button
+                      onClick={handleSaveEdit}
+                      disabled={isSaving}
+                      className="p-1 rounded bg-primary hover:bg-primary/80 transition-colors"
+                      title="Save"
+                    >
+                      {isSaving ? (
+                        <Loader2 className="h-3.5 w-3.5 text-white animate-spin" />
+                      ) : (
+                        <Check className="h-3.5 w-3.5 text-white" />
+                      )}
+                    </button>
+                    <button
+                      onClick={handleCancelEdit}
+                      className="p-1 rounded bg-white/20 hover:bg-white/30 transition-colors"
+                      title="Cancel"
+                    >
+                      <X className="h-3.5 w-3.5 text-white" />
+                    </button>
+                  </div>
+                ) : (
+                  /* Normal display mode */
+                  <button
+                    onClick={() => onSessionSelect(session)}
+                    className="relative w-full h-full flex items-center cursor-pointer"
+                  >
+                    {/* Session info - visible when expanded */}
+                    <div 
+                      className="flex flex-col items-start justify-center px-4 transition-opacity duration-200"
+                      style={{
+                        opacity: isHovered ? 1 : 0,
+                        pointerEvents: isHovered ? 'auto' : 'none',
+                      }}
+                    >
+                      <span className="text-sm font-semibold text-white whitespace-nowrap drop-shadow-md">
+                        {session.name}
+                      </span>
+                      {session.creator?.displayName && (
+                        <span className="text-xs text-white/70 whitespace-nowrap drop-shadow-md">
+                          {session.creator.displayName}
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                )}
+
+                {/* Action buttons - visible when expanded and not editing */}
+                {editingSessionId !== session.id && (
+                  <div 
+                    className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1.5 transition-opacity duration-200"
                     style={{
                       opacity: isHovered ? 1 : 0,
                       pointerEvents: isHovered ? 'auto' : 'none',
                     }}
                   >
-                    <span className="text-sm font-semibold text-white whitespace-nowrap drop-shadow-md">
-                      {session.name}
-                    </span>
-                    {session.creator?.displayName && (
-                      <span className="text-xs text-white/70 whitespace-nowrap drop-shadow-md">
-                        {session.creator.displayName}
-                      </span>
+                    {onSessionRename && (
+                      <button
+                        onClick={(e) => handleStartEditing(session, e)}
+                        className="p-1.5 rounded-lg bg-white/20 hover:bg-white/30 transition-colors"
+                        title="Rename session"
+                      >
+                        <Pencil className="h-3.5 w-3.5 text-white" />
+                      </button>
+                    )}
+                    {onSessionDelete && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onSessionDelete(session)
+                        }}
+                        className="p-1.5 rounded-lg bg-white/20 hover:bg-red-500/80 transition-colors"
+                        title="Delete session"
+                      >
+                        <Trash2 className="h-3.5 w-3.5 text-white" />
+                      </button>
                     )}
                   </div>
-                </button>
-
-                {/* Action buttons - visible when expanded */}
-                <div 
-                  className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1.5 transition-opacity duration-200"
-                  style={{
-                    opacity: isHovered ? 1 : 0,
-                    pointerEvents: isHovered ? 'auto' : 'none',
-                  }}
-                >
-                  {onSessionRename && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onSessionRename(session)
-                      }}
-                      className="p-1.5 rounded-lg bg-white/20 hover:bg-white/30 transition-colors"
-                      title="Rename session"
-                    >
-                      <Pencil className="h-3.5 w-3.5 text-white" />
-                    </button>
-                  )}
-                  {onSessionDelete && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onSessionDelete(session)
-                      }}
-                      className="p-1.5 rounded-lg bg-white/20 hover:bg-red-500/80 transition-colors"
-                      title="Delete session"
-                    >
-                      <Trash2 className="h-3.5 w-3.5 text-white" />
-                    </button>
-                  )}
-                </div>
+                )}
 
                 {/* Active indicator dot */}
                 {isActive && !isHovered && (

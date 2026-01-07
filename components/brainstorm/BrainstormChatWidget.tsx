@@ -11,6 +11,9 @@ import {
   ChevronDown,
   Loader2,
   Sparkles,
+  Paperclip,
+  FileText,
+  Image as ImageIcon,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -26,12 +29,30 @@ interface ChatThread {
 
 interface BrainstormChatWidgetProps {
   projectId: string
+  isOpen?: boolean
+  onOpenChange?: (open: boolean) => void
 }
 
-export function BrainstormChatWidget({ projectId }: BrainstormChatWidgetProps) {
-  // Panel open/close state
-  const [isOpen, setIsOpen] = useState(false)
+export function BrainstormChatWidget({ projectId, isOpen: controlledIsOpen, onOpenChange }: BrainstormChatWidgetProps) {
+  // Panel open/close state (controlled or uncontrolled)
+  const [internalIsOpen, setInternalIsOpen] = useState(false)
+  const isOpen = controlledIsOpen !== undefined ? controlledIsOpen : internalIsOpen
+  const setIsOpen = (open: boolean) => {
+    if (onOpenChange) {
+      onOpenChange(open)
+    } else {
+      setInternalIsOpen(open)
+    }
+  }
   const [input, setInput] = useState('')
+  
+  // File attachments
+  const [attachedFiles, setAttachedFiles] = useState<File[]>([])
+  const [filePreviews, setFilePreviews] = useState<{ file: File; preview: string; type: 'image' | 'document' }[]>([])
+  const [isUploading, setIsUploading] = useState(false)
+  const [isDragging, setIsDragging] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const dropZoneRef = useRef<HTMLDivElement>(null)
   
   // Chat threads
   const [threads, setThreads] = useState<ChatThread[]>([])
@@ -77,7 +98,7 @@ export function BrainstormChatWidget({ projectId }: BrainstormChatWidgetProps) {
   })
 
   const isLoading = status === 'submitted' || status === 'streaming'
-  const canSend = !isLoading
+  const canSend = !isLoading && !isUploading
 
   // Fetch threads for this project
   const fetchThreads = useCallback(async () => {
@@ -214,10 +235,30 @@ export function BrainstormChatWidget({ projectId }: BrainstormChatWidgetProps) {
     }
   }, [isOpen, activeThreadId])
 
+  // Upload files to Supabase
+  const uploadFilesToSupabase = async (files: File[]): Promise<{ name: string; url: string; type: string }[]> => {
+    const formData = new FormData()
+    files.forEach(file => formData.append('files', file))
+    
+    const response = await fetch(`/api/projects/${projectId}/brainstorm/attachments`, {
+      method: 'POST',
+      body: formData,
+    })
+    
+    if (!response.ok) {
+      throw new Error('Failed to upload files')
+    }
+    
+    const data = await response.json()
+    return data.files
+  }
+
   // Handle form submission
   const submitCurrentInput = async () => {
     const text = input.trim()
-    if (!text || isLoading || !canSend) return
+    const hasFiles = attachedFiles.length > 0
+    
+    if ((!text && !hasFiles) || isLoading || !canSend || isUploading) return
 
     if (!activeThreadIdRef.current) {
       const newThread = await createThread()
@@ -225,8 +266,49 @@ export function BrainstormChatWidget({ projectId }: BrainstormChatWidgetProps) {
     }
 
     try {
-      await sendMessage({ text })
+      // Build message with attachments
+      let messageText = text
+      
+      // If we have files, upload to Supabase and include URLs in message
+      if (hasFiles) {
+        setIsUploading(true)
+        
+        try {
+          const uploadedFiles = await uploadFilesToSupabase(attachedFiles)
+          const fileDescriptions: string[] = []
+          
+          for (const file of uploadedFiles) {
+            if (file.type.startsWith('image/')) {
+              fileDescriptions.push(`[Attached image: ${file.name}](${file.url})`)
+            } else {
+              fileDescriptions.push(`[Attached file: ${file.name}](${file.url})`)
+            }
+          }
+          
+          // Prepend file descriptions to message
+          if (fileDescriptions.length > 0 && !text) {
+            messageText = fileDescriptions.join('\n')
+          } else if (fileDescriptions.length > 0) {
+            messageText = fileDescriptions.join('\n') + '\n\n' + text
+          }
+        } catch (uploadError) {
+          console.error('Failed to upload files:', uploadError)
+          // Fall back to just mentioning file names without URLs
+          const fileNames = attachedFiles.map(f => `[Attached: ${f.name}]`).join('\n')
+          if (!text) {
+            messageText = fileNames
+          } else {
+            messageText = fileNames + '\n\n' + text
+          }
+        } finally {
+          setIsUploading(false)
+        }
+      }
+      
+      await sendMessage({ text: messageText })
       setInput('')
+      setAttachedFiles([])
+      setFilePreviews([])
     } catch (err) {
       console.error('Failed to send message:', err)
     }
@@ -245,39 +327,159 @@ export function BrainstormChatWidget({ projectId }: BrainstormChatWidgetProps) {
     }
   }
 
+  // Handle file selection from input
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || [])
+    if (files.length === 0) return
+    
+    addFiles(files)
+    
+    // Reset input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }
+
+  // Remove attached file
+  const removeAttachedFile = (index: number) => {
+    setAttachedFiles(prev => prev.filter((_, i) => i !== index))
+    setFilePreviews(prev => prev.filter((_, i) => i !== index))
+  }
+
+  // Add files from drag/drop or file input
+  const addFiles = (files: File[]) => {
+    files.forEach(file => {
+      const isImage = file.type.startsWith('image/')
+      
+      if (isImage) {
+        const reader = new FileReader()
+        reader.onload = (e) => {
+          setFilePreviews(prev => [...prev, {
+            file,
+            preview: e.target?.result as string,
+            type: 'image'
+          }])
+        }
+        reader.readAsDataURL(file)
+      } else {
+        setFilePreviews(prev => [...prev, {
+          file,
+          preview: file.name,
+          type: 'document'
+        }])
+      }
+    })
+    
+    setAttachedFiles(prev => [...prev, ...files])
+  }
+
+  // Drag and drop handlers
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(true)
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    // Only set dragging false if we're leaving the drop zone entirely
+    if (dropZoneRef.current && !dropZoneRef.current.contains(e.relatedTarget as Node)) {
+      setIsDragging(false)
+    }
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(false)
+    
+    const files = Array.from(e.dataTransfer.files)
+    if (files.length > 0) {
+      addFiles(files)
+    }
+  }
+
   const activeThread = threads.find(t => t.id === activeThreadId)
+
+  // Check if widget is being controlled externally (from the control bar)
+  const isControlled = onOpenChange !== undefined
 
   return (
     <>
-      {/* Floating trigger button */}
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className={cn(
-          "fixed bottom-6 right-6 z-50 flex items-center justify-center",
-          "w-14 h-14 rounded-full shadow-lg transition-all duration-300",
-          "bg-primary text-primary-foreground hover:scale-105 hover:shadow-xl",
-          isOpen && "rotate-0"
-        )}
-        title="Creative Brainstorm"
-      >
-        {isOpen ? (
-          <X className="w-6 h-6" />
-        ) : (
-          <Sparkles className="w-6 h-6" />
-        )}
-      </button>
+      {/* Floating trigger button - only show when not controlled externally */}
+      {!isControlled && (
+        <button
+          onClick={() => setIsOpen(!isOpen)}
+          className={cn(
+            "fixed bottom-6 right-6 z-50 flex items-center justify-center",
+            "w-14 h-14 rounded-full shadow-lg transition-all duration-300",
+            "bg-primary text-primary-foreground hover:scale-105 hover:shadow-xl",
+            isOpen && "rotate-0"
+          )}
+          title="Creative Brainstorm"
+        >
+          {isOpen ? (
+            <X className="w-6 h-6" />
+          ) : (
+            <Sparkles className="w-6 h-6" />
+          )}
+        </button>
+      )}
 
       {/* Chat panel */}
       {isOpen && (
-        <div 
-          className={cn(
-            "fixed bottom-24 right-6 z-50",
-            "w-[380px] h-[520px] max-h-[70vh]",
-            "bg-card border border-border rounded-2xl shadow-2xl",
-            "flex flex-col overflow-hidden",
-            "animate-in slide-in-from-bottom-4 fade-in duration-300"
+        <div className="relative">
+          {/* Connector line from control bar (only when controlled) */}
+          {isControlled && (
+            <div 
+              className="fixed bottom-[2.25rem] h-[2px] bg-border/50 z-30"
+              style={{ 
+                left: 'calc(50% + 28rem)',
+                width: '1.5rem'
+              }}
+            />
           )}
-        >
+          
+          <div 
+            ref={dropZoneRef}
+            onDragEnter={handleDragEnter}
+            onDragLeave={handleDragLeave}
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
+            className={cn(
+              "z-40",
+              "w-[420px] h-[600px] max-h-[75vh]",
+              "bg-card border rounded-2xl shadow-2xl",
+              "flex flex-col overflow-hidden",
+              // Position based on whether controlled (from control bar) or standalone
+              isControlled 
+                ? "fixed bottom-6 left-[calc(50%+29.5rem)] animate-in slide-in-from-left-8 fade-in duration-300 ease-out"
+                : "fixed bottom-24 right-6 animate-in slide-in-from-bottom-4 fade-in duration-300",
+              // Drag state styling
+              isDragging 
+                ? "border-primary border-2 ring-2 ring-primary/20" 
+                : "border-border"
+            )}
+          >
+          {/* Drag overlay */}
+          {isDragging && (
+            <div className="absolute inset-0 z-50 flex items-center justify-center bg-card/95 backdrop-blur-sm rounded-2xl">
+              <div className="flex flex-col items-center gap-3 text-primary">
+                <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
+                  <Paperclip className="w-8 h-8" />
+                </div>
+                <p className="font-medium">Drop files here</p>
+                <p className="text-sm text-muted-foreground">Images, PDFs, documents</p>
+              </div>
+            </div>
+          )}
+          
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-card/95 backdrop-blur">
             <div className="flex items-center gap-2">
@@ -373,26 +575,100 @@ export function BrainstormChatWidget({ projectId }: BrainstormChatWidgetProps) {
                 </p>
               </div>
             ) : (
-              messages.map((message) => (
-                <div
-                  key={message.id}
-                  className={cn(
-                    "flex",
-                    message.role === 'user' ? 'justify-end' : 'justify-start'
-                  )}
-                >
+              messages.map((message) => {
+                const messageText = getMessageText(message)
+                
+                // Extract image URLs from markdown-style links
+                const imageUrlRegex = /\[Attached image: [^\]]+\]\(([^)]+)\)/g
+                const fileUrlRegex = /\[Attached file: [^\]]+\]\(([^)]+)\)/g
+                const imageMatches = [...messageText.matchAll(imageUrlRegex)]
+                const fileMatches = [...messageText.matchAll(fileUrlRegex)]
+                
+                // Check if message contains attachment markers
+                const hasAttachments = messageText.includes('[Attached image:') || messageText.includes('[Attached file:') || messageText.includes('[Attached:')
+                
+                // Clean message text for display (remove attachment markers for cleaner view)
+                const displayText = messageText
+                  .replace(/\[Attached image: [^\]]+\]\([^)]+\)\n?/g, '')
+                  .replace(/\[Attached file: [^\]]+\]\([^)]+\)\n?/g, '')
+                  .replace(/\[Attached image: [^\]]+\]\n?/g, '')
+                  .replace(/\[Attached file: [^\]]+\]\n?/g, '')
+                  .replace(/\[Attached: [^\]]+\]\n?/g, '')
+                  .trim()
+                
+                return (
                   <div
+                    key={message.id}
                     className={cn(
-                      "max-w-[85%] rounded-2xl px-4 py-2.5 text-sm",
-                      message.role === 'user'
-                        ? "bg-primary text-primary-foreground rounded-br-md"
-                        : "bg-muted rounded-bl-md"
+                      "flex",
+                      message.role === 'user' ? 'justify-end' : 'justify-start'
                     )}
                   >
-                    <p className="whitespace-pre-wrap break-words">{getMessageText(message)}</p>
+                    <div
+                      className={cn(
+                        "max-w-[85%] rounded-2xl px-4 py-2.5 text-sm",
+                        message.role === 'user'
+                          ? "bg-primary text-primary-foreground rounded-br-md"
+                          : "bg-muted rounded-bl-md"
+                      )}
+                    >
+                      {/* Show attached images */}
+                      {imageMatches.length > 0 && message.role === 'user' && (
+                        <div className="flex flex-wrap gap-2 mb-2">
+                          {imageMatches.map((match, idx) => (
+                            <a 
+                              key={idx} 
+                              href={match[1]} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="block w-20 h-20 rounded-lg overflow-hidden border border-primary-foreground/20"
+                            >
+                              <img
+                                src={match[1]}
+                                alt="Attached"
+                                className="w-full h-full object-cover hover:opacity-80 transition-opacity"
+                              />
+                            </a>
+                          ))}
+                        </div>
+                      )}
+                      
+                      {/* Show attached files */}
+                      {fileMatches.length > 0 && message.role === 'user' && (
+                        <div className="flex flex-wrap gap-2 mb-2">
+                          {fileMatches.map((match, idx) => (
+                            <a
+                              key={idx}
+                              href={match[1]}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-1 px-2 py-1 rounded bg-primary-foreground/10 text-xs hover:bg-primary-foreground/20 transition-colors"
+                            >
+                              <FileText className="w-3 h-3" />
+                              <span>View file</span>
+                            </a>
+                          ))}
+                        </div>
+                      )}
+                      
+                      {/* Show attachment indicator if no URLs (fallback) */}
+                      {hasAttachments && imageMatches.length === 0 && fileMatches.length === 0 && message.role === 'user' && (
+                        <div className="flex items-center gap-1 mb-1 opacity-70 text-xs">
+                          <Paperclip className="w-3 h-3" />
+                          <span>Attachments included</span>
+                        </div>
+                      )}
+                      
+                      {displayText && (
+                        <p className="whitespace-pre-wrap break-words">{displayText}</p>
+                      )}
+                      {!displayText && hasAttachments && (
+                        <p className="opacity-70 italic">Sent attachments</p>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))
+                )
+              })
             )}
             
             {isLoading && (
@@ -414,23 +690,81 @@ export function BrainstormChatWidget({ projectId }: BrainstormChatWidgetProps) {
 
           {/* Input area */}
           <div className="border-t border-border p-3 bg-card/95 backdrop-blur">
+            {/* File previews */}
+            {filePreviews.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-2">
+                {filePreviews.map((item, index) => (
+                  <div
+                    key={index}
+                    className="relative group"
+                  >
+                    {item.type === 'image' ? (
+                      <div className="w-16 h-16 rounded-lg overflow-hidden border border-border">
+                        <img
+                          src={item.preview}
+                          alt={item.file.name}
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted border border-border">
+                        <FileText className="w-4 h-4 text-muted-foreground" />
+                        <span className="text-xs truncate max-w-[100px]">{item.file.name}</span>
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => removeAttachedFile(index)}
+                      className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            
             <form onSubmit={onSubmit} className="flex gap-2">
-              <Textarea
-                ref={textareaRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="What would you like to explore?"
-                className="min-h-[44px] max-h-[120px] resize-none rounded-xl text-sm py-3"
-                disabled={isLoading}
+              {/* Hidden file input */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept="image/*,.pdf,.doc,.docx,.txt,.md"
+                onChange={handleFileSelect}
+                className="hidden"
               />
+              
+              {/* Input with attachment button inside */}
+              <div className="flex-1 relative">
+                <Textarea
+                  ref={textareaRef}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="What would you like to explore?"
+                  className="min-h-[44px] max-h-[120px] resize-none rounded-xl text-sm py-3 pl-3 pr-10"
+                  disabled={isLoading}
+                />
+                {/* Attachment button inside input - right side, vertically centered */}
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isLoading}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors disabled:opacity-50"
+                  title="Attach files"
+                >
+                  <Paperclip className="w-4 h-4" />
+                </button>
+              </div>
+              
               <Button
                 type="submit"
                 size="icon"
                 className="h-11 w-11 rounded-xl shrink-0"
-                disabled={!input.trim() || !canSend}
+                disabled={(!input.trim() && attachedFiles.length === 0) || !canSend}
               >
-                {isLoading ? (
+                {isLoading || isUploading ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
                   <Send className="w-4 h-4" />
@@ -438,8 +772,9 @@ export function BrainstormChatWidget({ projectId }: BrainstormChatWidgetProps) {
               </Button>
             </form>
             <p className="text-[10px] text-muted-foreground mt-1.5 text-center">
-              Enter to send, Shift+Enter for new line
+              Drop files or click 📎 • Enter to send
             </p>
+          </div>
           </div>
         </div>
       )}
@@ -474,4 +809,5 @@ export function BrainstormChatWidget({ projectId }: BrainstormChatWidgetProps) {
     </>
   )
 }
+
 

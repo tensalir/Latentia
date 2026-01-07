@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { cn } from '@/lib/utils'
 import {
   LayoutDashboard,
+  FileText,
   FolderKanban,
   CheckCircle,
   Bookmark,
@@ -17,11 +18,19 @@ interface NavItem {
   icon: React.ComponentType<{ className?: string }>
 }
 
-const navItems: NavItem[] = [
+// Top section - Dashboard only
+const dashboardItem: NavItem = {
+  title: 'Dashboard',
+  href: '/',
+  icon: LayoutDashboard,
+}
+
+// Main section - Briefings, Projects, Review
+const mainNavItems: NavItem[] = [
   {
-    title: 'Dashboard',
-    href: '/',
-    icon: LayoutDashboard,
+    title: 'Briefings',
+    href: '/briefings',
+    icon: FileText,
   },
   {
     title: 'Projects',
@@ -33,6 +42,10 @@ const navItems: NavItem[] = [
     href: '/review',
     icon: CheckCircle,
   },
+]
+
+// Bottom section - Bookmarks, Settings
+const bottomNavItems: NavItem[] = [
   {
     title: 'Bookmarks',
     href: '/bookmarks',
@@ -59,6 +72,24 @@ export function DashboardSidebar({ className }: DashboardSidebarProps) {
     return pathname.startsWith(href)
   }
 
+  const NavLink = ({ item }: { item: NavItem }) => {
+    const active = isActive(item.href)
+    return (
+      <Link
+        href={item.href}
+        className={cn(
+          'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200',
+          active
+            ? 'bg-primary text-primary-foreground shadow-sm'
+            : 'text-muted-foreground hover:text-foreground hover:bg-muted/60'
+        )}
+      >
+        <item.icon className={cn('h-4 w-4', active ? 'text-primary-foreground' : '')} />
+        <span>{item.title}</span>
+      </Link>
+    )
+  }
+
   return (
     <aside
       className={cn(
@@ -83,33 +114,32 @@ export function DashboardSidebar({ className }: DashboardSidebarProps) {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 p-4 space-y-1">
-        {navItems.map((item) => {
-          const active = isActive(item.href)
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200',
-                active
-                  ? 'bg-primary text-primary-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/60'
-              )}
-            >
-              <item.icon className={cn('h-4 w-4', active ? 'text-primary-foreground' : '')} />
-              <span>{item.title}</span>
-            </Link>
-          )
-        })}
-      </nav>
+      <nav className="flex-1 p-4 flex flex-col">
+        {/* Dashboard */}
+        <div className="space-y-1">
+          <NavLink item={dashboardItem} />
+        </div>
 
-      {/* Footer */}
-      <div className="p-4 border-t border-border/50">
-        <p className="text-xs text-muted-foreground/60 text-center">
-          Loop Vesper
-        </p>
-      </div>
+        {/* Divider */}
+        <div className="my-3 h-px bg-border/50" />
+
+        {/* Main Section - Briefings, Projects, Review */}
+        <div className="space-y-1">
+          {mainNavItems.map((item) => (
+            <NavLink key={item.href} item={item} />
+          ))}
+        </div>
+
+        {/* Divider */}
+        <div className="my-3 h-px bg-border/50" />
+
+        {/* Bottom Section - Bookmarks, Settings */}
+        <div className="space-y-1 mt-auto">
+          {bottomNavItems.map((item) => (
+            <NavLink key={item.href} item={item} />
+          ))}
+        </div>
+      </nav>
     </aside>
   )
 }

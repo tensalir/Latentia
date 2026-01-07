@@ -14,6 +14,8 @@ import { useUIStore } from '@/store/uiStore'
 import { useToast } from '@/components/ui/use-toast'
 import { getAllModels, getModelsByType } from '@/lib/models/registry'
 import { createClient } from '@/lib/supabase/client'
+import { Image, Video, MessageCircle } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 interface PaginatedGenerationsResponse {
   data: GenerationWithOutputs[]
@@ -46,6 +48,9 @@ interface GenerationInterfaceProps {
   allSessions?: Session[]
   onSessionCreate?: (type: 'image' | 'video', name: string) => Promise<Session | null>
   onSessionSwitch?: (sessionId: string) => void
+  onGenerationTypeChange?: (type: 'image' | 'video') => void
+  onToggleChat?: () => void
+  isChatOpen?: boolean
 }
 
 export function GenerationInterface({
@@ -54,6 +59,9 @@ export function GenerationInterface({
   allSessions = [],
   onSessionCreate,
   onSessionSwitch,
+  onGenerationTypeChange,
+  onToggleChat,
+  isChatOpen = false,
 }: GenerationInterfaceProps) {
   const { toast } = useToast()
   const queryClient = useQueryClient()
@@ -809,36 +817,95 @@ export function GenerationInterface({
 
       {/* Chat Input - Floating Card at Bottom */}
       <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-full max-w-4xl px-6 z-30">
-        <div className="bg-card/95 backdrop-blur-xl border border-border/50 rounded-2xl shadow-2xl p-4">
-            {generationType === 'video' ? (
-              <VideoInput
-                prompt={prompt}
-                onPromptChange={setPrompt}
-                onGenerate={handleGenerate}
-                parameters={parameters}
-                onParametersChange={setParameters}
-                selectedModel={selectedModel}
-                onModelSelect={setSelectedModel}
-                referenceImageUrl={referenceImageUrl}
-                onClearReferenceImage={() => setReferenceImageUrl(null)}
-                onSetReferenceImageUrl={setReferenceImageUrl}
-                onRegisterPasteHandler={registerPasteHandler}
-              />
-            ) : (
-              <ChatInput
-                prompt={prompt}
-                onPromptChange={setPrompt}
-                onGenerate={handleGenerate}
-                parameters={parameters}
-                onParametersChange={setParameters}
-                generationType={generationType}
-                selectedModel={selectedModel}
-                onModelSelect={setSelectedModel}
-                isGenerating={false}
-                referenceImageUrls={referenceImageUrls}
-                onRegisterPasteHandler={registerPasteHandler}
-              />
-            )}
+        <div className="flex items-end gap-3">
+          {/* Prompt Bar */}
+          <div className="flex-1 bg-card/95 backdrop-blur-xl border border-border/50 rounded-2xl shadow-2xl p-4">
+              {generationType === 'video' ? (
+                <VideoInput
+                  prompt={prompt}
+                  onPromptChange={setPrompt}
+                  onGenerate={handleGenerate}
+                  parameters={parameters}
+                  onParametersChange={setParameters}
+                  selectedModel={selectedModel}
+                  onModelSelect={setSelectedModel}
+                  referenceImageUrl={referenceImageUrl}
+                  onClearReferenceImage={() => setReferenceImageUrl(null)}
+                  onSetReferenceImageUrl={setReferenceImageUrl}
+                  onRegisterPasteHandler={registerPasteHandler}
+                />
+              ) : (
+                <ChatInput
+                  prompt={prompt}
+                  onPromptChange={setPrompt}
+                  onGenerate={handleGenerate}
+                  parameters={parameters}
+                  onParametersChange={setParameters}
+                  generationType={generationType}
+                  selectedModel={selectedModel}
+                  onModelSelect={setSelectedModel}
+                  isGenerating={false}
+                  referenceImageUrls={referenceImageUrls}
+                  onRegisterPasteHandler={registerPasteHandler}
+                />
+              )}
+          </div>
+
+          {/* Vertical Control Bar */}
+          <div className="flex flex-col gap-1 bg-card/95 backdrop-blur-xl border border-border/50 rounded-xl shadow-2xl p-1.5">
+            {/* Image/Video Toggle */}
+            <button
+              onClick={() => onGenerationTypeChange?.('image')}
+              className={cn(
+                'p-2 rounded-lg transition-all',
+                generationType === 'image'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/60'
+              )}
+              title="Image generation"
+            >
+              <Image className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => onGenerationTypeChange?.('video')}
+              className={cn(
+                'p-2 rounded-lg transition-all',
+                generationType === 'video'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/60'
+              )}
+              title="Video generation"
+            >
+              <Video className="h-4 w-4" />
+            </button>
+
+            {/* Spacer */}
+            <div className="flex-1 min-h-2" />
+
+            {/* Divider */}
+            <div className="h-px bg-border/50 mx-1" />
+
+            {/* Chat Button */}
+            <div className="relative">
+              <button
+                onClick={onToggleChat}
+                className={cn(
+                  'p-2 rounded-lg transition-all relative z-50',
+                  isChatOpen
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/60'
+                )}
+                title={isChatOpen ? "Close chat assistant" : "Open chat assistant"}
+              >
+                <MessageCircle className="h-4 w-4" />
+              </button>
+              
+              {/* Connector line to chat panel */}
+              {isChatOpen && (
+                <div className="absolute left-[calc(100%+2px)] top-1/2 -translate-y-1/2 w-4 h-[2px] bg-border/50 z-30" />
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>
