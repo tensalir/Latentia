@@ -104,12 +104,12 @@ export function DashboardHeader({ className }: DashboardHeaderProps) {
           </Button>
           <Link href="/" className="flex items-center">
             <img
-              src="/images/Loop Vesper (White).svg"
+              src="/images/Loop-Vesper-White.svg"
               alt="Loop Vesper"
               className="h-4 dark:block hidden"
             />
             <img
-              src="/images/Loop Vesper (Black).svg"
+              src="/images/Loop-Vesper-Black.svg"
               alt="Loop Vesper"
               className="h-4 dark:hidden block"
             />
@@ -162,12 +162,12 @@ export function DashboardHeader({ className }: DashboardHeaderProps) {
             <div className="h-16 flex items-center justify-between px-4 border-b border-border/50">
               <Link href="/" onClick={() => setMobileMenuOpen(false)}>
                 <img
-                  src="/images/Loop Vesper (White).svg"
+                  src="/images/Loop-Vesper-White.svg"
                   alt="Loop Vesper"
                   className="h-5 dark:block hidden"
                 />
                 <img
-                  src="/images/Loop Vesper (Black).svg"
+                  src="/images/Loop-Vesper-Black.svg"
                   alt="Loop Vesper"
                   className="h-5 dark:hidden block"
                 />

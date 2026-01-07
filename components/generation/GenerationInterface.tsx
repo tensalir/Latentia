@@ -311,8 +311,8 @@ export function GenerationInterface({
     const handleScroll = () => {
       const { scrollTop, scrollHeight, clientHeight } = container
       const distanceFromBottom = scrollHeight - scrollTop - clientHeight
-      // Consider "pinned" if within 100px of bottom
-      const pinned = distanceFromBottom < 100
+      // Consider "pinned" if within 50px of bottom (reduced from 100px to avoid pulling user down)
+      const pinned = distanceFromBottom < 50
       isPinnedToBottomRef.current = pinned
       setIsPinnedToBottom(pinned)
       
@@ -372,6 +372,9 @@ export function GenerationInterface({
   )
 
   // Observe scroll content height changes to detect late-loading layout shifts (images, virtualizer, dynamic import)
+  // Track previous height to only scroll when content grows (not shrinks due to cancelled generations)
+  const previousContentHeightRef = useRef<number>(0)
+  
   useEffect(() => {
     if (isLoading) return
     if (!session?.id) return
@@ -383,14 +386,24 @@ export function GenerationInterface({
     const observer = new ResizeObserver(() => {
       if (!container) return
 
+      const currentHeight = container.scrollHeight
+      const previousHeight = previousContentHeightRef.current
+      const heightIncreased = currentHeight > previousHeight
+      
+      // Update stored height
+      previousContentHeightRef.current = currentHeight
+
       const distanceFromBottom =
         container.scrollHeight - container.scrollTop - container.clientHeight
 
       // Keep the view pinned to bottom across late layout shifts
       // - When opening a session: force-scroll until we actually reach bottom at least once
-      // - When user is pinned: stay pinned even if images load and push content down
-      if (pendingScrollToBottomRef.current || isPinnedToBottomRef.current) {
-        scrollToBottomNow(pendingScrollToBottomRef.current ? 'session-load' : 'pinned-resize')
+      // - When user is pinned AND content height increased (new content, not cancelled generations)
+      const shouldScrollForPending = pendingScrollToBottomRef.current
+      const shouldScrollForPinned = isPinnedToBottomRef.current && heightIncreased && distanceFromBottom < 50
+      
+      if (shouldScrollForPending || shouldScrollForPinned) {
+        scrollToBottomNow(shouldScrollForPending ? 'session-load' : 'pinned-resize')
         // Clear pending once we are actually at (or extremely near) the bottom
         const afterDistance =
           container.scrollHeight - container.scrollTop - container.clientHeight
@@ -408,7 +421,7 @@ export function GenerationInterface({
 
     observer.observe(contentEl)
     return () => observer.disconnect()
-  }, [session?.id, isLoading, generations.length])
+  }, [session?.id, isLoading, generations.length, scrollToBottomNow])
 
   // Handle scrolling: on session load completion and new items
   useEffect(() => {

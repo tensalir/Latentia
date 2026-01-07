@@ -626,7 +626,7 @@ export function ChatInput({
             title="Browse product renders"
           >
             <Image
-              src="/images/Loop-Favicon-(White).png"
+              src="/images/Loop-Favicon-(Mint).png"
               alt="Loop"
               width={14}
               height={14}

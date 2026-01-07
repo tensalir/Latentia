@@ -109,12 +109,12 @@ export function DashboardSidebar({ className }: DashboardSidebarProps) {
       <div className="h-16 flex items-center px-6 border-b border-border/50">
         <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
           <img
-            src="/images/Loop Vesper (White).svg"
+            src="/images/Loop-Vesper-White.svg"
             alt="Loop Vesper"
             className="h-5 dark:block hidden"
           />
           <img
-            src="/images/Loop Vesper (Black).svg"
+            src="/images/Loop-Vesper-Black.svg"
             alt="Loop Vesper"
             className="h-5 dark:hidden block"
           />

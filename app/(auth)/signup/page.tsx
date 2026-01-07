@@ -71,7 +71,7 @@ export default function SignupPage() {
           <CardHeader className="space-y-6">
             <div className="flex justify-center">
               <Image
-                src="/images/Loop Vesper (White).svg"
+                src="/images/Loop-Vesper-White.svg"
                 alt="Loop Vesper"
                 width={120}
                 height={40}
@@ -110,7 +110,7 @@ export default function SignupPage() {
         <CardHeader className="space-y-6">
           <div className="flex justify-center">
             <Image
-              src="/images/Loop Vesper (White).svg"
+              src="/images/Loop-Vesper-White.svg"
               alt="Loop Vesper"
               width={120}
               height={40}

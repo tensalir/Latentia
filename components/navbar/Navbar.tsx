@@ -73,7 +73,7 @@ export function Navbar({
     >
       {/* Logo - always visible */}
       <img
-        src={theme === 'light' ? "/images/Loop Vesper (Black).svg" : "/images/Loop Vesper (White).svg"}
+        src={theme === 'light' ? "/images/Loop-Vesper-Black.svg" : "/images/Loop-Vesper-White.svg"}
         alt="Loop Vesper Logo"
         className={cn(
           "h-4 object-contain cursor-pointer transition-all duration-500 ease-in-out flex-shrink-0",

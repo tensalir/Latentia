@@ -53,7 +53,7 @@ export function GenerationProgress({
     return () => clearInterval(interval)
   }, [startTime, estimatedTime])
 
-  // Rotate insights every 4 seconds with fade effect
+  // Rotate insights every 5 seconds with fade effect
   useEffect(() => {
     const interval = setInterval(() => {
       setInsightFading(true)
@@ -61,7 +61,7 @@ export function GenerationProgress({
         setCurrentInsightIndex(prev => (prev + 1) % CUSTOMER_INSIGHTS.length)
         setInsightFading(false)
       }, 300)
-    }, 4000)
+    }, 5000)
 
     return () => clearInterval(interval)
   }, [])

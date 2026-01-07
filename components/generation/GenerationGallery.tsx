@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from 'react'
 import Image from 'next/image'
-import { Download, RotateCcw, Info, Copy, Bookmark, Check, Video, Wand2, X } from 'lucide-react'
+import { Download, RotateCcw, Info, Copy, Bookmark, Check, Video, Wand2, X, Trash2 } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { GenerationWithOutputs } from '@/types/generation'
 import type { Session } from '@/types/project'
@@ -311,6 +311,38 @@ export function GenerationGallery({
     }
   }
 
+  const handleDeleteGeneration = async (generationId: string) => {
+    if (!sessionId) return
+    
+    try {
+      const response = await fetch(`/api/generations/${generationId}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to delete generation')
+      }
+      
+      toast({
+        title: "Generation removed",
+        description: "The generation has been deleted",
+        variant: "default",
+      })
+      
+      // Invalidate queries to refetch
+      queryClient.invalidateQueries({ queryKey: ['generations', sessionId] })
+    } catch (error: any) {
+      console.error('Error deleting generation:', error)
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete generation",
+        variant: "destructive",
+      })
+    }
+  }
+
   // Open the image-to-video overlay for a specific output
   const handleVideoConversion = (outputId: string, imageUrl: string) => {
     setOverlayOutputId(outputId)
@@ -384,9 +416,9 @@ export function GenerationGallery({
                 style={rowStyle}
                 className="pb-6"
               >
-              <div className="flex gap-6 items-start">
+              <div className="flex gap-6 items-stretch">
                 {/* Left Side: Prompt Display with Cancelled State */}
-                <div className="w-96 flex-shrink-0 bg-prompt-card rounded-xl p-6 border border-destructive/50 flex flex-col relative" style={{ minHeight: '256px' }}>
+                <div className="w-96 flex-shrink-0 bg-prompt-card rounded-xl p-6 border border-destructive/50 flex flex-col relative" style={{ minHeight: '320px' }}>
                   <div className="absolute top-2 left-2 px-2 py-1 bg-destructive/20 text-destructive text-xs font-medium rounded z-10">
                     Cancelled
                   </div>
@@ -416,9 +448,16 @@ export function GenerationGallery({
                   </div>
                 </div>
                 {/* Right Side: Empty/Cancelled State */}
-                <div className="flex-1 max-w-5xl flex items-center justify-center">
+                <div className="flex-1 max-w-5xl flex items-center justify-center" style={{ minHeight: '320px' }}>
                   <div className="bg-muted/20 rounded-xl p-8 border border-destructive/30 text-center">
-                    <p className="text-sm text-muted-foreground">Generation was cancelled</p>
+                    <p className="text-sm text-muted-foreground mb-4">Generation was cancelled</p>
+                    <button
+                      onClick={() => handleDeleteGeneration(generation.id)}
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-muted hover:bg-muted/80 text-muted-foreground rounded-lg transition-colors text-sm font-medium"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Remove
+                    </button>
                   </div>
                 </div>
               </div>
@@ -567,7 +606,7 @@ export function GenerationGallery({
                 style={rowStyle}
                 className="pb-6"
               >
-              <div className="flex gap-6 items-start">
+              <div className="flex gap-6 items-stretch">
                 {/* Left Side: Prompt Display with Error State */}
                 <div className="w-96 flex-shrink-0 bg-destructive/10 rounded-xl p-6 border border-destructive/50 flex flex-col" style={{ minHeight: '320px' }}>
                   <div className="flex-1 overflow-hidden hover:overflow-y-auto transition-all group relative" style={{ maxHeight: '200px' }}>
@@ -600,17 +639,26 @@ export function GenerationGallery({
                 </div>
 
                 {/* Right Side: Error Message */}
-                <div className="flex-1 max-w-5xl">
-                  <div className="bg-destructive/10 rounded-xl p-6 border border-destructive/50">
+                <div className="flex-1 max-w-5xl flex items-center">
+                  <div className="bg-destructive/10 rounded-xl p-6 border border-destructive/50 w-full">
                     <h3 className="text-lg font-semibold text-destructive mb-2">Generation Failed</h3>
                     <p className="text-sm text-foreground/80 mb-4">{errorMessage}</p>
-                    <button
-                      onClick={() => onReuseParameters(generation)}
-                      className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm font-medium"
-                    >
-                      <RotateCcw className="h-4 w-4" />
-                      Try Again
-                    </button>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => onReuseParameters(generation)}
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm font-medium"
+                      >
+                        <RotateCcw className="h-4 w-4" />
+                        Try Again
+                      </button>
+                      <button
+                        onClick={() => handleDeleteGeneration(generation.id)}
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-muted hover:bg-muted/80 text-muted-foreground rounded-lg transition-colors text-sm font-medium"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        Remove
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
