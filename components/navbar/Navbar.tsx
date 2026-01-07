@@ -78,7 +78,7 @@ export function Navbar({
         <Button
           variant="ghost"
           size="icon"
-          onClick={() => router.push('/projects?tab=review')}
+          onClick={() => router.push('/review')}
           className="h-8 w-8 rounded-md"
           title="Approved assets"
         >
