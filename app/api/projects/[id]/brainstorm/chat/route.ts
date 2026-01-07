@@ -1,7 +1,7 @@
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 import { NextRequest } from 'next/server'
-import { streamText, convertToCoreMessages } from 'ai'
+import { streamText } from 'ai'
 import { anthropic } from '@ai-sdk/anthropic'
 import { prisma } from '@/lib/prisma'
 import { loadSkill, combineSkills } from '@/lib/skills/registry'
@@ -134,7 +134,7 @@ export async function POST(
     const result = streamText({
       model: anthropic(modelId),
       system: systemPrompt,
-      messages: convertToCoreMessages(messages),
+      messages,
       maxTokens: 2000,
       temperature: 0.7,
       onFinish: async ({ text }) => {

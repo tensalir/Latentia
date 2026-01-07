@@ -352,9 +352,9 @@ export function BrainstormChatWidget({ projectId }: BrainstormChatWidgetProps) {
             {messages.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground px-4">
                 <Sparkles className="w-10 h-10 mb-4 text-primary/40" />
-                <p className="font-medium mb-1">Let's brainstorm!</p>
+                <p className="font-medium mb-1">Let&apos;s brainstorm!</p>
                 <p className="text-sm">
-                  Share your creative ideas and I'll help you explore directions for your images and videos.
+                  Share your creative ideas and I&apos;ll help you explore directions for your images and videos.
                 </p>
               </div>
             ) : (
