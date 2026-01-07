@@ -13,6 +13,7 @@ import { ImageBrowseModal } from './ImageBrowseModal'
 import { ProductRendersBrowseModal } from './ProductRendersBrowseModal'
 import { PromptEnhancementButton } from './PromptEnhancementButton'
 import { useParams } from 'next/navigation'
+import Image from 'next/image'
 
 
 interface ChatInputProps {
@@ -147,7 +148,7 @@ export function ChatInput({
       } else {
         await onGenerate(prompt)
       }
-      onPromptChange('')
+      // Keep the last prompt in the input after generating (users often iterate on it)
       // DON'T clear reference images - keep them for next generation
     } catch (error) {
       console.error('Generation error:', error)
@@ -624,8 +625,13 @@ export function ChatInput({
             onClick={() => setRendersModalOpen(true)}
             title="Browse product renders"
           >
-            {/* Loop logo - white circle */}
-            <div className="w-3.5 h-3.5 rounded-full bg-white border border-white/20" />
+            <Image
+              src="/images/Loop-Favicon-(White).png"
+              alt="Loop"
+              width={14}
+              height={14}
+              className="w-3.5 h-3.5 rounded-full"
+            />
           </Button>
         )}
 

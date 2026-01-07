@@ -10,22 +10,23 @@ interface GenerationProgressProps {
 }
 
 // Specific customer insights from Loop Earplugs research (18,176 reviews & 14,536 tickets)
+// Keep these short, concrete, and “scene-like” — they show real use cases, not generic claims.
 const CUSTOMER_INSIGHTS = [
-  "Side sleepers say Loop's low-profile design lets them sleep on any pillow without discomfort",
-  "Parents with ADHD kids report Loop helps reduce meltdowns during noisy family gatherings",
-  "Concert photographers use Loop to protect hearing while staying aware of their surroundings",
-  "Night shift nurses block daytime street noise to get deep sleep between 12-hour shifts",
-  "Motorcyclists say wind noise fatigue drops dramatically on long highway rides with Loop",
-  "Teachers with sensory sensitivity use Loop to stay calm in chaotic classrooms",
-  "Music producers prefer Loop over foam because it preserves frequency balance for mixing",
-  "New parents use Loop to take the edge off crying without losing baby monitor awareness",
-  "Gym-goers block aggressive trainer music while still hearing safety cues and spotters",
-  "Festival campers finally sleep through bass-heavy late-night sets at neighboring stages",
-  "Remote workers in open-plan homes filter out family noise without full noise cancellation",
-  "Baristas use Loop to reduce espresso machine fatigue during 8-hour coffee rush shifts",
-  "Anxious flyers say Loop makes turbulence announcements less jarring and stressful",
-  "Dog owners block fireworks panic while staying alert to comfort their anxious pets",
-  "Students with autism study in busy libraries without sensory overload from chatter",
+  'Sleep is the #1 use case—snoring and street noise show up constantly in reviews.',
+  'Side sleepers rave about low‑profile comfort: “no pressure points” is a repeat theme.',
+  'Neurodivergent users use Loop to dial down sensory overload in shops, offices, and transit.',
+  'Concert‑goers protect hearing without “muffling the music” or killing conversation.',
+  'Shift workers rely on Loop to sleep through daytime noise between long shifts.',
+  'Motorcyclists tame wind roar on highway rides—less fatigue, more comfort.',
+  'Parents use Loop to take the edge off screaming without tuning out their kids.',
+  'Remote workers use Loop to focus in open‑plan homes and noisy cafés.',
+  'Frequent flyers soften cabin noise and make announcements feel less jarring.',
+  'Teachers stay calmer in loud classrooms and hallways without feeling isolated.',
+  'Tinnitus‑prone users reach for Loop after loud nights to avoid flare‑ups.',
+  'Festival campers finally sleep through bass from neighboring stages.',
+  'Gym‑goers reduce “too loud” class music while still hearing safety cues.',
+  'Commuters make trains and buses feel less chaotic—especially at rush hour.',
+  'Musicians prefer Loop over foam because it preserves tonal balance.',
 ]
 
 export function GenerationProgress({
@@ -124,12 +125,11 @@ export function GenerationProgress({
 
       {/* Main content */}
       <div className="absolute inset-0 flex flex-col items-center justify-center p-4 sm:p-6">
-        {/* Percentage display */}
+        {/* Title (percentage is intentionally hidden because it's not truly accurate) */}
         <div className="relative mb-3">
-          <span className="text-4xl sm:text-5xl font-bold text-primary tabular-nums tracking-tight">
-            {displayProgress}
+          <span className="text-lg sm:text-xl font-semibold text-primary tracking-tight">
+            Did you know?
           </span>
-          <span className="text-xl sm:text-2xl font-light text-primary/70 ml-0.5">%</span>
         </div>
 
         {/* Customer insight - more specific, more room */}

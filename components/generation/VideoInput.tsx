@@ -13,6 +13,7 @@ import { ImageBrowseModal } from './ImageBrowseModal'
 import { ProductRendersBrowseModal } from './ProductRendersBrowseModal'
 import { useParams } from 'next/navigation'
 import { PromptEnhancementButton } from './PromptEnhancementButton'
+import Image from 'next/image'
 
 interface VideoInputProps {
   prompt: string
@@ -152,7 +153,7 @@ export function VideoInput({
         referenceImage: referenceImage || undefined,
         referenceImageId: referenceImageId || undefined,
       })
-      onPromptChange('')
+      // Keep the last prompt in the input after generating (users often iterate on it)
       // Clean up preview URL only if reference isn't locked
       if (!lockedReferenceImage) {
         if (imagePreviewUrl) {
@@ -572,7 +573,13 @@ export function VideoInput({
               onClick={() => setRendersModalOpen(true)}
               title="Browse product renders"
             >
-              <div className="w-3.5 h-3.5 rounded-full bg-white border border-white/20" />
+              <Image
+                src="/images/Loop-Favicon-(White).png"
+                alt="Loop"
+                width={14}
+                height={14}
+                className="w-3.5 h-3.5 rounded-full"
+              />
             </Button>
           </>
         )}
