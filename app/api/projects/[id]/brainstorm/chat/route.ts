@@ -191,10 +191,11 @@ export async function POST(
     })
 
     // Stream the response using AI SDK
+    // Cast messages to the expected type to handle multi-modal content
     const result = streamText({
       model: anthropic(modelId),
       system: systemPrompt,
-      messages: modelMessages,
+      messages: modelMessages as any,
       onFinish: async ({ text }) => {
         // Persist the assistant message after streaming completes
         try {

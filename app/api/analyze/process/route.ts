@@ -74,10 +74,56 @@ async function claimAnalysisJobs(batchSize: number): Promise<AnalysisJob[]> {
 }
 
 /**
+ * Safely release lock on a job, ensuring it's never stuck
+ */
+async function releaseJobLock(jobId: string, error?: string): Promise<void> {
+  try {
+    const analysisRecord = await (prisma as any).outputAnalysis.findUnique({
+      where: { id: jobId },
+      select: { attempts: true, status: true },
+    })
+
+    if (!analysisRecord) {
+      console.warn(`[Analysis ${jobId}] Record not found when releasing lock`)
+      return
+    }
+
+    // Only release lock if still in processing state (avoid race conditions)
+    if (analysisRecord.status === 'processing') {
+      const attempts = analysisRecord.attempts || 1
+      const shouldRetry = attempts < ANALYSIS_MAX_ATTEMPTS
+
+      await (prisma as any).outputAnalysis.update({
+        where: { id: jobId },
+        data: {
+          status: shouldRetry ? 'queued' : 'failed',
+          error: error?.slice(0, 1000) || 'Processing interrupted',
+          lockedAt: null,
+          runAfter: shouldRetry ? new Date(Date.now() + ANALYSIS_RETRY_DELAY_MS) : null,
+        },
+      })
+
+      console.log(`[Analysis ${jobId}] 🔓 Lock released (will ${shouldRetry ? 'retry' : 'fail'})`)
+    }
+  } catch (releaseError: any) {
+    // Last resort: try to release lock with minimal update
+    console.error(`[Analysis ${jobId}] Failed to release lock:`, releaseError.message)
+    try {
+      await (prisma as any).outputAnalysis.update({
+        where: { id: jobId },
+        data: { lockedAt: null, status: 'queued' },
+      }).catch(() => {}) // Ignore errors in last resort
+    } catch {}
+  }
+}
+
+/**
  * Process a single output analysis job
+ * Wrapped with try-finally to ensure lock is always released
  */
 async function processAnalysisJob(job: AnalysisJob): Promise<AnalysisResult> {
   const { id, outputId } = job
+  let lockReleased = false
 
   try {
     // Fetch the output with its generation context
@@ -107,6 +153,7 @@ async function processAnalysisJob(job: AnalysisJob): Promise<AnalysisResult> {
           lockedAt: null,
         },
       })
+      lockReleased = true
       return { id, outputId, status: 'failed', error: 'Output not found' }
     }
 
@@ -131,7 +178,7 @@ async function processAnalysisJob(job: AnalysisJob): Promise<AnalysisResult> {
 
     console.log(`[Analysis ${id}] Parsed successfully, saving results...`)
 
-    // Step 3: Save results
+    // Step 3: Save results and release lock
     await (prisma as any).outputAnalysis.update({
       where: { id },
       data: {
@@ -146,6 +193,7 @@ async function processAnalysisJob(job: AnalysisJob): Promise<AnalysisResult> {
       },
     })
 
+    lockReleased = true
     console.log(`[Analysis ${id}] ✅ Completed`)
 
     return { id, outputId, status: 'completed' }
@@ -171,7 +219,14 @@ async function processAnalysisJob(job: AnalysisJob): Promise<AnalysisResult> {
       },
     })
 
+    lockReleased = true
     return { id, outputId, status: 'failed', error: error.message }
+  } finally {
+    // Safety net: ensure lock is always released, even if something goes wrong
+    if (!lockReleased) {
+      console.warn(`[Analysis ${id}] Lock not released in normal flow, releasing in finally block`)
+      await releaseJobLock(id, 'Processing error - lock released in finally block')
+    }
   }
 }
 
@@ -270,23 +325,83 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // Process all jobs
-    const results: AnalysisResult[] = []
-    for (const job of jobs) {
-      const result = await processAnalysisJob(job)
-      results.push(result)
+    // Fire-and-forget: return immediately and process in background
+    // This ensures processing continues even if client disconnects
+    const processJobs = async () => {
+      const processStartedAt = Date.now()
+      const results: AnalysisResult[] = []
+      let processMetricStatus: 'success' | 'error' = 'success'
+
+      try {
+        console.log(`[Analysis Process] Starting batch processing of ${jobs.length} job(s)`)
+        
+        // Process all jobs sequentially
+        for (const job of jobs) {
+          try {
+            const result = await processAnalysisJob(job)
+            results.push(result)
+          } catch (jobError: any) {
+            console.error(`[Analysis Process] Job ${job.id} failed with unhandled error:`, jobError)
+            // Ensure lock is released even for unexpected errors
+            await releaseJobLock(job.id, jobError.message || 'Unexpected error')
+            results.push({ 
+              id: job.id, 
+              outputId: job.outputId, 
+              status: 'failed', 
+              error: jobError.message 
+            })
+          }
+        }
+
+        const completed = results.filter(r => r.status === 'completed').length
+        const failed = results.filter(r => r.status === 'failed').length
+
+        console.log(`[Analysis Process] Batch completed: ${completed} succeeded, ${failed} failed`)
+
+        // Log metrics after processing completes
+        logMetric({
+          name: 'api_analyze_process_background',
+          status: processMetricStatus,
+          durationMs: Date.now() - processStartedAt,
+          meta: {
+            ...metricMeta,
+            results: results.map(r => ({ id: r.id, status: r.status })),
+            completed,
+            failed,
+          },
+        })
+      } catch (error: any) {
+        console.error('[Analysis Process] Background processing error:', error)
+        processMetricStatus = 'error'
+        
+        // Emergency cleanup: release all locks
+        for (const job of jobs) {
+          await releaseJobLock(job.id, 'Background processing failed').catch(() => {})
+        }
+
+        logMetric({
+          name: 'api_analyze_process_background',
+          status: 'error',
+          durationMs: Date.now() - processStartedAt,
+          meta: { ...metricMeta, error: error.message },
+        })
+      }
     }
 
-    metricMeta.results = results.map(r => ({ id: r.id, status: r.status }))
+    // Start background processing (don't await)
+    processJobs().catch((error) => {
+      // Last resort error handler
+      console.error('[Analysis Process] Fatal error in background processing:', error)
+    })
 
-    const completed = results.filter(r => r.status === 'completed').length
-    const failed = results.filter(r => r.status === 'failed').length
-
+    // Return immediately - processing continues in background
+    metricMeta.claimed = jobs.length
+    metricMeta.mode = metricMeta.mode || 'batch'
+    
     return NextResponse.json({
-      processed: results.length,
-      completed,
-      failed,
-      results,
+      message: 'Processing started',
+      claimed: jobs.length,
+      note: 'Processing continues in background. Check status endpoint for progress.',
     })
   } catch (error: any) {
     console.error('[Analysis Process] Error:', error)
@@ -297,6 +412,7 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   } finally {
+    // Log initial request metric (processing happens in background)
     logMetric({
       name: 'api_analyze_process',
       status: metricStatus,
@@ -342,6 +458,9 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    const now = new Date()
+    const lockExpiry = new Date(now.getTime() - ANALYSIS_LOCK_TIMEOUT_MS)
+
     // Get queue statistics
     const stats = await (prisma as any).outputAnalysis.groupBy({
       by: ['status'],
@@ -352,6 +471,34 @@ export async function GET(request: NextRequest) {
     for (const stat of stats) {
       statusCounts[stat.status] = stat._count.status
     }
+
+    // Get stuck jobs (locked but expired)
+    const stuckJobs = await (prisma as any).outputAnalysis.findMany({
+      where: {
+        status: 'processing',
+        lockedAt: { lt: lockExpiry },
+      },
+      select: {
+        id: true,
+        outputId: true,
+        lockedAt: true,
+        attempts: true,
+      },
+      take: 10, // Limit to first 10 for display
+    })
+
+    // Get all locked jobs (including non-expired)
+    const lockedJobs = await (prisma as any).outputAnalysis.findMany({
+      where: {
+        status: 'processing',
+        lockedAt: { not: null },
+      },
+      select: {
+        id: true,
+        lockedAt: true,
+        attempts: true,
+      },
+    })
 
     const totalOutputs = await prisma.output.count()
     const analyzedOutputs = await (prisma as any).outputAnalysis.count({
@@ -364,6 +511,17 @@ export async function GET(request: NextRequest) {
         outputs: totalOutputs,
         analyzed: analyzedOutputs,
         pending: totalOutputs - analyzedOutputs,
+      },
+      locked: {
+        total: lockedJobs.length,
+        expired: stuckJobs.length,
+        expiredJobs: stuckJobs.map((job: any) => ({
+          id: job.id,
+          outputId: job.outputId,
+          lockedAt: job.lockedAt?.toISOString(),
+          ageMs: job.lockedAt ? now.getTime() - new Date(job.lockedAt).getTime() : 0,
+          attempts: job.attempts,
+        })),
       },
     })
   } catch (error: any) {

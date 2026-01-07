@@ -417,11 +417,24 @@ function MyAnalyticsContent() {
       }
 
       const result = await res.json()
-      toast({
-        title: 'Processed batch',
-        description: `Processed ${result.processed ?? 0} item(s). Completed: ${result.completed ?? 0}, Failed: ${result.failed ?? 0}.`,
-      })
+      
+      // Handle both old format (synchronous) and new format (background processing)
+      if (result.processed !== undefined) {
+        // Old format - synchronous processing completed
+        toast({
+          title: 'Processed batch',
+          description: `Processed ${result.processed ?? 0} item(s). Completed: ${result.completed ?? 0}, Failed: ${result.failed ?? 0}.`,
+        })
+      } else {
+        // New format - background processing started
+        toast({
+          title: 'Processing started',
+          description: `Started processing ${result.claimed ?? 0} item(s) in the background. Processing will continue even if you navigate away.`,
+        })
+      }
 
+      // Refresh status after a short delay to show updated counts
+      await new Promise(resolve => setTimeout(resolve, 1000))
       await refreshAnalysisStatus()
     } catch (error: any) {
       console.error('Process error:', error)
