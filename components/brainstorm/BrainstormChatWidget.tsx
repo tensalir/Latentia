@@ -581,8 +581,9 @@ export function BrainstormChatWidget({ projectId, isOpen: controlledIsOpen, onOp
                 // Extract image URLs from markdown-style links
                 const imageUrlRegex = /\[Attached image: [^\]]+\]\(([^)]+)\)/g
                 const fileUrlRegex = /\[Attached file: [^\]]+\]\(([^)]+)\)/g
-                const imageMatches = [...messageText.matchAll(imageUrlRegex)]
-                const fileMatches = [...messageText.matchAll(fileUrlRegex)]
+                // NOTE: Avoid spreading iterators; Vercel TypeScript target can fail without downlevelIteration
+                const imageMatches = Array.from(messageText.matchAll(imageUrlRegex))
+                const fileMatches = Array.from(messageText.matchAll(fileUrlRegex))
                 
                 // Check if message contains attachment markers
                 const hasAttachments = messageText.includes('[Attached image:') || messageText.includes('[Attached file:') || messageText.includes('[Attached:')
