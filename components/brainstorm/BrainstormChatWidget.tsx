@@ -1101,7 +1101,7 @@ export function BrainstormChatWidget({ projectId, isOpen: controlledIsOpen, onOp
             <DialogTitle>Project Briefing</DialogTitle>
             <DialogDescription>
               Add high-level instructions or context that will be included in all chat conversations within this project.
-              This briefing will be automatically added to the system prompt for every new chat, so you don't need to repeat it.
+              This briefing will be automatically added to the system prompt for every new chat, so you don&apos;t need to repeat it.
             </DialogDescription>
           </DialogHeader>
           
