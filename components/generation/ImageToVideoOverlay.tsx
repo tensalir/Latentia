@@ -296,9 +296,11 @@ export function ImageToVideoOverlay({
                           placeholder="Enter new session name..."
                           value={newSessionName}
                           onChange={(e) => setNewSessionName(e.target.value)}
-                          className="bg-muted/50 border-border h-10 text-sm rounded-lg focus:ring-primary/20 pl-10"
+                          onFocus={(e) => e.target.select()}
+                          className="bg-muted/50 border-border h-10 text-sm rounded-lg focus:ring-primary/20 focus:bg-background pl-10"
+                          autoFocus={sessionMode === 'new'}
                         />
-                        <Plus className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Plus className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
                       </div>
                     )}
                   </div>

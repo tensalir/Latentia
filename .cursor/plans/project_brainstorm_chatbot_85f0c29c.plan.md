@@ -161,4 +161,3 @@ sequenceDiagram
 - create new chat
 - switch chats
 - delete chat
-- No changes to the prompt bar / existing prompt enhancement.
