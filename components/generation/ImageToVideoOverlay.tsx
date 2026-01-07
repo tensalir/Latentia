@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { X, Video, Plus, Play, Loader2, Check, Clock, AlertCircle, ChevronDown, ChevronUp, RotateCcw, Download } from 'lucide-react'
+import { X, Video, Plus, Play, Loader2, Check, Clock, AlertCircle, ChevronDown, ChevronUp, RotateCcw, Download, Bookmark } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -161,6 +161,41 @@ export function ImageToVideoOverlay({
       console.error('Video generation failed:', error)
     }
   }, [ensureVideoSession, generateMutation, selectedModel, parameters, outputId, refetch, onGenerationStarted, queryClient])
+  
+  // Handle bookmark toggle for video outputs
+  const handleToggleBookmark = useCallback(async (outputId: string, isBookmarked: boolean) => {
+    try {
+      const method = isBookmarked ? 'DELETE' : 'POST'
+      const response = await fetch('/api/bookmarks', {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ outputId }),
+      })
+      if (!response.ok) throw new Error('Failed to toggle bookmark')
+      // Refetch iterations to update bookmark state
+      refetch()
+    } catch (error) {
+      console.error('Error toggling bookmark:', error)
+    }
+  }, [refetch])
+  
+  // Handle approve toggle for video outputs
+  const handleToggleApproval = useCallback(async (outputId: string, isApproved: boolean) => {
+    try {
+      const response = await fetch(`/api/outputs/${outputId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isApproved: !isApproved }),
+      })
+      if (!response.ok) throw new Error('Failed to toggle approval')
+      // Invalidate approved outputs query
+      queryClient.invalidateQueries({ queryKey: ['approvedOutputs'] })
+      // Refetch iterations to update approval state
+      refetch()
+    } catch (error) {
+      console.error('Error toggling approval:', error)
+    }
+  }, [queryClient, refetch])
   
   // Close on escape
   useEffect(() => {
@@ -402,6 +437,8 @@ export function ImageToVideoOverlay({
                           }))
                         }
                       }}
+                      onBookmark={handleToggleBookmark}
+                      onApprove={handleToggleApproval}
                     />
                   ))
                 )}
@@ -415,14 +452,30 @@ export function ImageToVideoOverlay({
 }
 
 /**
+ * Format model ID to a readable display name
+ */
+function formatModelName(modelId: string): string {
+  const modelNames: Record<string, string> = {
+    'gemini-veo-3.1': 'Veo 3.1',
+    'replicate-kling-2.6': 'Kling 2.6',
+    'minimax-video-01': 'MiniMax',
+  }
+  return modelNames[modelId] || modelId.replace(/-/g, ' ').replace(/^(gemini|replicate|fal)\s*/i, '')
+}
+
+/**
  * Card showing a single video iteration
  */
 function IterationCard({ 
   iteration,
-  onReuseParameters 
+  onReuseParameters,
+  onBookmark,
+  onApprove,
 }: { 
   iteration: VideoIteration
   onReuseParameters?: (iteration: VideoIteration) => void
+  onBookmark?: (outputId: string, isBookmarked: boolean) => void
+  onApprove?: (outputId: string, isApproved: boolean) => void
 }) {
   const [isExpanded, setIsExpanded] = useState(false)
   const hasOutput = iteration.outputs.length > 0
@@ -472,12 +525,72 @@ function IterationCard({
       {/* Video Preview / Placeholder */}
       <div className="aspect-video bg-muted relative overflow-hidden">
         {hasOutput && iteration.status === 'completed' ? (
-          <video
-            src={videoOutput.fileUrl}
-            className="w-full h-full object-cover"
-            controls
-            preload="metadata"
-          />
+          <>
+            <video
+              src={videoOutput.fileUrl}
+              className="w-full h-full object-cover"
+              controls
+              preload="metadata"
+            />
+            {/* Hover Overlay with Actions */}
+            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-150 pointer-events-none z-10">
+              {/* Top Left - Download + Reuse */}
+              <div className="absolute top-2 left-2 pointer-events-auto flex items-center gap-1">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleDownload()
+                  }}
+                  className="p-1.5 bg-white/20 backdrop-blur-sm rounded-lg hover:bg-white/30 transition-colors"
+                  title="Download"
+                >
+                  <Download className="h-3.5 w-3.5 text-white" />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onReuseParameters?.(iteration)
+                  }}
+                  className="p-1.5 bg-white/20 backdrop-blur-sm rounded-lg hover:bg-white/30 transition-colors"
+                  title="Reuse parameters"
+                >
+                  <RotateCcw className="h-3.5 w-3.5 text-white" />
+                </button>
+              </div>
+              
+              {/* Top Right - Bookmark + Approval */}
+              <div className="absolute top-2 right-2 pointer-events-auto flex items-center gap-1">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    if (videoOutput) {
+                      onBookmark?.(videoOutput.id, (videoOutput as any).isBookmarked || false)
+                    }
+                  }}
+                  className="p-1.5 bg-white/20 backdrop-blur-sm rounded-lg hover:bg-white/30 transition-colors"
+                  title={(videoOutput as any)?.isBookmarked ? 'Remove bookmark' : 'Bookmark'}
+                >
+                  <Bookmark className={`h-3.5 w-3.5 text-white ${(videoOutput as any)?.isBookmarked ? 'fill-white' : ''}`} />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    if (videoOutput) {
+                      onApprove?.(videoOutput.id, (videoOutput as any).isApproved || false)
+                    }
+                  }}
+                  className={`p-1.5 backdrop-blur-sm rounded-lg transition-colors ${
+                    (videoOutput as any)?.isApproved
+                      ? 'bg-green-500/90 hover:bg-green-600/90'
+                      : 'bg-white/20 hover:bg-white/30'
+                  }`}
+                  title={(videoOutput as any)?.isApproved ? 'Approved for review' : 'Approve for review'}
+                >
+                  <Check className="h-3.5 w-3.5 text-white" />
+                </button>
+              </div>
+            </div>
+          </>
         ) : (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-muted/50 backdrop-blur-sm">
             <div className={`p-3 rounded-full ${statusColors[iteration.status].split(' ')[0]} border border-border mb-3`}>
@@ -492,32 +605,19 @@ function IterationCard({
       
       {/* Metadata */}
       <div className="p-4 space-y-3">
-        {/* Status Badge + Action Buttons */}
-        <div className="flex items-center justify-between">
-          <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-semibold uppercase tracking-tight border ${statusColors[iteration.status]}`}>
+        {/* Status Badge + Model (on right) */}
+        <div className="flex items-center justify-between gap-2">
+          <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-semibold uppercase tracking-tight border shrink-0 ${statusColors[iteration.status]}`}>
             <StatusIcon className={`h-3 w-3 ${iteration.status === 'processing' ? 'animate-spin' : ''}`} />
             <span>{iteration.status}</span>
           </div>
           
-          {/* Action Buttons */}
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => onReuseParameters?.(iteration)}
-              className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-              title="Reuse parameters"
-            >
-              <RotateCcw className="h-3.5 w-3.5" />
-            </button>
-            {hasOutput && iteration.status === 'completed' && (
-              <button
-                onClick={handleDownload}
-                className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                title="Download video"
-              >
-                <Download className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
+          {/* Model indicator - moved to right */}
+          {iteration.modelId && (
+            <span className="text-[10px] text-muted-foreground truncate" title={iteration.modelId}>
+              {formatModelName(iteration.modelId)}
+            </span>
+          )}
         </div>
         
         {/* Prompt Preview with Expand */}
