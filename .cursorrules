@@ -55,4 +55,9 @@ We’ve hit a TypeScript build failure from Prisma args:
 - Avoid adding classes that generate build warnings or are ambiguous.
 - Prefer standard easing utilities (`ease-out`, `ease-in-out`) or set `style={{ transitionTimingFunction: 'cubic-bezier(...)' }}` instead of `ease-[...]` if it triggers warnings.
 
+## Supabase / Vercel DB connectivity (common prod failure)
+- For serverless (Vercel) deployments, prefer Supabase **Connection Pooler** (port `6543`) for `DATABASE_URL`.
+- Add `?pgbouncer=true` when using the pooler.
+- Avoid guidance that suggests editing only local `.env` for prod fixes — Vercel uses its own env vars.
+
 
