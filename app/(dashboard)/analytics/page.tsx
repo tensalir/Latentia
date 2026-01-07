@@ -482,68 +482,6 @@ function MyAnalyticsContent() {
         </div>
       )}
 
-      {/* Provider & Type Breakdown */}
-      {(stats.byProvider?.length || stats.byType?.length) && stats.totalGenerations > 0 && (
-        <div className="grid gap-6 lg:grid-cols-2">
-          {/* Provider Breakdown */}
-          {stats.byProvider && stats.byProvider.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Layers className="h-5 w-5 text-muted-foreground" />
-                  By Provider
-                </CardTitle>
-                <CardDescription>
-                  Generation distribution across AI providers
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {stats.byProvider.map((provider, index) => (
-                    <ColoredProgressBar
-                      key={provider.provider}
-                      label={provider.provider}
-                      value={provider.count}
-                      percentage={provider.percentage}
-                      color={CHART_COLORS[index % CHART_COLORS.length]}
-                    />
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Type Breakdown */}
-          {stats.byType && stats.byType.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Activity className="h-5 w-5 text-muted-foreground" />
-                  By Media Type
-                </CardTitle>
-                <CardDescription>
-                  Images vs videos you&apos;ve generated
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {stats.byType.map((type, index) => (
-                    <ColoredProgressBar
-                      key={type.type}
-                      label={type.type === 'image' ? 'Images' : 'Videos'}
-                      value={type.count}
-                      percentage={type.percentage}
-                      color={type.type === 'image' ? '#3b82f6' : '#8b5cf6'}
-                      icon={type.type === 'image' ? ImageIcon : Video}
-                    />
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </div>
-      )}
-
       {/* Spending Breakdown (Admin Only) */}
       {isAdmin && spending && spending.providerBreakdown.length > 0 && (
         <Card>
@@ -764,65 +702,6 @@ function GlobalAnalyticsContent() {
         </div>
       )}
 
-      {/* Provider & Type Breakdown */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Provider Breakdown */}
-        {stats.byProvider && stats.byProvider.length > 0 && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Layers className="h-5 w-5 text-muted-foreground" />
-                By Provider
-              </CardTitle>
-              <CardDescription>
-                Generation distribution across AI providers
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {stats.byProvider.map((provider, index) => (
-                  <ColoredProgressBar
-                    key={provider.provider}
-                    label={provider.provider}
-                    value={provider.count}
-                    percentage={provider.percentage}
-                    color={CHART_COLORS[index % CHART_COLORS.length]}
-                  />
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Type Breakdown */}
-        {stats.byType && stats.byType.length > 0 && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Activity className="h-5 w-5 text-muted-foreground" />
-                By Media Type
-              </CardTitle>
-              <CardDescription>
-                Images vs videos generated
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {stats.byType.map((type) => (
-                  <ColoredProgressBar
-                    key={type.type}
-                    label={type.type === 'image' ? 'Images' : 'Videos'}
-                    value={type.count}
-                    percentage={type.percentage}
-                    color={type.type === 'image' ? '#3b82f6' : '#8b5cf6'}
-                    icon={type.type === 'image' ? ImageIcon : Video}
-                  />
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
-      </div>
     </div>
   )
 }
