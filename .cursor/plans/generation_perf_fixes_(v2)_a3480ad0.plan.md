@@ -1,45 +1,3 @@
----
-name: Generation perf fixes (v2)
-overview: "Implement the four `generation-*` issues with refined approaches: virtualized gallery, CSS-animated progress, parallel output uploads, and allowlist-based parameter sanitization with backfill."
-todos:
-  - id: deps
-    content: "Add dependencies: `@tanstack/react-virtual`, `p-limit`; add env var `GENERATION_UPLOAD_CONCURRENCY`"
-    status: completed
-  - id: persist-multi-ref
-    content: Add `persistReferenceImages()` helper in `lib/reference-images.ts` with parallel upload support
-    status: completed
-    dependencies:
-      - deps
-  - id: fix-generate-route
-    content: Update `app/api/generate/route.ts` to use `persistReferenceImages()` for multi-image uploads instead of storing base64
-    status: completed
-    dependencies:
-      - persist-multi-ref
-  - id: sanitize-api
-    content: Add allowlist-based `sanitizeParameters()` to `/api/generations` with `includeParameters` query param
-    status: completed
-    dependencies:
-      - fix-generate-route
-  - id: backfill-endpoint
-    content: Create `app/api/admin/backfill-reference-images/route.ts` with batch processing and idempotency checks
-    status: completed
-    dependencies:
-      - persist-multi-ref
-  - id: virtualize-gallery
-    content: Virtualize `GenerationGallery` using TanStack Virtual; update scroll logic in `GenerationInterface`
-    status: completed
-    dependencies:
-      - deps
-  - id: css-progress
-    content: Replace JS interval in `GenerationProgress` with CSS keyframe animation for smooth 60fps progress
-    status: completed
-  - id: parallel-uploads
-    content: Refactor `app/api/generate/process` to use `Promise.allSettled` + `p-limit` for parallel output uploads
-    status: completed
-    dependencies:
-      - deps
----
-
 # Implement `generation-*` issues (performance + payload) - Revised
 
 ## Scope
@@ -72,17 +30,7 @@ todos:
 
 ### Scroll Behavior Preservation (Critical)
 
-The existing scroll logic must continue working:| Behavior | How to Preserve |
-
-|----------|-----------------|
-
-| Pinned-to-bottom detection | Use `virtualizer.scrollOffset` + `virtualizer.getTotalSize()` instead of raw DOM measurements |
-
-| Auto-scroll on new items | After virtualizer renders, call `virtualizer.scrollToIndex(generations.length - 1)` |
-
-| Load older (scroll to top) | Keep IntersectionObserver on sentinel div at top of virtualized list |
-
-| Scroll position on prepend | Store `virtualizer.scrollOffset` before fetch, restore after data update |
+The existing scroll logic must continue working:| Behavior | How to Preserve ||----------|-----------------|| Pinned-to-bottom detection | Use `virtualizer.scrollOffset` + `virtualizer.getTotalSize()` instead of raw DOM measurements || Auto-scroll on new items | After virtualizer renders, call `virtualizer.scrollToIndex(generations.length - 1)` || Load older (scroll to top) | Keep IntersectionObserver on sentinel div at top of virtualized list || Scroll position on prepend | Store `virtualizer.scrollOffset` before fetch, restore after data update |
 
 ### Validation
 
@@ -351,13 +299,7 @@ for (const gen of needsBackfill) {
 
 ## Environment Variables
 
-| Variable | Default | Description |
-
-|----------|---------|-------------|
-
-| `GENERATION_UPLOAD_CONCURRENCY` | `3` | Max parallel uploads in process endpoint |
-
-| `INTERNAL_API_SECRET` | (required) | Auth for backfill endpoint |---
+| Variable | Default | Description ||----------|---------|-------------|| `GENERATION_UPLOAD_CONCURRENCY` | `3` | Max parallel uploads in process endpoint || `INTERNAL_API_SECRET` | (required) | Auth for backfill endpoint |---
 
 ## Validation Checklist
 
@@ -382,4 +324,3 @@ for (const gen of needsBackfill) {
 
 1. **API changes first:** Persist multi-ref images + sanitize `/api/generations`
 2. **Run backfill:** Execute in batches until complete
-3. **UI performance:** Deploy virtualization + CSS progress

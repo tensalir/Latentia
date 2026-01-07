@@ -132,9 +132,7 @@ export async function POST(
 
     // Stream the response using AI SDK
     const result = streamText({
-      model: anthropic(modelId, {
-        // Anthropic-specific settings
-      }),
+      model: anthropic(modelId),
       system: systemPrompt,
       messages,
       onFinish: async ({ text }) => {
