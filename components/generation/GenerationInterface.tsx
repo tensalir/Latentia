@@ -14,7 +14,7 @@ import { useUIStore } from '@/store/uiStore'
 import { useToast } from '@/components/ui/use-toast'
 import { getAllModels, getModelsByType } from '@/lib/models/registry'
 import { createClient } from '@/lib/supabase/client'
-import { Image, Video, MessageCircle } from 'lucide-react'
+import { Image as ImageIcon, Video, MessageCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface PaginatedGenerationsResponse {
@@ -864,7 +864,7 @@ export function GenerationInterface({
               )}
               title="Image generation"
             >
-              <Image className="h-4 w-4" />
+              <ImageIcon className="h-4 w-4" />
             </button>
             <button
               onClick={() => onGenerationTypeChange?.('video')}
