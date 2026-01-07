@@ -8,7 +8,8 @@ interface ProjectsResponse {
 }
 
 async function fetchProjects(): Promise<(Project & { thumbnailUrl?: string | null })[]> {
-  const response = await fetch('/api/projects/with-thumbnails')
+  // Ensure we don't read a cached HTTP response after mutations (e.g. delete).
+  const response = await fetch('/api/projects/with-thumbnails', { cache: 'no-store' })
   
   if (!response.ok) {
     throw new Error('Failed to fetch projects')

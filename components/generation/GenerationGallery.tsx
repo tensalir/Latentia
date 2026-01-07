@@ -416,7 +416,7 @@ export function GenerationGallery({
                   </div>
                 </div>
                 {/* Right Side: Empty/Cancelled State */}
-                <div className="flex-1 max-w-2xl flex items-center justify-center">
+                <div className="flex-1 max-w-5xl flex items-center justify-center">
                   <div className="bg-muted/20 rounded-xl p-8 border border-destructive/30 text-center">
                     <p className="text-sm text-muted-foreground">Generation was cancelled</p>
                   </div>
@@ -509,7 +509,7 @@ export function GenerationGallery({
 
                 {/* Right Side: Progress placeholders or stuck message */}
                 {isStuck ? (
-                  <div className="flex-1 max-w-2xl">
+                  <div className="flex-1 max-w-5xl">
                     <div className="bg-destructive/10 rounded-xl p-6 border border-destructive/50">
                       <h3 className="text-lg font-semibold text-destructive mb-2">Generation Stuck</h3>
                       <p className="text-sm text-foreground/80 mb-4">
@@ -537,7 +537,7 @@ export function GenerationGallery({
                     </div>
                   </div>
                 ) : (
-                  <div className="flex-1 grid grid-cols-2 gap-3 max-w-2xl">
+                  <div className="flex-1 grid grid-cols-2 gap-4 max-w-5xl">
                     {Array.from({ length: numOutputs }).map((_, idx) => (
                       <GenerationProgress 
                         key={`${stableKey}-progress-${idx}`}
@@ -597,7 +597,7 @@ export function GenerationGallery({
                 </div>
 
                 {/* Right Side: Error Message */}
-                <div className="flex-1 max-w-2xl">
+                <div className="flex-1 max-w-5xl">
                   <div className="bg-destructive/10 rounded-xl p-6 border border-destructive/50">
                     <h3 className="text-lg font-semibold text-destructive mb-2">Generation Failed</h3>
                     <p className="text-sm text-foreground/80 mb-4">{errorMessage}</p>
@@ -654,7 +654,7 @@ export function GenerationGallery({
                 </div>
 
                 {/* Right Side: Single video container */}
-                <div className="flex-1 grid grid-cols-1 gap-3 max-w-4xl">
+                <div className="flex-1 grid grid-cols-1 gap-3 max-w-5xl">
                   {generation.outputs && generation.outputs.length > 0 ? (
                     generation.outputs.map((output) => {
                       const aspectRatio = (generation.parameters as any)?.aspectRatio || '16:9'
@@ -731,7 +731,7 @@ export function GenerationGallery({
                     })
                   ) : (
                     // Fallback: Show error message if video generation has no outputs
-                    <div className="flex-1 max-w-2xl">
+                    <div className="flex-1 max-w-5xl">
                       <div className="bg-destructive/10 rounded-xl p-6 border border-destructive/50">
                         <h3 className="text-lg font-semibold text-destructive mb-2">No Video Generated</h3>
                         <p className="text-sm text-foreground/80 mb-4">
@@ -812,7 +812,7 @@ export function GenerationGallery({
               </div>
 
             {/* Right Side: Outputs in 2-Column Grid */}
-            <div className="flex-1 grid grid-cols-2 gap-4 max-w-4xl">
+            <div className="flex-1 grid grid-cols-2 gap-4 max-w-5xl">
               {(generation.outputs || []).map((output) => {
                 const aspectRatio = (generation.parameters as any)?.aspectRatio || '1:1'
                 return (

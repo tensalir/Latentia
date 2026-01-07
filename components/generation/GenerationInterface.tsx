@@ -9,6 +9,7 @@ import type { GenerationWithOutputs } from '@/types/generation'
 import { useInfiniteGenerations } from '@/hooks/useInfiniteGenerations'
 import { useGenerationsRealtime } from '@/hooks/useGenerationsRealtime'
 import { useGenerateMutation } from '@/hooks/useGenerateMutation'
+import { useModelCapabilities } from '@/hooks/useModelCapabilities'
 import { useUIStore } from '@/store/uiStore'
 import { useToast } from '@/components/ui/use-toast'
 import { getAllModels, getModelsByType } from '@/lib/models/registry'
@@ -74,6 +75,10 @@ export function GenerationInterface({
   const [showNewItemsIndicator, setShowNewItemsIndicator] = useState(false)
   const previousGenerationsCountRef = useRef(0)
   const scrollHeightBeforeLoadRef = useRef<number | null>(null)
+  
+  // State for pasted images (passed to input components)
+  const [pastedImageFiles, setPastedImageFiles] = useState<File[]>([])
+  const pastedImageCallbackRef = useRef<((files: File[]) => void) | null>(null)
   
   /**
    * Dismiss/remove a stuck generation from the UI cache.
@@ -159,6 +164,89 @@ export function GenerationInterface({
   
   // Use React Query mutation for generating
   const generateMutation = useGenerateMutation()
+  
+  // Get model capabilities to check if pasting images is supported
+  const { modelConfig } = useModelCapabilities(selectedModel)
+  
+  // Check if current model supports reference images
+  const supportsReferenceImages = useMemo(() => {
+    if (!modelConfig) return false
+    // Image models: check 'editing' capability
+    if (generationType === 'image') {
+      return modelConfig.capabilities?.editing === true
+    }
+    // Video models: check 'image-2-video' capability
+    return modelConfig.capabilities?.['image-2-video'] === true
+  }, [modelConfig, generationType])
+  
+  // Global paste handler for Cmd/Ctrl+V with images
+  useEffect(() => {
+    if (!session) return
+    
+    const handlePaste = (e: ClipboardEvent) => {
+      // Don't intercept paste if user is typing in a text field (unless it's explicitly our prompt textarea)
+      const activeElement = document.activeElement as HTMLElement | null
+      const isInTextInput = activeElement?.tagName === 'INPUT' || 
+                           (activeElement?.tagName === 'TEXTAREA' && !activeElement?.closest('[data-generation-input]'))
+      
+      // Check if clipboard has image data
+      const items = e.clipboardData?.items
+      if (!items) return
+      
+      const imageItems = Array.from(items).filter(item => item.type.startsWith('image/'))
+      if (imageItems.length === 0) return
+      
+      // Only handle if model supports reference images
+      if (!supportsReferenceImages) {
+        toast({
+          title: 'Model doesn\'t support reference images',
+          description: `${modelConfig?.name || 'This model'} doesn't support image input. Try Nano Banana, Seedream, Veo, or Kling.`,
+          variant: 'default',
+        })
+        return
+      }
+      
+      // Don't prevent default for text inputs - let them handle paste normally
+      // But we still want to add the image as a reference
+      
+      // Convert clipboard items to Files
+      const files: File[] = []
+      for (const item of imageItems) {
+        const blob = item.getAsFile()
+        if (blob) {
+          files.push(blob)
+        }
+      }
+      
+      if (files.length > 0) {
+        // Invoke callback if registered (from input components)
+        if (pastedImageCallbackRef.current) {
+          pastedImageCallbackRef.current(files)
+        } else {
+          // Fallback: set state for components to pick up
+          setPastedImageFiles(files)
+        }
+        
+        toast({
+          title: 'Image added',
+          description: files.length === 1 
+            ? 'Reference image added from clipboard' 
+            : `${files.length} reference images added from clipboard`,
+        })
+      }
+    }
+    
+    document.addEventListener('paste', handlePaste)
+    return () => document.removeEventListener('paste', handlePaste)
+  }, [session, supportsReferenceImages, modelConfig, toast])
+  
+  // Callback for input components to register their paste handlers
+  const registerPasteHandler = useCallback((handler: (files: File[]) => void) => {
+    pastedImageCallbackRef.current = handler
+    return () => {
+      pastedImageCallbackRef.current = null
+    }
+  }, [])
 
   // Set numOutputs based on generationType and model config
   useEffect(() => {
@@ -651,7 +739,7 @@ export function GenerationInterface({
 
   if (!session) {
     return (
-      <div className="flex-1 pl-24 flex items-center justify-center text-muted-foreground bg-grid-soft">
+      <div className="flex-1 pl-48 flex items-center justify-center text-muted-foreground bg-grid-soft">
         <div className="text-center">
           <p className="text-lg mb-2">No session selected</p>
           <p className="text-sm">Create or select a session to start generating</p>
@@ -666,13 +754,13 @@ export function GenerationInterface({
       <div ref={scrollContainerRef} className="flex-1 overflow-y-auto bg-grid-soft">
         {isLoading ? (
           // Loading state
-          <div className="h-full pl-24 flex items-center justify-center">
+          <div className="h-full pl-48 flex items-center justify-center">
             <div className="text-center text-muted-foreground">
               <p className="text-lg mb-2">Loading generations...</p>
             </div>
           </div>
         ) : (
-          <div ref={scrollContentRef} className="pt-24 pb-52 pl-24 flex justify-center">
+          <div ref={scrollContentRef} className="pt-24 pb-52 pl-48 flex justify-center">
             <div className="w-full max-w-7xl">
               {/* Sentinel at TOP for loading older items when scrolling up */}
               <div ref={loadOlderRef} className="h-1 w-full" />
@@ -734,6 +822,7 @@ export function GenerationInterface({
                 referenceImageUrl={referenceImageUrl}
                 onClearReferenceImage={() => setReferenceImageUrl(null)}
                 onSetReferenceImageUrl={setReferenceImageUrl}
+                onRegisterPasteHandler={registerPasteHandler}
               />
             ) : (
               <ChatInput
@@ -747,6 +836,7 @@ export function GenerationInterface({
                 onModelSelect={setSelectedModel}
                 isGenerating={false}
                 referenceImageUrls={referenceImageUrls}
+                onRegisterPasteHandler={registerPasteHandler}
               />
             )}
           </div>

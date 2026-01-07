@@ -181,15 +181,23 @@ export async function GET(request: NextRequest) {
       },
     })
 
-    return NextResponse.json({
-      data: projectsWithThumbnails,
-      nextCursor,
-      hasMore,
-    }, {
-      headers: {
-        'Cache-Control': 'private, max-age=60',
+    // IMPORTANT:
+    // The projects overview must reflect deletes/updates immediately.
+    // React Query already provides in-app caching; HTTP caching here can serve stale
+    // data after a mutation (e.g. delete) and make the UI look "stuck" until the
+    // browser cache expires.
+    return NextResponse.json(
+      {
+        data: projectsWithThumbnails,
+        nextCursor,
+        hasMore,
       },
-    })
+      {
+        headers: {
+          'Cache-Control': 'no-store',
+        },
+      }
+    )
   } catch (error: any) {
     logMetric({
       name: 'api_projects_with_thumbnails',

@@ -32,6 +32,7 @@ interface ChatInputProps {
   onModelSelect: (modelId: string) => void
   isGenerating?: boolean
   referenceImageUrls?: string[] // URLs to hydrate reference images from
+  onRegisterPasteHandler?: (handler: (files: File[]) => void) => () => void // Register to receive pasted images
 }
 
 export function ChatInput({
@@ -45,6 +46,7 @@ export function ChatInput({
   onModelSelect,
   isGenerating = false,
   referenceImageUrls,
+  onRegisterPasteHandler,
 }: ChatInputProps) {
   const params = useParams()
   const [referenceImage, setReferenceImage] = useState<File | null>(null) // Single image (backward compatibility)
@@ -361,6 +363,17 @@ export function ChatInput({
     }
   }, [imagePreviewUrls])
 
+  // Register paste handler with parent component
+  useEffect(() => {
+    if (!onRegisterPasteHandler || !supportsImageEditing) return
+    
+    const unregister = onRegisterPasteHandler((files) => {
+      processImageFiles(files)
+    })
+    
+    return unregister
+  }, [onRegisterPasteHandler, supportsImageEditing])
+
   return (
     <div 
       className={`space-y-3 transition-all ${
@@ -385,6 +398,7 @@ export function ChatInput({
               onPromptChange(e.target.value)
             }}
             onKeyDown={handleKeyDown}
+            data-generation-input="true"
             className={`resize-none min-h-[52px] max-h-[104px] px-4 py-3 text-sm rounded-lg bg-muted/50 border transition-all pr-10 ${
               isEnhancing 
                 ? 'border-primary/50 bg-primary/5 shadow-lg shadow-primary/10' 

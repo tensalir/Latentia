@@ -42,6 +42,8 @@ interface VideoInputProps {
   showGenerateButton?: boolean
   /** Whether generation is currently in progress */
   isGenerating?: boolean
+  /** Register to receive pasted images from global paste handler */
+  onRegisterPasteHandler?: (handler: (files: File[]) => void) => () => void
 }
 
 export function VideoInput({
@@ -61,6 +63,7 @@ export function VideoInput({
   referenceImageIdOverride,
   showGenerateButton = true,
   isGenerating: externalGenerating,
+  onRegisterPasteHandler,
 }: VideoInputProps) {
   const params = useParams()
   const [referenceImage, setReferenceImage] = useState<File | null>(null)
@@ -282,6 +285,20 @@ export function VideoInput({
     }
   }, [imagePreviewUrl])
 
+  // Register paste handler with parent component
+  useEffect(() => {
+    if (!onRegisterPasteHandler || !supportsImageToVideo) return
+    
+    const unregister = onRegisterPasteHandler((files) => {
+      // Video input only uses one image, take the first
+      if (files.length > 0) {
+        processImageFile(files[0])
+      }
+    })
+    
+    return unregister
+  }, [onRegisterPasteHandler, supportsImageToVideo])
+
   return (
     <div 
       className={`space-y-3 transition-all ${
@@ -306,6 +323,7 @@ export function VideoInput({
               onPromptChange(e.target.value)
             }}
             onKeyDown={handleKeyDown}
+            data-generation-input="true"
             className={`resize-none px-4 text-sm rounded-lg bg-white/5 border-white/10 transition-all w-full flex-1 custom-scrollbar ${
               isOverlay 
                 ? 'min-h-[48px] max-h-[120px] py-3.5 pr-10' 

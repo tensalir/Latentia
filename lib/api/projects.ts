@@ -15,7 +15,8 @@ interface ProjectsWithThumbnailsResponse {
 }
 
 export async function getProjectsWithThumbnails(): Promise<Project[]> {
-  const response = await fetch('/api/projects/with-thumbnails')
+  // Avoid cached HTTP responses for a list that must reflect deletes/updates immediately.
+  const response = await fetch('/api/projects/with-thumbnails', { cache: 'no-store' })
   if (!response.ok) {
     throw new Error('Failed to fetch projects with thumbnails')
   }
