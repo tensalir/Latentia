@@ -775,7 +775,7 @@ export function BrainstormChatWidget({ projectId, isOpen: controlledIsOpen, onOp
                                             className="p-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
                                             title="Use this prompt"
                                           >
-                                            <ArrowRight className="w-3.5 h-3.5" />
+                                            <ArrowRight className="w-3.5 h-3.5 rotate-[135deg]" />
                                           </button>
                                         )}
                                       </div>
