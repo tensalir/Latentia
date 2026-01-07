@@ -591,7 +591,7 @@ export function BrainstormChatWidget({ projectId, isOpen: controlledIsOpen, onOp
           )}
           
           {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-card/95 backdrop-blur">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-card">
             <div className="flex items-center gap-2">
               <Sparkles className="w-5 h-5 text-primary" />
               <span className="font-semibold text-sm">Brainstorm</span>
@@ -862,7 +862,7 @@ export function BrainstormChatWidget({ projectId, isOpen: controlledIsOpen, onOp
           </div>
 
           {/* Input area */}
-          <div className="border-t border-border p-3 bg-card/95 backdrop-blur">
+          <div className="border-t border-border p-3 bg-card">
             {/* File previews */}
             {filePreviews.length > 0 && (
               <div className="flex flex-wrap gap-2 mb-2">
