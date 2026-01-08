@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "loop-brand-system": {
-      "command": "node",
-      "args": ["C:/Users/buyss/Dropbox/03_Thoughtform/08_Artifacts/09_loop brand system/packages/loop-mcp/dist/index.js"]
-    }
-  }
-}
