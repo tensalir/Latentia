@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { persistReferenceImage, downloadReferenceImageAsDataUrl } from '../lib/reference-images'
+import { persistReferenceImage, downloadReferenceImageAsDataUrl } from '../src/lib/reference-images'
 
 const SAMPLE_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9YpukpoAAAAASUVORK5CYII='
