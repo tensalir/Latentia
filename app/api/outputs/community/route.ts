@@ -41,9 +41,10 @@ export async function GET(request: Request) {
       if (a.size === 0 || b.size === 0) return 0
       let intersection = 0
       const [small, large] = a.size <= b.size ? [a, b] : [b, a]
-      for (const token of small) {
+      // Use Array.from() to avoid downlevelIteration requirement
+      Array.from(small).forEach((token) => {
         if (large.has(token)) intersection += 1
-      }
+      })
       const union = a.size + b.size - intersection
       return union === 0 ? 0 : intersection / union
     }
