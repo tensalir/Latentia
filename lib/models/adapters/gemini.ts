@@ -1183,7 +1183,7 @@ export class GeminiAdapter extends BaseModelAdapter {
 // https://ai.google.dev/gemini-api/docs/image-generation
 export const NANO_BANANA_CONFIG: ModelConfig = {
   id: 'gemini-nano-banana-pro',
-  name: 'Nano banana pro',
+  name: 'Nano Banana Pro',
   provider: 'Google',
   type: 'image',
   description: 'Gemini 3 Pro Image - Advanced image generation with superior quality',
