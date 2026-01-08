@@ -168,7 +168,8 @@ export async function GET(
     }))
 
     // Compute summary stats
-    const hasProcessing = data.some((d) => d.status === 'processing')
+    // Treat both queued + processing as "active" so UI can show glow/poll immediately.
+    const hasProcessing = data.some((d) => d.status === 'processing' || d.status === 'queued')
     const latestStatus = data[0]?.status || null
 
     return NextResponse.json({

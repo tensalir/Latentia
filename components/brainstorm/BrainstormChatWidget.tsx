@@ -784,6 +784,12 @@ export function BrainstormChatWidget({ projectId, isOpen: controlledIsOpen, onOp
             ) : (
               messages.map((message) => {
                 const messageText = getMessageText(message)
+                const isLastMessage = message.id === messages[messages.length - 1]?.id
+                const isStreamingAssistant = message.role === 'assistant' && isLastMessage && status === 'streaming'
+
+                // Avoid flashing unformatted assistant text while streaming.
+                // We show the loader bubble below instead, then render the final formatted message once complete.
+                if (isStreamingAssistant) return null
                 
                 // Extract image URLs from markdown-style links
                 const imageUrlRegex = /\[Attached image: [^\]]+\]\(([^)]+)\)/g
@@ -875,16 +881,6 @@ export function BrainstormChatWidget({ projectId, isOpen: controlledIsOpen, onOp
                         <>
                           {/* Render text with prompts extracted into code boxes */}
                           {(() => {
-                            // Check if this is the currently streaming message
-                            // Only format prompts for completed messages to avoid flash of unstyled text
-                            const isLastMessage = message.id === messages[messages.length - 1]?.id
-                            const isStreaming = isLastMessage && status === 'streaming'
-                            
-                            // While streaming, just show plain text
-                            if (isStreaming) {
-                              return <p className="whitespace-pre-wrap break-words">{displayText}</p>
-                            }
-                            
                             const prompts = extractPrompts(displayText)
                             let remainingText = displayText
                             

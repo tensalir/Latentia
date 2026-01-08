@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { VideoInput } from './VideoInput'
-import { useVideoIterations, type VideoIteration } from '@/hooks/useVideoIterations'
+import { useVideoIterations, type VideoIteration, type VideoIterationsResponse } from '@/hooks/useVideoIterations'
 import { useGenerateMutation } from '@/hooks/useGenerateMutation'
 import { useSessions } from '@/hooks/useSessions'
 import { useQueryClient } from '@tanstack/react-query'
@@ -61,12 +61,12 @@ export function ImageToVideoOverlay({
   
   // Video generation state
   const [prompt, setPrompt] = useState('')
-  const [selectedModel, setSelectedModel] = useState('minimax-video-01')
+  const [selectedModel, setSelectedModel] = useState('replicate-kling-2.6')
   const [parameters, setParameters] = useState({
     aspectRatio: '16:9',
     resolution: 720,
     numOutputs: 1,
-    duration: 6,
+    duration: 5,
   })
   
   // Video iterations for this source image
@@ -125,6 +125,29 @@ export function ImageToVideoOverlay({
     }
     
     try {
+      // Immediately reflect "processing" on the source image card(s) in the gallery.
+      // `useVideoIterations` uses a 30s staleTime to avoid request explosion, so we
+      // optimistically set hasProcessing=true and then invalidate to fetch truth.
+      queryClient.setQueriesData<VideoIterationsResponse>(
+        { queryKey: ['videoIterations', outputId] },
+        (old) => {
+          if (!old) {
+            return {
+              iterations: [],
+              count: 0,
+              hasProcessing: true,
+              latestStatus: 'processing',
+              sourceOutputId: outputId,
+            }
+          }
+          return {
+            ...old,
+            hasProcessing: true,
+            latestStatus: 'processing',
+          }
+        }
+      )
+
       // Convert reference image to base64 if provided
       let referenceImageBase64: string | undefined
       if (options?.referenceImage) {
@@ -153,6 +176,8 @@ export function ImageToVideoOverlay({
       
       // Invalidate the video session's generations
       queryClient.invalidateQueries({ queryKey: ['generations', sessionId] })
+      // Invalidate video iterations for this source output so the gallery glow/stack updates immediately.
+      queryClient.invalidateQueries({ queryKey: ['videoIterations', outputId] })
       
       // Keep overlay open so user can see progress and make more iterations
       // Prompt is preserved for easy iteration
@@ -471,7 +496,7 @@ export function ImageToVideoOverlay({
 function formatModelName(modelId: string): string {
   const modelNames: Record<string, string> = {
     'gemini-veo-3.1': 'Veo 3.1',
-    'replicate-kling-2.6': 'Kling 2.6',
+    'replicate-kling-2.6': 'Kling 2.6 Pro',
     'minimax-video-01': 'MiniMax',
   }
   return modelNames[modelId] || modelId.replace(/-/g, ' ').replace(/^(gemini|replicate|fal)\s*/i, '')

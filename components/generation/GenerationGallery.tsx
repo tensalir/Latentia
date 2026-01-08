@@ -979,6 +979,17 @@ export function GenerationGallery({
           }
         }}
         onDownload={handleDownload}
+        onConvertToVideo={
+          currentGenerationType === 'image' && lightboxData
+            ? () => {
+                const selectedOutputId = lightboxData.output?.id
+                const selectedImageUrl = lightboxData.imageUrl
+                if (!selectedOutputId || !selectedImageUrl) return
+                setLightboxData(null)
+                handleVideoConversion(selectedOutputId, selectedImageUrl)
+              }
+            : undefined
+        }
       />
 
       {/* Image-to-Video Overlay */}
