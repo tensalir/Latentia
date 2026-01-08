@@ -10,23 +10,51 @@ interface GenerationProgressProps {
 }
 
 // Specific customer insights from Loop Earplugs research (18,176 reviews & 14,536 tickets)
-// Keep these short, concrete, and “scene-like” — they show real use cases, not generic claims.
+// Based on Deep-dive session 5 - Untapped use cases analysis
+// Keep these short, concrete, and "scene-like" — they show real use cases and frustrations.
 const CUSTOMER_INSIGHTS = [
-  'Sleep is the #1 use case—snoring and street noise show up constantly in reviews.',
-  'Side sleepers rave about low‑profile comfort: “no pressure points” is a repeat theme.',
-  'Neurodivergent users use Loop to dial down sensory overload in shops, offices, and transit.',
-  'Concert‑goers protect hearing without “muffling the music” or killing conversation.',
-  'Shift workers rely on Loop to sleep through daytime noise between long shifts.',
-  'Motorcyclists tame wind roar on highway rides—less fatigue, more comfort.',
-  'Parents use Loop to take the edge off screaming without tuning out their kids.',
-  'Remote workers use Loop to focus in open‑plan homes and noisy cafés.',
-  'Frequent flyers soften cabin noise and make announcements feel less jarring.',
-  'Teachers stay calmer in loud classrooms and hallways without feeling isolated.',
-  'Tinnitus‑prone users reach for Loop after loud nights to avoid flare‑ups.',
-  'Festival campers finally sleep through bass from neighboring stages.',
-  'Gym‑goers reduce “too loud” class music while still hearing safety cues.',
-  'Commuters make trains and buses feel less chaotic—especially at rush hour.',
-  'Musicians prefer Loop over foam because it preserves tonal balance.',
+  // Sleep Aid use cases (3,368 reviews)
+  'Sleep is the #1 use case—3,368 reviews mention using Loop for snoring partners and street noise.',
+  'Side sleepers struggle with earplugs that create pressure points—Loop&apos;s low profile solves this.',
+  'Light sleepers wake up to every noise—Loop helps them stay asleep through partner snoring and traffic.',
+  'Shift workers can&apos;t sleep during the day due to daytime noise—Loop blocks it out between shifts.',
+  'Urban sleepers deal with constant traffic and city noise—Loop makes their bedrooms quieter.',
+  
+  // Noise Sensitivity use cases (2,702 reviews)
+  'Neurodivergent students get overwhelmed in loud classrooms—Loop helps them focus without feeling isolated.',
+  'Busy parents need relief from household chaos—Loop takes the edge off screaming kids and appliances.',
+  'HSPs (highly sensitive people) struggle in crowded spaces—Loop helps them manage sensory overload.',
+  'Open office workers can&apos;t concentrate with constant chatter—Loop mutes distractions while keeping conversations audible.',
+  'Social butterflies with sensory issues want to enjoy gatherings—Loop lets them participate without overwhelm.',
+  
+  // Concerts/Music Events (1,505 reviews)
+  'Concert‑goers want to protect hearing without muffling music—Loop preserves sound quality while reducing volume.',
+  'Festival attendees struggle with bass from neighboring stages—Loop helps them sleep at multi‑day events.',
+  'Musicians need earplugs that preserve tonal balance—Loop outperforms foam plugs for sound clarity.',
+  
+  // Workplace Productivity
+  'Remote workers can&apos;t focus in noisy cafés or open‑plan homes—Loop creates a quiet workspace anywhere.',
+  'Teachers get overwhelmed by loud classrooms and hallways—Loop helps them stay calm without isolating themselves.',
+  
+  // Travel/Commuting (568 tickets)
+  'Frequent business travelers struggle with airplane cabin noise—Loop makes long flights more comfortable.',
+  'Family travelers need to manage noise for both adults and kids—Loop helps everyone sleep better on trips.',
+  'Commuters get overwhelmed by rush hour chaos—Loop makes trains and buses feel less stressful.',
+  
+  // Parenting/Household
+  'Parents need to hear their kids but reduce overwhelming noise—Loop takes the edge off without blocking everything.',
+  
+  // Motorcycle Riding (623 tickets)
+  'Motorcyclists get fatigued from constant wind noise—Loop reduces wind roar while keeping essential sounds audible.',
+  'Riders need earplugs that fit comfortably under helmets—Loop&apos;s low profile works for long rides.',
+  
+  // Tinnitus/Hearing Protection
+  'Tinnitus sufferers need to protect their ears from further damage—Loop helps prevent flare‑ups after loud events.',
+  
+  // Sports and Exercise (454 tickets)
+  'Gym enthusiasts find class music too loud—Loop reduces volume while keeping safety cues and instructor voices clear.',
+  'Outdoor cyclists struggle with wind noise—Loop reduces fatigue on long rides while maintaining traffic awareness.',
+  'Team sports coaches need to communicate clearly in loud environments—Loop helps them hear players without overwhelm.',
 ]
 
 export function GenerationProgress({
