@@ -100,15 +100,18 @@ export function FloatingSessionBar({
         // Check if we already have this thumbnail (using functional update to avoid stale closure)
         setThumbnails(prev => {
           if (prev[session.id]?.imageUrl !== undefined) return prev // Already fetched
+          const isTempSession = session.id.startsWith('temp-')
           return {
             ...prev,
-            [session.id]: { sessionId: session.id, imageUrl: null, isLoading: true }
+            // Optimistic sessions use temporary ids (temp-*). Skip thumbnail fetching for those.
+            [session.id]: { sessionId: session.id, imageUrl: null, isLoading: !isTempSession }
           }
         })
       }
       
       // Fetch thumbnails for sessions that need them
       for (const session of filteredSessions) {
+        if (session.id.startsWith('temp-')) continue
         try {
           const response = await fetch(`/api/generations?sessionId=${session.id}&limit=1`)
           if (response.ok) {

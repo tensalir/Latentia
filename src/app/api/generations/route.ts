@@ -3,6 +3,9 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 import { prisma } from '@/lib/prisma'
 
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
 // Allowlist of parameter fields that the UI needs
 // All other fields (debugLogs, base64 blobs, internal state) are stripped by default
 const ALLOWED_PARAMETER_FIELDS = [
@@ -104,6 +107,23 @@ export async function GET(request: NextRequest) {
     if (!sessionId) {
       return NextResponse.json(
         { error: 'Session ID is required' },
+        { status: 400 }
+      )
+    }
+
+    // During optimistic session creation, the UI uses temporary ids like "temp-<timestamp>".
+    // Prisma will throw on invalid UUIDs, so return an empty page instead of 500-ing.
+    if (sessionId.startsWith('temp-')) {
+      return NextResponse.json({
+        data: [],
+        nextCursor: undefined,
+        hasMore: false,
+      })
+    }
+
+    if (!UUID_REGEX.test(sessionId)) {
+      return NextResponse.json(
+        { error: 'Invalid session ID' },
         { status: 400 }
       )
     }

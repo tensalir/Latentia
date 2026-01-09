@@ -22,6 +22,7 @@ export function useGenerationsRealtime(sessionId: string | null, userId: string 
   const queryClient = useQueryClient()
   const timeoutRef = useRef<NodeJS.Timeout | null>(null)
   const lastEventRef = useRef<string | null>(null)
+  const isTempSession = !!sessionId && sessionId.startsWith('temp-')
 
   // Debounce invalidation by 3 seconds to prevent race condition with optimistic updates
   // This gives the mutation's onSuccess time to update the cache first
@@ -83,7 +84,8 @@ export function useGenerationsRealtime(sessionId: string | null, userId: string 
   }, [sessionId, queryClient])
 
   useEffect(() => {
-    if (!sessionId || !userId) return
+    // Avoid realtime subscriptions for optimistic "temp-*" session IDs
+    if (!sessionId || !userId || isTempSession) return
 
     const supabase = createClient()
 

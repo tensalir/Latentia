@@ -67,6 +67,8 @@ async function fetchGenerations({
  * - This is a fallback; realtime subscriptions should handle most updates
  */
 export function useInfiniteGenerations(sessionId: string | null, limit: number = 10) {
+  const isTempSession = !!sessionId && sessionId.startsWith('temp-')
+
   return useInfiniteQuery({
     queryKey: ['generations', 'infinite', sessionId],
     queryFn: ({ pageParam }) =>
@@ -75,7 +77,8 @@ export function useInfiniteGenerations(sessionId: string | null, limit: number =
         cursor: pageParam as string | undefined,
         limit,
       }),
-    enabled: !!sessionId,
+    // Avoid fetching for optimistic "temp-*" session IDs (not valid UUIDs; server will 500 otherwise)
+    enabled: !!sessionId && !isTempSession,
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => {
       // Return the cursor for the next page (older items), or undefined if no more
