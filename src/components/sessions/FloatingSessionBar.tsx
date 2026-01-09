@@ -83,7 +83,9 @@ export function FloatingSessionBar({
   }
 
   const filteredSessions = useMemo(
-    () => sessions.filter((s) => s.type === generationType),
+    () => sessions
+      .filter((s) => s.type === generationType)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
     [sessions, generationType]
   )
   

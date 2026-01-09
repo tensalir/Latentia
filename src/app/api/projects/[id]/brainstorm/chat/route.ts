@@ -9,8 +9,51 @@ import { loadSkill, combineSkills } from '@/lib/skills/registry'
 // Default model if env var not set
 const DEFAULT_MODEL = 'claude-sonnet-4-20250514'
 
-// Regex to extract embedded image data URLs from messages
-const IMAGE_DATA_REGEX = /<<IMAGE_DATA:(data:image\/[^>]+)>>/g
+// Markers for embedded image data URLs
+const IMAGE_DATA_START = '<<IMAGE_DATA:'
+const IMAGE_DATA_END = '>>'
+
+/**
+ * Extract image data URLs and clean text from a string containing <<IMAGE_DATA:...>> markers.
+ * Uses string splitting instead of regex to avoid stack overflow on large base64 strings.
+ */
+function extractImageDataUrls(text: string): { images: string[]; cleanText: string } {
+  const images: string[] = []
+  let cleanText = ''
+  let remaining = text
+
+  while (true) {
+    const startIdx = remaining.indexOf(IMAGE_DATA_START)
+    if (startIdx === -1) {
+      cleanText += remaining
+      break
+    }
+
+    // Add text before the marker
+    cleanText += remaining.slice(0, startIdx)
+
+    // Find the end of this marker
+    const afterStart = remaining.slice(startIdx + IMAGE_DATA_START.length)
+    const endIdx = afterStart.indexOf(IMAGE_DATA_END)
+
+    if (endIdx === -1) {
+      // Malformed marker, keep the rest as-is
+      cleanText += remaining.slice(startIdx)
+      break
+    }
+
+    // Extract the data URL
+    const dataUrl = afterStart.slice(0, endIdx)
+    if (dataUrl.startsWith('data:image/')) {
+      images.push(dataUrl)
+    }
+
+    // Continue after this marker
+    remaining = afterStart.slice(endIdx + IMAGE_DATA_END.length)
+  }
+
+  return { images, cleanText: cleanText.trim() }
+}
 
 // Type for multi-modal message content
 type MessageContent = string | Array<{ type: 'text'; text: string } | { type: 'image'; image: string }>
@@ -129,7 +172,7 @@ export async function POST(
       return new Response('No user message found', { status: 400 })
     }
     // Remove image data markers for cleaner persistence (keep URLs for display)
-    const latestUserText = getMessageText(latestUserMessage).replace(IMAGE_DATA_REGEX, '').trim()
+    const { cleanText: latestUserText } = extractImageDataUrls(getMessageText(latestUserMessage))
 
     // Persist the user message
     await prisma.projectChatMessage.create({
@@ -170,19 +213,15 @@ export async function POST(
     const modelMessages: ModelMessage[] = messages.map((msg) => {
       const textContent = getMessageText(msg)
       
-      // Extract any embedded image data URLs
-      const imageMatches = Array.from(textContent.matchAll(IMAGE_DATA_REGEX))
+      // Extract any embedded image data URLs (using string splitting to avoid regex stack overflow)
+      const { images: imageDataUrls, cleanText } = extractImageDataUrls(textContent)
       
-      // Remove image data markers from text for cleaner display
-      const cleanText = textContent.replace(IMAGE_DATA_REGEX, '').trim()
-      
-      if (msg.role === 'user' && imageMatches.length > 0) {
+      if (msg.role === 'user' && imageDataUrls.length > 0) {
         // Build multi-modal content with images + text
         const content: Array<{ type: 'text'; text: string } | { type: 'image'; image: string }> = []
         
         // Add images first so Claude sees them before the text
-        for (const match of imageMatches) {
-          const dataUrl = match[1]
+        for (const dataUrl of imageDataUrls) {
           content.push({
             type: 'image',
             image: dataUrl,
