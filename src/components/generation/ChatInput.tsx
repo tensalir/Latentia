@@ -475,7 +475,7 @@ export function ChatInput({
       {/* Main Input Area - Card Style */}
       <div className="flex items-center gap-3">
         {/* Input with resize handle */}
-        <div className="flex-1 relative">
+        <div className={`flex-1 relative rounded-lg ${isEnhancing ? 'enhancing-container' : ''}`}>
           {/* Resize handle at top of input */}
           <div 
             className="absolute -top-3 left-1/2 -translate-x-1/2 z-10 cursor-ns-resize group"
@@ -505,7 +505,7 @@ export function ChatInput({
               isResizing ? '' : 'transition-all'
             } ${
               isEnhancing 
-                ? 'border-primary/50 bg-primary/5 shadow-lg shadow-primary/10' 
+                ? 'border-transparent' 
                 : isDragging && supportsImageEditing
                 ? 'border-primary/50'
                 : 'border-border focus-visible:ring-2 focus-visible:ring-primary focus-visible:border-primary'
