@@ -2,6 +2,7 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { Prisma } from '@prisma/client'
 
 /**
  * POST /api/outputs/[id]/events
@@ -24,8 +25,11 @@ export async function POST(
     }
 
     const outputId = params.id
-    const body = await request.json()
-    const { eventType, metadata } = body as { eventType: string; metadata?: Record<string, unknown> }
+    const body = (await request.json()) as unknown
+    const { eventType, metadata } = (body ?? {}) as {
+      eventType?: unknown
+      metadata?: unknown
+    }
 
     if (!eventType || typeof eventType !== 'string') {
       return NextResponse.json(
@@ -53,14 +57,26 @@ export async function POST(
       return NextResponse.json({ error: 'Output not found' }, { status: 404 })
     }
 
+    // Prisma JSON fields require Prisma.InputJsonValue (not Record<string, unknown>)
+    // and they don't accept `null` directly. Also, user-provided objects can contain
+    // `undefined` which Prisma can't serialize. We sanitize via JSON roundtrip.
+    let metadataForDb: Prisma.InputJsonValue | undefined = undefined
+    if (metadata !== undefined && metadata !== null) {
+      try {
+        metadataForDb = JSON.parse(JSON.stringify(metadata)) as Prisma.InputJsonValue
+      } catch {
+        // Ignore invalid/unserializable metadata
+        metadataForDb = undefined
+      }
+    }
+
     // Create the event
     const event = await prisma.outputEvent.create({
       data: {
         outputId,
         userId: user.id,
         eventType,
-        // Only include metadata if it's provided (Prisma JSON fields don't accept null directly)
-        ...(metadata && { metadata }),
+        ...(metadataForDb !== undefined ? { metadata: metadataForDb } : {}),
       },
     })
 
