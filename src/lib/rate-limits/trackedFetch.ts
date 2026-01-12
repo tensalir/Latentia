@@ -241,7 +241,7 @@ export function checkGoogleRateLimit(
 export function getBlockedProviders(): Array<{ provider: RateLimitProvider; scope: RateLimitScope; remainingSeconds: number }> {
   const blocked: Array<{ provider: RateLimitProvider; scope: RateLimitScope; remainingSeconds: number }> = []
   
-  for (const [key, block] of recentRateLimits.entries()) {
+  for (const [key, block] of Array.from(recentRateLimits.entries())) {
     const [provider, scope] = key.split(':') as [RateLimitProvider, RateLimitScope]
     const elapsed = Date.now() - block.timestamp
     const blockDurationMs = block.retryAfter * 1000
