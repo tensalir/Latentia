@@ -207,12 +207,16 @@ export async function POST(request: NextRequest) {
         }
         const dimensions = aspectRatioDimensions[aspectRatio] || { width: 1024, height: 1024 }
 
+        // For video outputs, include duration
+        const outputDuration = generation.session.type === 'video' ? (params?.duration || 5) : undefined
+        
         outputRecords.push({
           generationId: generation.id,
           fileUrl: finalUrl,
           fileType: generation.session.type,
           width: dimensions.width,
           height: dimensions.height,
+          ...(outputDuration && { duration: outputDuration }),
         })
       }
 
@@ -250,9 +254,15 @@ export async function POST(request: NextRequest) {
         console.log(`[Replicate Webhook] Using actual predict time for cost: ${actualPredictTime.toFixed(2)}s`)
       }
       
+      // For video generations, include duration in cost calculation
+      const params = generation.parameters as any
+      const isVideo = generation.session.type === 'video'
+      const videoDuration = isVideo ? (params?.duration || 5) : undefined
+      
       const costResult = calculateGenerationCost(generation.modelId, {
         outputCount: outputRecords.length,
         computeTimeSeconds: actualPredictTime, // Pass actual time for accurate billing
+        videoDurationSeconds: videoDuration,
       })
       
       console.log(`[Replicate Webhook] Cost calculated: $${costResult.cost.toFixed(6)} (${costResult.isActual ? 'actual' : 'estimated'})`)

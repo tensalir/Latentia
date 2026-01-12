@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import Image from 'next/image'
 import { Download, RotateCcw, Info, Copy, Bookmark, Check, Video, Wand2, X, Trash2, Pin, ArrowDownRight } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
@@ -221,6 +221,17 @@ export function GenerationGallery({
   const [overlayOutputId, setOverlayOutputId] = useState<string | null>(null)
   const [overlayImageUrl, setOverlayImageUrl] = useState<string | null>(null)
 
+  // CRITICAL: Memoize getItemKey so the virtualizer doesn't re-init on every render.
+  // This function returns a stable key for each index, preventing cached measurements
+  // from being applied to a different generation when the list is replaced/reordered.
+  const getItemKey = useCallback(
+    (index: number) => {
+      const gen = generations[index]
+      return gen?.clientId || gen?.id || String(index)
+    },
+    [generations]
+  )
+
   // Virtualizer for efficient rendering of large lists
   // Estimate accounts for: card min-height (320px) + padding + content + bottom spacing (pb-12 = 48px)
   // Using a conservative estimate to prevent overlap - cards can grow with content
@@ -228,9 +239,11 @@ export function GenerationGallery({
   const virtualizer = useVirtualizer({
     count: generations.length,
     getScrollElement: () => scrollContainerRef?.current ?? null,
+    getItemKey,
     estimateSize: () => 600, // Estimated row height in pixels (conservative to prevent overlap)
     overscan: 5, // Render 5 extra items above/below viewport for smooth scrolling
   })
+
 
   // Convert aspect ratio string to CSS aspect-ratio value
   const getAspectRatioStyle = (aspectRatio?: string) => {
@@ -928,7 +941,7 @@ export function GenerationGallery({
               ref={useVirtualization ? virtualizer.measureElement : undefined}
               data-index={virtualRow.index}
               style={rowStyle}
-              className="pb-10"
+              className="pb-12"
             >
               <div className="flex gap-6 items-start">
                 {/* Left Side: Prompt Display - Increased Height with Scroll on Hover */}

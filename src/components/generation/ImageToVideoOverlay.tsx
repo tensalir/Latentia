@@ -1,13 +1,15 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { X, Video, Plus, Play, Loader2, Check, Clock, AlertCircle, ChevronDown, ChevronUp, RotateCcw, Download, Bookmark, Trash2 } from 'lucide-react'
+import { X, Video, Plus, Play, Loader2, Check, Clock, AlertCircle, ChevronDown, ChevronUp, RotateCcw, Download, Bookmark, Trash2, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { VideoInput } from './VideoInput'
 import { useVideoIterations, type VideoIteration, type VideoIterationsResponse } from '@/hooks/useVideoIterations'
+import { useToast } from '@/components/ui/use-toast'
+import { createClient } from '@/lib/supabase/client'
 import { useGenerateMutation } from '@/hooks/useGenerateMutation'
 import { useSessions } from '@/hooks/useSessions'
 import { useQueryClient } from '@tanstack/react-query'
@@ -74,6 +76,93 @@ export function ImageToVideoOverlay({
     isOpen ? outputId : null,
     { limit: 20 }
   )
+  
+  // Sync stuck generations state
+  const { toast } = useToast()
+  const [isSyncing, setIsSyncing] = useState(false)
+  
+  // Sync stuck generations with Replicate
+  const handleSyncStuck = useCallback(async () => {
+    // Find processing iterations that might be stuck
+    const stuckIterations = iterations.filter(iter => iter.status === 'processing')
+    
+    if (stuckIterations.length === 0) {
+      toast({
+        title: 'Nothing to sync',
+        description: 'No stuck generations found.',
+      })
+      return
+    }
+    
+    setIsSyncing(true)
+    let syncedCount = 0
+    let failedCount = 0
+    
+    try {
+      const supabase = createClient()
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      if (!session?.access_token) {
+        toast({
+          title: 'Not authenticated',
+          description: 'Please sign in to sync generations.',
+          variant: 'destructive',
+        })
+        return
+      }
+      
+      // Sync each stuck generation
+      for (const iter of stuckIterations) {
+        try {
+          const response = await fetch(`/api/generations/${iter.id}/sync`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${session.access_token}`,
+            },
+          })
+          
+          const result = await response.json()
+          
+          if (result.synced) {
+            syncedCount++
+          }
+        } catch (error) {
+          console.error(`Failed to sync ${iter.id}:`, error)
+          failedCount++
+        }
+      }
+      
+      // Refetch iterations to update UI
+      await refetch()
+      
+      if (syncedCount > 0) {
+        toast({
+          title: 'Sync complete',
+          description: `${syncedCount} generation${syncedCount !== 1 ? 's' : ''} synced successfully.`,
+        })
+      } else if (failedCount > 0) {
+        toast({
+          title: 'Sync failed',
+          description: 'Could not sync stuck generations. They may still be processing.',
+          variant: 'destructive',
+        })
+      } else {
+        toast({
+          title: 'Still processing',
+          description: 'Generations are still being created on the server.',
+        })
+      }
+    } catch (error: any) {
+      console.error('Sync error:', error)
+      toast({
+        title: 'Sync failed',
+        description: error.message || 'Failed to sync generations.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsSyncing(false)
+    }
+  }, [iterations, refetch, toast])
   
   // Auto-select first video session
   useEffect(() => {
@@ -434,6 +523,17 @@ export function ImageToVideoOverlay({
                   <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Iterations</h3>
                 </div>
                 <div className="flex items-center gap-2">
+                  {/* Sync button - visible when there are processing generations */}
+                  {hasProcessing && (
+                    <button
+                      onClick={handleSyncStuck}
+                      disabled={isSyncing}
+                      className="p-1 rounded-md hover:bg-muted/80 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                      title="Sync stuck generations with Replicate"
+                    >
+                      <RefreshCw className={`h-3.5 w-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                    </button>
+                  )}
                   <span className="text-[10px] font-semibold text-foreground bg-muted px-2 py-0.5 rounded-md border border-border">
                     {count}
                   </span>

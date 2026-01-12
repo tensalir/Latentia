@@ -185,9 +185,6 @@ export async function POST(request: NextRequest) {
     }
 
     console.log(`[${generation.id}] Generation created, starting async processing`)
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/e6034d14-134b-41df-97f8-0c4119e294f2',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'local-debug',hypothesisId:'A',location:'api/generate/route.ts:created',message:'Generation record created',data:{generationId:generation.id,modelId,prompt:prompt?.substring(0,50),useWebhooks:USE_REPLICATE_WEBHOOKS,supportsWebhook:supportsWebhook(modelId)},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     metricMeta.generationId = generation.id
     if (GENERATION_QUEUE_ENABLED) {
       await prisma.generationJob.create({
@@ -212,9 +209,6 @@ export async function POST(request: NextRequest) {
     if (!GENERATION_QUEUE_ENABLED) {
       const baseUrl = request.nextUrl.origin
       
-      // #region agent log
-      console.log(`[DEBUG:A] Generation flow: id=${generation.id}, model=${modelId}, USE_WEBHOOKS=${USE_REPLICATE_WEBHOOKS}, supportsWebhook=${supportsWebhook(modelId)}, willUseWebhook=${USE_REPLICATE_WEBHOOKS && supportsWebhook(modelId)}`)
-      // #endregion
       
       // NEW: Use webhooks for Replicate models (eliminates polling timeout issues)
       if (USE_REPLICATE_WEBHOOKS && supportsWebhook(modelId)) {
@@ -277,9 +271,6 @@ export async function POST(request: NextRequest) {
       // TIER 2 FIX: Use request origin as default to avoid URL mismatches with custom domains
       
       console.log(`[${generation.id}] Triggering background process at: ${baseUrl}/api/generate/process`)
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/e6034d14-134b-41df-97f8-0c4119e294f2',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'local-debug',hypothesisId:'A',location:'api/generate/route.ts:triggerProcess',message:'About to call process endpoint',data:{generationId:generation.id,baseUrl},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       
       const triggerProcessing = async (retries = 3) => {
         for (let i = 0; i < retries; i++) {

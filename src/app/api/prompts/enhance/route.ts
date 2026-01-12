@@ -32,21 +32,23 @@ export async function POST(request: NextRequest) {
       /\b(?:give me|write|generate|create|make)\b[\s\S]{0,80}\bprompt\b/i.test(userPrompt) ||
       /\bnano\s*banana\s+prompt\b/i.test(userPrompt)
     
-    // Detect style reference requests
+    // Detect style reference requests - when user says "style reference", "style ref", "as a style", "for style", etc.
     const wantsStyleReference =
       /\bstyle\s*ref(?:erence)?\b/i.test(userPrompt) ||
-      /\buse\s+(?:this|the)\s+(?:image|pic|photo)\s+as\s+(?:a\s+)?style\b/i.test(userPrompt)
+      /\buse\s+(?:this|the|it)\s+(?:image|pic|photo|as)?\s*(?:as\s+)?(?:a\s+)?style\b/i.test(userPrompt) ||
+      /\bfor\s+(?:the\s+)?style\b/i.test(userPrompt) ||
+      /\b(?:this|the)\s+style\b/i.test(userPrompt) ||
+      /\bstyle\s+(?:from|of)\s+(?:this|the)\b/i.test(userPrompt)
     
-    // Detect STYLE-ONLY reference (user explicitly wants ONLY the visual aesthetic, NOT the scene/composition)
-    // Keywords: "just style", "only style", "style only", "just as a style", "only as style", "purely style"
-    const wantsStyleOnly =
-      wantsStyleReference && (
-        /\b(?:just|only|purely)\s+(?:as\s+)?(?:a\s+)?style\b/i.test(userPrompt) ||
-        /\bstyle\s+only\b/i.test(userPrompt) ||
-        /\bjust\s+(?:the\s+)?style\b/i.test(userPrompt) ||
-        /\bonly\s+(?:the\s+)?style\b/i.test(userPrompt) ||
-        /\bdon'?t\s+(?:copy|reproduce|recreate)\s+(?:the\s+)?(?:scene|composition|subject)\b/i.test(userPrompt)
-      )
+    // CRITICAL: Style reference = STYLE-ONLY by default
+    // Only use full reference (with composition) if user EXPLICITLY asks for it
+    const wantsFullReference =
+      /\b(?:recreate|copy|replicate|match|maintain|keep)\s+(?:the\s+)?(?:composition|layout|scene|setup|arrangement)\b/i.test(userPrompt) ||
+      /\bsame\s+(?:composition|layout|scene|setup)\b/i.test(userPrompt) ||
+      /\bsimilar\s+scene\b/i.test(userPrompt)
+    
+    // Style-only is the DEFAULT for any style reference request (unless full reference explicitly requested)
+    const wantsStyleOnly = wantsStyleReference && !wantsFullReference
 
     // Determine whether the selected model is a VIDEO model (motion prompt) or IMAGE model.
     // This is the key nuance for the Animate Still panel: even though an image is attached,
@@ -137,7 +139,8 @@ Return ONLY the enhanced motion prompt text.`
         if (isPromptRequest) {
           if (wantsStyleOnly) {
             // STYLE-ONLY: Extract only visual aesthetic, NOT composition
-            requestContent = `User is asking you to WRITE a Nano Banana prompt using the provided image ONLY for its visual STYLE (not to recreate its scene or composition).
+            requestContent = `User is asking you to WRITE a Nano Banana prompt using the provided image ONLY for its visual STYLE.
+
 User's request: "${userPrompt}"
 Reference image will be provided.
 
@@ -146,20 +149,24 @@ CRITICAL STYLE-ONLY REQUIREMENTS:
 - The prompt MUST start with: "${requiredPrefix}"
 
 EXTRACT from reference image (visual treatment only):
-- Color grading / color palette / tonal range
-- Lighting quality (soft, hard, direction, temperature)
-- Atmosphere / mood
+- Color grading / color palette / tonal range (be specific: "moody blue-grey", "warm amber highlights")
+- Lighting quality (soft/hard, direction, temperature, diffusion)
+- Atmosphere / mood / emotional tone
 - Texture / grain / processing style
 - Contrast levels, shadow and highlight treatment
 - Depth rendering / atmospheric perspective feel
 
-DO NOT EXTRACT (compositional elements):
-- Specific subjects (mountains, people, tents, objects, etc.)
-- Scene layout or arrangement
-- Specific objects or props
-- Geographic or environmental specifics
+BLOCK these compositional elements (BE EXPLICIT):
+- Look at the image and identify the MAIN SUBJECTS (people, mountains, tents, animals, vehicles, etc.)
+- You MUST tell the model: "Do NOT reproduce [list the subjects you see]"
+- Also block: scene layout, spatial arrangement, poses, object placement
 
-After extracting the visual style, explicitly state: "Do NOT reproduce the [main subjects/scene elements you see]. Apply this visual style to: [user's completely different subject/scene]. The reference defines the color treatment and mood only."
+REQUIRED PROMPT STRUCTURE:
+1. Start with: "${requiredPrefix}"
+2. Describe the specific visual qualities you extract from the reference
+3. Add an EXPLICIT blocking statement: "IMPORTANT: Do NOT reproduce the [subjects/objects you see]. Do NOT copy the scene composition or spatial layout."
+4. Then describe the user's NEW subject/scene: "Apply this visual style to: [user's completely different subject]"
+5. End with: "Create a fresh composition appropriate for this new subject."
 
 Terminology:
 - "Nano Banana" is Gemini's model nickname. Do NOT introduce literal bananas unless the user explicitly requested bananas.

@@ -224,6 +224,35 @@ export const REPLICATE_MODEL_CONFIGS: Record<string, {
       return input
     },
   },
+  // VIDEO MODELS - use webhooks to avoid Vercel timeout issues
+  'replicate-kling-2.6': {
+    modelPath: 'kwaivgi/kling-v2.6',
+    buildInput: (params) => {
+      const input: Record<string, any> = {
+        prompt: params.prompt,
+        duration: params.duration || 5,
+        aspect_ratio: params.aspectRatio || '16:9',
+        generate_audio: params.generateAudio !== false, // Default true
+      }
+
+      // Add negative prompt if provided
+      if (params.negativePrompt) {
+        input.negative_prompt = params.negativePrompt
+      }
+
+      // Add start image for image-to-video
+      const referenceImages = params.referenceImages || 
+        (params.referenceImage ? [params.referenceImage] : [])
+      
+      if (referenceImages.length > 0) {
+        input.start_image = referenceImages[0]
+      } else if (params.referenceImageUrl) {
+        input.start_image = params.referenceImageUrl
+      }
+
+      return input
+    },
+  },
 }
 
 /**
