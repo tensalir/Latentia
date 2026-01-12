@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/supabase-js'
+import { createClient } from '@supabase/supabase-js'
 import { prisma } from '@/lib/prisma'
 import { getPredictionStatus } from '@/lib/models/replicate-utils'
 
-const supabaseAdmin = createServerClient(
+const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { cookies: { get: () => undefined, set: () => {}, remove: () => {} } }
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
 /**
