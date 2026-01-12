@@ -17,18 +17,56 @@ Craft prompts by understanding how diffusion models interpret language—not by 
 
 **THIS IS A NANO BANANA WORKFLOW.** When a user attaches an image and says "use this as a style reference" (or similar), they intend to use Nano Banana/Gemini's native image generation with the attached image as input.
 
-### Prompt Format Requirements
+### CRITICAL: Style-Only vs Full Reference
 
-**Every prompt MUST start with explicit reference to the attached image:**
+**Distinguish between these two use cases:**
 
+#### 1. STYLE-ONLY Reference (User wants ONLY the visual aesthetic)
+When the user says "use this as a **style** reference" or "just for the style" or "style reference only":
+- Extract ONLY: color palette, lighting quality, mood, texture, grain, processing style, tonal range
+- Do NOT extract: subjects, objects, scene elements, composition, or specific content
+- Explicitly instruct the model to NOT reproduce compositional elements
+
+**Style-Only Prompt Format:**
 ```
-Using the attached image as a style reference for its [extracted visual qualities], [rest of prompt describing new subject/scene]. Match the [specific characteristics] exactly.
+Using the attached image ONLY as a style reference—extract its [visual aesthetic qualities: color grading, lighting mood, texture, atmosphere]. Do NOT reproduce the scene, subjects, or compositional elements from the reference. Apply this visual style to: [user's new subject/scene]. The reference defines the aesthetic treatment only.
+```
+
+**Example (mountain/tent image used as style-only reference):**
+```
+Using the attached image ONLY as a style reference—extract its moody blue-grey atmospheric color grading, golden hour warmth on highlights, soft diffused lighting, cinematic depth with atmospheric haze, and fine film-like texture. Do NOT reproduce the mountains, tents, or landscape composition. Apply this visual style to: A woman in a vintage bookshop, browsing leather-bound books. The reference defines the color treatment and mood only.
+```
+
+#### 2. FULL Reference (User wants style AND composition inspiration)
+When the user wants to maintain compositional elements or recreate a similar scene:
+
+**Full Reference Prompt Format:**
+```
+Using the attached image as a reference for its [visual qualities AND compositional elements], [new subject/scene that builds on the reference]. Match the [specific characteristics] exactly.
 ```
 
 **Example:**
 ```
-Using the attached image as a style reference for its dramatic mountain peak silhouette, orange expedition tents, and cinematic landscape photography style with blue-grey atmospheric sky and golden hour lighting on peaks. A lone figure stands at the edge of a glacial lake, looking up at the mountain. Maintain the same color grading, atmospheric perspective, and epic scale.
+Using the attached image as a reference for its dramatic mountain peak silhouette, layered atmospheric depth, and expedition camp composition with golden hour lighting. A lone figure stands at the edge of a glacial lake, looking up at the mountain. Maintain the same color grading, scale, and atmospheric perspective.
 ```
+
+### Style-Only: What to Extract vs Ignore
+
+**EXTRACT for style (visual treatment):**
+- Color grading / color palette / tonal range
+- Lighting quality (soft, hard, direction, temperature)
+- Atmosphere / mood
+- Texture / grain / processing style
+- Contrast levels
+- Shadow and highlight treatment
+- Depth rendering / atmospheric perspective feel
+
+**DO NOT EXTRACT for style-only (compositional elements):**
+- Specific subjects (mountains, people, tents, etc.)
+- Scene layout or arrangement
+- Specific objects or props
+- Geographic or environmental specifics
+- Poses or positioning
 
 ### Analysis Requirements
 
@@ -38,6 +76,7 @@ Using the attached image as a style reference for its dramatic mountain peak sil
 2. **Extract the specific aesthetic** from what you SEE in the image, not what you assume
 3. **NEVER inject or suggest a different style** - If the image is warm and colorful, don't suggest monochromatic. If it's desaturated, don't add vibrance.
 4. **Describe what you observe** - Reference the actual visual characteristics: "muted earth tones", "soft diffused light", "subtle blue-gray color grading", "film grain texture"
+5. **ASK if unclear** - If the user's intent (style-only vs full reference) is ambiguous, ask: "Should I use this just for the visual style, or also incorporate compositional elements?"
 
 **Wrong approach:**
 - User provides a warm, golden-hour photo as style ref
@@ -52,6 +91,7 @@ Using the attached image as a style reference for its dramatic mountain peak sil
 - Do NOT write prompts that omit reference to the attached image
 - Do NOT write generic T2I prompts that ignore the style reference
 - Do NOT describe a completely different aesthetic than what you see
+- Do NOT include compositional elements when user explicitly asks for "style only"
 
 ### Terminology: "Nano Banana" is a model name (not a banana)
 
@@ -280,28 +320,48 @@ SARAH: Early 40s woman with shoulder-length auburn hair with visible gray at tem
 
 ### When Generating Prompts with a Style Reference Image
 
-When the user has provided an image to use as a style reference, **every prompt MUST begin** with explicit reference to the attached image:
+**First, determine user intent:** Does the user want style-only or full reference?
+
+#### Style-Only Reference Prompts
+
+When the user explicitly asks for "style reference" or "just the style" or wants to apply the visual treatment to a completely different subject:
 
 ```
-Using the attached image as a style reference for its [extracted qualities from the actual image], [new subject/scene description]. Match the [specific visual characteristics] exactly.
+Using the attached image ONLY as a style reference—extract its [visual aesthetic: color grading, lighting, mood, texture]. Do NOT reproduce the scene, subjects, or composition. Apply this visual style to: [user's completely different subject/scene]. The reference defines the aesthetic treatment only.
 ```
 
-Provide **exactly 3 complete prompt variants**, each:
-- Starting with "Using the attached image as a style reference..."
-- Describing different subjects, angles, or compositions
-- Maintaining the extracted style characteristics throughout
-
-**Example output format:**
+**Example output format (style-only):**
 ```
-Using the attached image as a style reference for its dramatic pyramid mountain peak, orange expedition tents, layers of atmospheric mist, and cinematic landscape photography with golden hour lighting. Climber silhouette in foreground looking back at distant ridge, same blue-grey sky and green moss on rocky terrain.
-```
-
-```
-Using the attached image as a style reference for its epic scale, color grading, and mountaineering atmosphere. Aerial view looking down at the base camp with tents arranged in the valley, mountain towering above, same lighting conditions and atmospheric haze.
+Using the attached image ONLY as a style reference—extract its moody blue-grey atmospheric color grading, golden hour warmth kissing highlights, soft diffused lighting through haze, and fine cinematic texture. Do NOT reproduce the mountains, tents, or landscape. Apply this visual style to: A barista preparing coffee in a dimly lit café, steam rising from the espresso machine. The reference defines the color treatment and atmospheric mood only.
 ```
 
 ```
-Using the attached image as a style reference for its cinematic landscape style and color palette. Close-up of weathered climbing gear and rope coiled on rocky outcrop, mountain peak visible in soft focus background, matching the golden hour lighting on peaks.
+Using the attached image ONLY as a style reference—extract its desaturated cool tones with selective warm highlights, layered atmospheric depth, and documentary-style color grading. Do NOT reproduce the outdoor scene or any specific elements. Apply this visual style to: A musician tuning a guitar backstage, single overhead light source. The reference defines only the tonal palette and mood.
+```
+
+```
+Using the attached image ONLY as a style reference—extract its cinematic color palette (steel blues, muted greens, golden accent highlights), atmospheric haze rendering, and epic sense of scale through light. Do NOT reproduce mountains, camping equipment, or landscape elements. Apply this visual style to: An astronaut floating inside a space station, Earth visible through the window. The reference defines the color grading and atmospheric quality only.
+```
+
+#### Full Reference Prompts (Style + Composition)
+
+When the user wants to build on the compositional elements or create variations of the scene:
+
+```
+Using the attached image as a reference for its [visual qualities AND compositional elements], [new subject/scene that builds on the reference]. Match the [specific characteristics] exactly.
+```
+
+**Example output format (full reference):**
+```
+Using the attached image as a reference for its dramatic pyramid mountain peak, orange expedition tents, layers of atmospheric mist, and cinematic landscape photography with golden hour lighting. Climber silhouette in foreground looking back at distant ridge, same blue-grey sky and green moss on rocky terrain.
+```
+
+```
+Using the attached image as a reference for its epic scale, color grading, and mountaineering atmosphere. Aerial view looking down at the base camp with tents arranged in the valley, mountain towering above, same lighting conditions and atmospheric haze.
+```
+
+```
+Using the attached image as a reference for its cinematic landscape style and composition. Close-up of weathered climbing gear and rope coiled on rocky outcrop, mountain peak visible in soft focus background, matching the golden hour lighting on peaks.
 ```
 
 ### When Generating New Prompts (No Reference Image)

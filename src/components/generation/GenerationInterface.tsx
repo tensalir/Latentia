@@ -126,8 +126,7 @@ export function GenerationInterface({
         // Video mode: single reference image (replace)
         setReferenceImageUrl(externalReferenceImageUrl)
       } else {
-        // Image mode: append to reference images array (for multi-image editing)
-        // If the URL is already in the array, don't add a duplicate
+        // Image mode: add only the clicked pinned image (allow multiple reference images)
         setReferenceImageUrls((prev) => {
           if (prev.includes(externalReferenceImageUrl)) return prev
           return [...prev, externalReferenceImageUrl]
@@ -822,7 +821,7 @@ export function GenerationInterface({
 
   if (!session) {
     return (
-      <div className="flex-1 pl-24 xl:pl-48 flex items-center justify-center text-muted-foreground bg-grid-soft">
+      <div className="flex-1 pl-[var(--dock-left-gutter)] flex items-center justify-center text-muted-foreground bg-grid-soft">
         <div className="text-center">
           <p className="text-lg mb-2">No session selected</p>
           <p className="text-sm">Create or select a session to start generating</p>
@@ -837,13 +836,17 @@ export function GenerationInterface({
       <div ref={scrollContainerRef} className="flex-1 overflow-y-auto bg-grid-soft">
         {isLoading ? (
           // Loading state
-          <div className="h-full pl-24 xl:pl-48 flex items-center justify-center">
+          <div className="h-full pl-[var(--dock-left-gutter)] flex items-center justify-center">
             <div className="text-center text-muted-foreground">
               <p className="text-lg mb-2">Loading generations...</p>
             </div>
           </div>
         ) : (
-          <div ref={scrollContentRef} className="pt-24 pb-52 pl-24 xl:pl-48 flex justify-center">
+          <div ref={scrollContentRef} className={cn(
+            "pt-24 pb-52 flex justify-center",
+            "pl-[var(--dock-left-gutter)]",
+            "transition-[padding] duration-300 ease-in-out"
+          )}>
             <div className="w-full max-w-7xl 2xl:max-w-[1400px] min-[1800px]:max-w-[1600px]">
               {/* Sentinel at TOP for loading older items when scrolling up */}
               <div ref={loadOlderRef} className="h-1 w-full" />
@@ -874,6 +877,20 @@ export function GenerationInterface({
                 currentUser={currentUser}
                 onDismissGeneration={handleDismissGeneration}
                 scrollContainerRef={scrollContainerRef}
+                onUseAsReference={(imageUrl) => {
+                  if (generationType === 'video') {
+                    setReferenceImageUrl(imageUrl)
+                  } else {
+                    setReferenceImageUrls((prev) => {
+                      if (prev.includes(imageUrl)) return prev
+                      return [...prev, imageUrl]
+                    })
+                  }
+                  toast({
+                    title: 'Reference added',
+                    description: 'Image added to prompt bar as reference',
+                  })
+                }}
               />
             </div>
           </div>
@@ -890,8 +907,12 @@ export function GenerationInterface({
         </button>
       )}
 
-      {/* Chat Input - Floating Card at Bottom - Responsive width */}
-      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-full max-w-2xl lg:max-w-3xl xl:max-w-4xl 2xl:max-w-5xl min-[1800px]:max-w-6xl px-4 xl:px-6 z-30">
+      {/* Chat Input - Floating Card at Bottom - Responsive width using dock tokens */}
+      <div className={cn(
+        "absolute bottom-[var(--dock-bottom)] left-1/2 -translate-x-1/2",
+        "w-full max-w-[var(--dock-prompt-max-w)] px-4 xl:px-6 z-30",
+        "transition-[max-width] duration-300 ease-in-out"
+      )}>
         <div className="flex items-center gap-3">
           {/* Prompt Bar */}
           <div className="flex-1 bg-card/95 backdrop-blur-xl border border-border/50 rounded-2xl shadow-2xl p-4">
@@ -921,6 +942,7 @@ export function GenerationInterface({
                   onModelSelect={setSelectedModel}
                   isGenerating={false}
                   referenceImageUrls={referenceImageUrls}
+                  onReferenceImageUrlsChange={setReferenceImageUrls}
                   onRegisterPasteHandler={registerPasteHandler}
                 />
               )}

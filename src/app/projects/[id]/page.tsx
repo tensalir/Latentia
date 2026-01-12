@@ -24,6 +24,7 @@ import { useSessions } from '@/hooks/useSessions'
 import { Navbar } from '@/components/navbar/Navbar'
 import { SpendingTracker } from '@/components/navbar/SpendingTracker'
 import { useToast } from '@/components/ui/use-toast'
+import { cn } from '@/lib/utils'
 import type { Session, Project } from '@/types/project'
 
 export default function ProjectPage() {
@@ -526,7 +527,7 @@ export default function ProjectPage() {
           />
         </div>
         
-        {/* Generation Interface - Full Width */}
+        {/* Generation Interface - Main Column (shrinks when dock is open) */}
         <GenerationInterface
           session={activeSession}
           generationType={generationType}
@@ -541,15 +542,37 @@ export default function ProjectPage() {
           externalReferenceImageUrl={pendingPinnedImageUrl}
           onExternalReferenceImageConsumed={() => setPendingPinnedImageUrl(null)}
         />
+        
+        {/* Right Dock Column (Desktop Only, lg+) */}
+        <div className={cn(
+          "hidden lg:flex flex-col shrink-0 border-l border-border bg-card/50",
+          "transition-[width,opacity] duration-300 ease-in-out",
+          isChatOpen 
+            ? "w-[var(--dock-panel-w)] opacity-100" 
+            : "w-0 opacity-0 overflow-hidden"
+        )}>
+          {isChatOpen && (
+            <BrainstormChatWidget 
+              variant="docked"
+              projectId={params.id as string}
+              isOpen={true}
+              onOpenChange={setIsChatOpen}
+              onSendPrompt={setExternalPrompt}
+            />
+          )}
+        </div>
       </div>
 
-      {/* Brainstorm Chat Widget - Bottom Right */}
-      <BrainstormChatWidget 
-        projectId={params.id as string}
-        isOpen={isChatOpen}
-        onOpenChange={setIsChatOpen}
-        onSendPrompt={setExternalPrompt}
-      />
+      {/* Mobile Overlay Fallback (<lg) - Floating variant */}
+      <div className="lg:hidden">
+        <BrainstormChatWidget 
+          variant="floating"
+          projectId={params.id as string}
+          isOpen={isChatOpen}
+          onOpenChange={setIsChatOpen}
+          onSendPrompt={setExternalPrompt}
+        />
+      </div>
 
       {/* Briefing Modal */}
       <Dialog open={showBriefingModal} onOpenChange={setShowBriefingModal}>

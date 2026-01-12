@@ -37,9 +37,15 @@ interface BrainstormChatWidgetProps {
   onOpenChange?: (open: boolean) => void
   /** Callback to send a prompt to the main generation input */
   onSendPrompt?: (prompt: string) => void
+  /** 
+   * Layout variant:
+   * - 'floating': Fixed position overlay (default, used on mobile or standalone)
+   * - 'docked': Fills parent container, used in dock column layout (lg+)
+   */
+  variant?: 'docked' | 'floating'
 }
 
-export function BrainstormChatWidget({ projectId, isOpen: controlledIsOpen, onOpenChange, onSendPrompt }: BrainstormChatWidgetProps) {
+export function BrainstormChatWidget({ projectId, isOpen: controlledIsOpen, onOpenChange, onSendPrompt, variant = 'floating' }: BrainstormChatWidgetProps) {
   // Panel open/close state (controlled or uncontrolled)
   const [internalIsOpen, setInternalIsOpen] = useState(false)
   const isOpen = controlledIsOpen !== undefined ? controlledIsOpen : internalIsOpen
@@ -560,7 +566,7 @@ export function BrainstormChatWidget({ projectId, isOpen: controlledIsOpen, onOp
 
       {/* Chat panel */}
       {isOpen && (
-        <div className="relative">
+        <div className={cn("relative", variant === 'docked' && "w-full h-full")}>
           <div 
             ref={dropZoneRef}
             onDragEnter={handleDragEnter}
@@ -569,35 +575,37 @@ export function BrainstormChatWidget({ projectId, isOpen: controlledIsOpen, onOp
             onDrop={handleDrop}
             className={cn(
               "z-40",
-              // Responsive sizing - wider on larger screens to use available space
-              "w-[320px] lg:w-[360px] xl:w-[400px] 2xl:w-[440px] min-[1800px]:w-[500px]",
-              // Prevent overflow on any screen size
-              "max-w-[calc(100vw-2rem)]",
-              "h-[calc(100vh-10rem)] min-h-[350px] max-h-[700px] xl:max-h-[800px] min-[1800px]:max-h-[850px]",
-              "bg-card border rounded-2xl shadow-2xl",
+              "bg-card border shadow-2xl",
               "flex flex-col overflow-hidden",
-              // Position based on whether controlled (from control bar) or standalone
-              isControlled 
-                ? cn(
-                    "fixed bottom-6 animate-in slide-in-from-left-8 fade-in duration-300 ease-out",
-                    // UI/UX Best Practice: "Spatial Awareness" - position relative to sibling elements
-                    // Uses min() to: 1) stay to the right of control bar, 2) never overflow viewport
-                    // Formula: left = min(viewport - chat - margin, center + offset)
-                    // Offset = (prompt-max-width / 2) - padding + gap (where control bar ends)
-                    // 
-                    // Breakpoint calculations (offset, chat-width):
-                    // - default: 21rem offset, 320px (20rem) chat → min(100vw-21rem, 50%+21rem)
-                    // - lg: 24rem offset, 360px (22.5rem) chat → min(100vw-24rem, 50%+24rem)
-                    // - xl: 28rem offset, 400px (25rem) chat → min(100vw-26rem, 50%+28rem)
-                    // - 2xl: 32rem offset, 440px (27.5rem) chat → min(100vw-29rem, 50%+32rem)
-                    // - min-[1800px]: 36rem offset, 500px (31.25rem) chat → min(100vw-33rem, 50%+36rem)
-                    "left-[min(calc(100vw-21rem),calc(50%+21rem))]",
-                    "lg:left-[min(calc(100vw-24rem),calc(50%+24rem))]",
-                    "xl:left-[min(calc(100vw-26rem),calc(50%+28rem))]",
-                    "2xl:left-[min(calc(100vw-29rem),calc(50%+32rem))]",
-                    "min-[1800px]:left-[min(calc(100vw-33rem),calc(50%+36rem))]"
-                  )
-                : "fixed bottom-24 right-6 animate-in slide-in-from-bottom-4 fade-in duration-300",
+              // Docked variant: fills parent container, rounded only on left side
+              variant === 'docked' && cn(
+                "w-full h-full",
+                "rounded-l-2xl rounded-r-none"
+              ),
+              // Floating variant: fixed positioning with responsive sizing
+              variant === 'floating' && cn(
+                // Responsive sizing - wider on larger screens to use available space
+                "w-[320px] lg:w-[360px] xl:w-[400px] 2xl:w-[440px] min-[1800px]:w-[500px]",
+                // Prevent overflow on any screen size
+                "max-w-[calc(100vw-2rem)]",
+                "h-[calc(100vh-10rem)] min-h-[350px] max-h-[700px] xl:max-h-[800px] min-[1800px]:max-h-[850px]",
+                "rounded-2xl",
+                // Position based on whether controlled (from control bar) or standalone
+                isControlled 
+                  ? cn(
+                      "fixed bottom-6 animate-in slide-in-from-left-8 fade-in duration-300 ease-out",
+                      // UI/UX Best Practice: "Spatial Awareness" - position relative to sibling elements
+                      // Uses min() to: 1) stay to the right of control bar, 2) never overflow viewport
+                      // Formula: left = min(viewport - chat - margin, center + offset)
+                      // Offset = (prompt-max-width / 2) - padding + gap (where control bar ends)
+                      "left-[min(calc(100vw-21rem),calc(50%+21rem))]",
+                      "lg:left-[min(calc(100vw-24rem),calc(50%+24rem))]",
+                      "xl:left-[min(calc(100vw-26rem),calc(50%+28rem))]",
+                      "2xl:left-[min(calc(100vw-29rem),calc(50%+32rem))]",
+                      "min-[1800px]:left-[min(calc(100vw-33rem),calc(50%+36rem))]"
+                    )
+                  : "fixed bottom-24 right-6 animate-in slide-in-from-bottom-4 fade-in duration-300"
+              ),
               // Drag state styling
               isDragging 
                 ? "border-primary border-2 ring-2 ring-primary/20" 

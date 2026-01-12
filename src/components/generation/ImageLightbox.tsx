@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect } from 'react'
-import { X, Download, Bookmark, RotateCcw, Check, Video, Pin } from 'lucide-react'
+import { X, Download, Bookmark, RotateCcw, Check, Video, Pin, ArrowDownRight } from 'lucide-react'
 import type { Output } from '@/types/generation'
 
 interface ImageLightboxProps {
@@ -17,6 +17,8 @@ interface ImageLightboxProps {
   onConvertToVideo?: () => void
   /** Optional: pin image to project for reuse as reference */
   onPin?: (imageUrl: string) => void
+  /** Optional: use image as reference in the prompt bar */
+  onUseAsReference?: (imageUrl: string) => void
 }
 
 export function ImageLightbox({ 
@@ -30,6 +32,7 @@ export function ImageLightbox({
   onDownload,
   onConvertToVideo,
   onPin,
+  onUseAsReference,
 }: ImageLightboxProps) {
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
@@ -83,6 +86,13 @@ export function ImageLightbox({
           >
             <Download className="h-5 w-5 text-white" />
           </button>
+          <button
+            onClick={onReuse}
+            className="p-2 rounded-lg bg-white/20 hover:bg-white/30 transition-colors"
+            title="Reuse parameters"
+          >
+            <RotateCcw className="h-5 w-5 text-white" />
+          </button>
           {onPin && (
             <button
               onClick={() => onPin(imageUrl)}
@@ -90,6 +100,15 @@ export function ImageLightbox({
               title="Pin to project"
             >
               <Pin className="h-5 w-5 text-white" />
+            </button>
+          )}
+          {onUseAsReference && (
+            <button
+              onClick={() => onUseAsReference(imageUrl)}
+              className="p-2 rounded-lg bg-white/20 hover:bg-white/30 transition-colors"
+              title="Use as reference"
+            >
+              <ArrowDownRight className="h-5 w-5 text-white" />
             </button>
           )}
           {onConvertToVideo && (
@@ -101,13 +120,6 @@ export function ImageLightbox({
               <Video className="h-5 w-5 text-white" />
             </button>
           )}
-          <button
-            onClick={onReuse}
-            className="p-2 rounded-lg bg-white/20 hover:bg-white/30 transition-colors"
-            title="Reuse parameters"
-          >
-            <RotateCcw className="h-5 w-5 text-white" />
-          </button>
           <button
             onClick={() => onBookmark(output.id, (output as any).isBookmarked || false)}
             className="p-2 rounded-lg bg-white/20 hover:bg-white/30 transition-colors"

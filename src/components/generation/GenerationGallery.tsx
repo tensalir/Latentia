@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from 'react'
 import Image from 'next/image'
-import { Download, RotateCcw, Info, Copy, Bookmark, Check, Video, Wand2, X, Trash2, Pin } from 'lucide-react'
+import { Download, RotateCcw, Info, Copy, Bookmark, Check, Video, Wand2, X, Trash2, Pin, ArrowDownRight } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { GenerationWithOutputs } from '@/types/generation'
 import type { Session } from '@/types/project'
@@ -179,6 +179,10 @@ interface GenerationGalleryProps {
    * Required for TanStack Virtual to work correctly.
    */
   scrollContainerRef?: React.RefObject<HTMLDivElement>
+  /**
+   * Callback to use a generated image as a reference in the prompt bar.
+   */
+  onUseAsReference?: (imageUrl: string) => void
 }
 
 export function GenerationGallery({
@@ -193,6 +197,7 @@ export function GenerationGallery({
   currentUser,
   onDismissGeneration,
   scrollContainerRef,
+  onUseAsReference,
 }: GenerationGalleryProps) {
   const { toast } = useToast()
   const queryClient = useQueryClient()
@@ -217,10 +222,13 @@ export function GenerationGallery({
   const [overlayImageUrl, setOverlayImageUrl] = useState<string | null>(null)
 
   // Virtualizer for efficient rendering of large lists
+  // Estimate accounts for: card min-height (320px) + padding + content + bottom spacing (pb-12 = 48px)
+  // Using a conservative estimate to prevent overlap - cards can grow with content
+  // The virtualizer will automatically measure actual heights via measureElement ref
   const virtualizer = useVirtualizer({
     count: generations.length,
     getScrollElement: () => scrollContainerRef?.current ?? null,
-    estimateSize: () => 400, // Estimated row height in pixels
+    estimateSize: () => 600, // Estimated row height in pixels (conservative to prevent overlap)
     overscan: 5, // Render 5 extra items above/below viewport for smooth scrolling
   })
 
@@ -460,12 +468,14 @@ export function GenerationGallery({
           const stableKey = getStableKey(generation)
           
           // Wrapper for virtualized positioning
+          // Spacing is handled by pb-12 (48px) on the row element, which is measured by virtualizer
           const rowStyle = useVirtualization ? {
             position: 'absolute' as const,
             top: 0,
             left: 0,
             width: '100%',
             transform: `translateY(${virtualRow.start}px)`,
+            marginBottom: 0, // Spacing handled by pb-12 padding
           } : undefined
           
           // Cancelled generation layout
@@ -476,11 +486,11 @@ export function GenerationGallery({
                 ref={useVirtualization ? virtualizer.measureElement : undefined}
                 data-index={virtualRow.index}
                 style={rowStyle}
-                className="pb-6"
+                className="pb-12"
               >
-              <div className="flex gap-6 items-stretch">
-                {/* Left Side: Prompt Display with Cancelled State */}
-                <div className="w-96 flex-shrink-0 bg-prompt-card rounded-xl p-6 border border-destructive/50 flex flex-col relative" style={{ minHeight: '320px' }}>
+                <div className="flex gap-6 items-start">
+                  {/* Left Side: Prompt Display with Cancelled State */}
+                  <div className="w-96 flex-shrink-0 bg-prompt-card rounded-xl p-6 border border-destructive/50 flex flex-col relative" style={{ minHeight: '320px' }}>
                   <div className="absolute top-2 left-2 px-2 py-1 bg-destructive/20 text-destructive text-xs font-medium rounded z-10">
                     Cancelled
                   </div>
@@ -565,17 +575,17 @@ export function GenerationGallery({
                 ref={useVirtualization ? virtualizer.measureElement : undefined}
                 data-index={virtualRow.index}
                 style={rowStyle}
-                className="pb-6"
+                className="pb-12"
               >
-              <div className="flex gap-6 items-start">
-                {/* Left Side: Prompt and metadata */}
-                <div className={`w-96 flex-shrink-0 bg-prompt-card rounded-xl p-6 border flex flex-col relative group ${
-                  isLikelyStuck
-                    ? 'border-destructive/50 border-destructive'
-                    : isTakingLong
-                    ? 'border-amber-500/50 border-amber-500/30'
-                    : 'border-border/50 border-primary/30'
-                }`} style={{ minHeight: '320px' }}>
+                <div className="flex gap-6 items-start">
+                  {/* Left Side: Prompt and metadata */}
+                  <div className={`w-96 flex-shrink-0 bg-prompt-card rounded-xl p-6 border flex flex-col relative group ${
+                    isLikelyStuck
+                      ? 'border-destructive/50 border-destructive'
+                      : isTakingLong
+                      ? 'border-amber-500/50 border-amber-500/30'
+                      : 'border-border/50 border-primary/30'
+                  }`} style={{ minHeight: '320px' }}>
                   {/* Cancel button - top left, only visible on hover when processing */}
                   <button
                     onClick={() => handleCancelGeneration(generation.id)}
@@ -693,11 +703,11 @@ export function GenerationGallery({
                 ref={useVirtualization ? virtualizer.measureElement : undefined}
                 data-index={virtualRow.index}
                 style={rowStyle}
-                className="pb-6"
+                className="pb-12"
               >
-              <div className="flex gap-6 items-stretch">
-                {/* Left Side: Prompt Display with Error State */}
-                <div className="w-96 flex-shrink-0 bg-destructive/10 rounded-xl p-6 border border-destructive/50 flex flex-col" style={{ minHeight: '320px' }}>
+                <div className="flex gap-6 items-start">
+                  {/* Left Side: Prompt Display with Error State */}
+                  <div className="w-96 flex-shrink-0 bg-destructive/10 rounded-xl p-6 border border-destructive/50 flex flex-col" style={{ minHeight: '320px' }}>
                   <div className="flex-1 overflow-hidden hover:overflow-y-auto transition-all group relative" style={{ maxHeight: '200px' }}>
                     <p 
                       className="text-base font-normal leading-relaxed text-foreground/90 cursor-pointer hover:text-primary transition-colors"
@@ -763,11 +773,11 @@ export function GenerationGallery({
                 ref={useVirtualization ? virtualizer.measureElement : undefined}
                 data-index={virtualRow.index}
                 style={rowStyle}
-                className="pb-6"
+                className="pb-12"
               >
-              <div className="flex gap-6 items-start">
-                {/* Left Side: Prompt Display - same styling as images */}
-                <div className="w-96 flex-shrink-0 bg-prompt-card rounded-xl p-6 border border-border flex flex-col" style={{ minHeight: '320px' }}>
+                <div className="flex gap-6 items-start">
+                  {/* Left Side: Prompt Display - same styling as images */}
+                  <div className="w-96 flex-shrink-0 bg-prompt-card rounded-xl p-6 border border-border flex flex-col" style={{ minHeight: '320px' }}>
                   <div className="flex-1 overflow-hidden hover:overflow-y-auto transition-all group relative" style={{ maxHeight: '200px' }}>
                     <p 
                       className="text-base font-normal leading-relaxed text-foreground/90 cursor-pointer hover:text-primary transition-colors"
@@ -918,11 +928,11 @@ export function GenerationGallery({
               ref={useVirtualization ? virtualizer.measureElement : undefined}
               data-index={virtualRow.index}
               style={rowStyle}
-              className="pb-6"
+              className="pb-10"
             >
-            <div className="flex gap-6 items-start">
-              {/* Left Side: Prompt Display - Increased Height with Scroll on Hover */}
-              <div className="w-96 flex-shrink-0 bg-prompt-card rounded-xl p-6 border border-border flex flex-col" style={{ minHeight: '320px' }}>
+              <div className="flex gap-6 items-start">
+                {/* Left Side: Prompt Display - Increased Height with Scroll on Hover */}
+                <div className="w-96 flex-shrink-0 bg-prompt-card rounded-xl p-6 border border-border flex flex-col" style={{ minHeight: '320px' }}>
                 <div className="flex-1 overflow-hidden hover:overflow-y-auto transition-all group relative" style={{ maxHeight: '200px' }}>
                   <p 
                     className="text-base font-normal leading-relaxed text-foreground/90 cursor-pointer hover:text-primary transition-colors"
@@ -1007,7 +1017,7 @@ export function GenerationGallery({
 
                 {/* Hover Overlay - Minimal Krea Style - pointer-events-none to allow image clicks */}
                 <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-150 pointer-events-none">
-                  {/* Top Left - Download + Pin + Reuse */}
+                  {/* Top Left - Download */}
                   <div className="absolute top-2 left-2 pointer-events-auto flex items-center gap-1">
                     <button
                       onClick={(e) => {
@@ -1018,27 +1028,6 @@ export function GenerationGallery({
                       title="Download"
                     >
                       <Download className="h-3.5 w-3.5 text-white" />
-                    </button>
-                    {/* Pin button - pin generated output for reuse */}
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handlePinImage(output.fileUrl)
-                      }}
-                      className="p-1.5 bg-white/20 backdrop-blur-sm rounded-lg hover:bg-white/30 transition-colors"
-                      title="Pin to project"
-                    >
-                      <Pin className="h-3.5 w-3.5 text-white" />
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onReuseParameters(generation)
-                      }}
-                      className="p-1.5 bg-white/20 backdrop-blur-sm rounded-lg hover:bg-white/30 transition-colors"
-                      title="Reuse"
-                    >
-                      <RotateCcw className="h-3.5 w-3.5 text-white" />
                     </button>
                   </div>
                   
@@ -1069,6 +1058,50 @@ export function GenerationGallery({
                       <Check className={`h-3.5 w-3.5 ${(output as any).isApproved ? 'text-white' : 'text-white'}`} />
                     </button>
                   </div>
+                  
+                  {/* Bottom Left - Reuse + Pin */}
+                  <div className="absolute bottom-2 left-2 pointer-events-auto flex items-center gap-1">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onReuseParameters(generation)
+                      }}
+                      className="p-1.5 bg-white/20 backdrop-blur-sm rounded-lg hover:bg-white/30 transition-colors"
+                      title="Reuse parameters"
+                    >
+                      <RotateCcw className="h-3.5 w-3.5 text-white" />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handlePinImage(output.fileUrl)
+                      }}
+                      className="p-1.5 bg-white/20 backdrop-blur-sm rounded-lg hover:bg-white/30 transition-colors"
+                      title="Pin to project"
+                    >
+                      <Pin className="h-3.5 w-3.5 text-white" />
+                    </button>
+                  </div>
+                  
+                  {/* Bottom Right - Use as Reference (positioned left of the VideoIterationsStackHint video button) */}
+                  {onUseAsReference && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onUseAsReference(output.fileUrl)
+                      }}
+                      className="absolute pointer-events-auto transition-all hover:scale-110 opacity-0 group-hover:opacity-100"
+                      style={{ zIndex: 10, bottom: '0.5rem', right: '1.75rem' }}
+                      title="Use as reference"
+                    >
+                      <ArrowDownRight 
+                        className="h-4 w-4 text-primary"
+                        style={{
+                          filter: 'drop-shadow(0 0 6px hsl(var(--primary) / 0.5)) drop-shadow(0 0 10px hsl(var(--primary) / 0.25))',
+                        }}
+                      />
+                    </button>
+                  )}
                 </div>
 
               </div>
@@ -1103,6 +1136,10 @@ export function GenerationGallery({
           handlePinImage(imageUrl)
           setLightboxData(null)
         }}
+        onUseAsReference={onUseAsReference ? (imageUrl) => {
+          onUseAsReference(imageUrl)
+          setLightboxData(null)
+        } : undefined}
         onConvertToVideo={
           currentGenerationType === 'image' && lightboxData
             ? () => {

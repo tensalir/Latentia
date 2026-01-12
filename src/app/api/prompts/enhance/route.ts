@@ -31,9 +31,22 @@ export async function POST(request: NextRequest) {
     const isPromptRequest =
       /\b(?:give me|write|generate|create|make)\b[\s\S]{0,80}\bprompt\b/i.test(userPrompt) ||
       /\bnano\s*banana\s+prompt\b/i.test(userPrompt)
+    
+    // Detect style reference requests
     const wantsStyleReference =
       /\bstyle\s*ref(?:erence)?\b/i.test(userPrompt) ||
       /\buse\s+(?:this|the)\s+(?:image|pic|photo)\s+as\s+(?:a\s+)?style\b/i.test(userPrompt)
+    
+    // Detect STYLE-ONLY reference (user explicitly wants ONLY the visual aesthetic, NOT the scene/composition)
+    // Keywords: "just style", "only style", "style only", "just as a style", "only as style", "purely style"
+    const wantsStyleOnly =
+      wantsStyleReference && (
+        /\b(?:just|only|purely)\s+(?:as\s+)?(?:a\s+)?style\b/i.test(userPrompt) ||
+        /\bstyle\s+only\b/i.test(userPrompt) ||
+        /\bjust\s+(?:the\s+)?style\b/i.test(userPrompt) ||
+        /\bonly\s+(?:the\s+)?style\b/i.test(userPrompt) ||
+        /\bdon'?t\s+(?:copy|reproduce|recreate)\s+(?:the\s+)?(?:scene|composition|subject)\b/i.test(userPrompt)
+      )
 
     // Determine whether the selected model is a VIDEO model (motion prompt) or IMAGE model.
     // This is the key nuance for the Animate Still panel: even though an image is attached,
@@ -111,12 +124,50 @@ Enhance this as an image-to-video / motion prompt (aligned with our motion promp
 
 Return ONLY the enhanced motion prompt text.`
       } else if (modelId === 'gemini-nano-banana-pro') {
-        const requiredPrefix = wantsStyleReference
-          ? 'Using the attached image as a style reference for its '
-          : 'Using the attached image, '
+        // Determine the appropriate prefix based on reference type
+        let requiredPrefix: string
+        if (wantsStyleOnly) {
+          requiredPrefix = 'Using the attached image ONLY as a style reference—extract its '
+        } else if (wantsStyleReference) {
+          requiredPrefix = 'Using the attached image as a style reference for its '
+        } else {
+          requiredPrefix = 'Using the attached image, '
+        }
 
         if (isPromptRequest) {
-          requestContent = `User is asking you to WRITE a final Nano Banana prompt that uses the provided reference image.
+          if (wantsStyleOnly) {
+            // STYLE-ONLY: Extract only visual aesthetic, NOT composition
+            requestContent = `User is asking you to WRITE a Nano Banana prompt using the provided image ONLY for its visual STYLE (not to recreate its scene or composition).
+User's request: "${userPrompt}"
+Reference image will be provided.
+
+CRITICAL STYLE-ONLY REQUIREMENTS:
+- Return ONLY ONE prompt. No titles, no lists, no quotes, no code fences.
+- The prompt MUST start with: "${requiredPrefix}"
+
+EXTRACT from reference image (visual treatment only):
+- Color grading / color palette / tonal range
+- Lighting quality (soft, hard, direction, temperature)
+- Atmosphere / mood
+- Texture / grain / processing style
+- Contrast levels, shadow and highlight treatment
+- Depth rendering / atmospheric perspective feel
+
+DO NOT EXTRACT (compositional elements):
+- Specific subjects (mountains, people, tents, objects, etc.)
+- Scene layout or arrangement
+- Specific objects or props
+- Geographic or environmental specifics
+
+After extracting the visual style, explicitly state: "Do NOT reproduce the [main subjects/scene elements you see]. Apply this visual style to: [user's completely different subject/scene]. The reference defines the color treatment and mood only."
+
+Terminology:
+- "Nano Banana" is Gemini's model nickname. Do NOT introduce literal bananas unless the user explicitly requested bananas.
+
+Return ONLY the prompt text.`
+          } else {
+            // Standard style reference (may include compositional elements)
+            requestContent = `User is asking you to WRITE a final Nano Banana prompt that uses the provided reference image.
 User's request: "${userPrompt}"
 Reference image will be provided.
 
@@ -130,6 +181,7 @@ Terminology:
 - "Nano Banana" is Gemini's model nickname. Do NOT introduce literal bananas unless the user explicitly requested bananas in the image.
 
 Return ONLY the prompt text.`
+          }
         } else {
           requestContent = `User wants to edit an image. Their instruction: "${userPrompt}"
 Reference image will be provided.

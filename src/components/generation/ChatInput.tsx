@@ -32,6 +32,7 @@ interface ChatInputProps {
   onModelSelect: (modelId: string) => void
   isGenerating?: boolean
   referenceImageUrls?: string[] // URLs to hydrate reference images from
+  onReferenceImageUrlsChange?: (urls: string[]) => void // Keep parent URLs in sync with UI removals
   onRegisterPasteHandler?: (handler: (files: File[]) => void) => () => void // Register to receive pasted images
 }
 
@@ -46,6 +47,7 @@ export function ChatInput({
   onModelSelect,
   isGenerating = false,
   referenceImageUrls,
+  onReferenceImageUrlsChange,
   onRegisterPasteHandler,
 }: ChatInputProps) {
   const params = useParams()
@@ -55,6 +57,12 @@ export function ChatInput({
   const [referenceImage, setReferenceImage] = useState<File | null>(null) // Single image (backward compatibility)
   const [referenceImages, setReferenceImages] = useState<File[]>([]) // Multiple images
   const [imagePreviewUrls, setImagePreviewUrls] = useState<string[]>([])
+  const imagePreviewUrlsRef = useRef<string[]>([])
+  // Track which URLs we've successfully loaded to avoid stale closure issues
+  const lastLoadedUrlsRef = useRef<string[]>([])
+  // Prevent out-of-order async hydration from overwriting newer selections
+  const hydrateRequestIdRef = useRef(0)
+  const hydrateInFlightKeyRef = useRef<string | null>(null)
   const [browseModalOpen, setBrowseModalOpen] = useState(false)
   const [rendersModalOpen, setRendersModalOpen] = useState(false)
   const [stylePopoverOpen, setStylePopoverOpen] = useState(false)
@@ -78,6 +86,10 @@ export function ChatInput({
   useEffect(() => {
     currentHeight.current = inputHeight
   }, [inputHeight])
+
+  useEffect(() => {
+    imagePreviewUrlsRef.current = imagePreviewUrls
+  }, [imagePreviewUrls])
   
   // Get model-specific capabilities
   const { modelConfig, supportedAspectRatios, maxResolution, parameters: modelParameters } = useModelCapabilities(selectedModel)
@@ -98,6 +110,7 @@ export function ChatInput({
   useEffect(() => {
     if (modelConfig) {
       const updates: any = {}
+      const supportsEditing = modelConfig.capabilities?.editing === true
       
       // Check aspect ratio
       if (!supportedAspectRatios.includes(parameters.aspectRatio)) {
@@ -125,9 +138,9 @@ export function ChatInput({
       }
       
       // Clear reference images if switching to a model that doesn't support editing
-      if (!supportsImageEditing) {
+      if (!supportsEditing) {
         // Clean up all preview URLs
-        imagePreviewUrls.forEach(url => {
+        imagePreviewUrlsRef.current.forEach(url => {
           if (url.startsWith('blob:')) {
             URL.revokeObjectURL(url)
           }
@@ -135,6 +148,10 @@ export function ChatInput({
         setImagePreviewUrls([])
         setReferenceImages([])
         setReferenceImage(null)
+        lastLoadedUrlsRef.current = []
+        hydrateInFlightKeyRef.current = null
+        hydrateRequestIdRef.current += 1
+        onReferenceImageUrlsChange?.([])
       }
       
       if (Object.keys(updates).length > 0) {
@@ -371,14 +388,26 @@ export function ChatInput({
     setImagePreviewUrls(newPreviewUrls)
     // Update single image reference
     setReferenceImage(newFiles.length > 0 ? newFiles[0] : null)
+    // Keep parent URL state in sync (avoid stale urls reappearing on next pinned click)
+    const nextParentUrls = newPreviewUrls.filter((u) => !u.startsWith('blob:'))
+    onReferenceImageUrlsChange?.(nextParentUrls)
+    // Mark hydration state based on remaining hydrated urls
+    lastLoadedUrlsRef.current = nextParentUrls
+    hydrateInFlightKeyRef.current = null
+    hydrateRequestIdRef.current += 1
   }
 
-  // Hydrate reference images from URLs provided by parent (e.g., when reusing parameters)
+  // Hydrate reference images from URLs provided by parent (e.g., when reusing parameters or pinned images)
   useEffect(() => {
     if (!referenceImageUrls || referenceImageUrls.length === 0) {
+      // Invalidate any in-flight hydration so it can't overwrite cleared state
+      hydrateRequestIdRef.current += 1
+      hydrateInFlightKeyRef.current = null
+
       // Clear images if URLs are explicitly cleared (empty array)
-      if (referenceImageUrls?.length === 0 && imagePreviewUrls.length > 0) {
-        imagePreviewUrls.forEach(url => {
+      if (referenceImageUrls?.length === 0 && lastLoadedUrlsRef.current.length > 0) {
+        // Clean up blob URLs before clearing
+        imagePreviewUrlsRef.current.forEach(url => {
           if (url.startsWith('blob:')) {
             URL.revokeObjectURL(url)
           }
@@ -386,16 +415,19 @@ export function ChatInput({
         setReferenceImages([])
         setImagePreviewUrls([])
         setReferenceImage(null)
+        lastLoadedUrlsRef.current = []
       }
       return
     }
     
-    // Check if we've already loaded these URLs (avoid re-fetching)
-    const urlSet = new Set(referenceImageUrls)
-    const currentUrlSet = new Set(imagePreviewUrls)
-    const urlsMatch = urlSet.size === currentUrlSet.size && 
-                      Array.from(urlSet).every(url => currentUrlSet.has(url))
-    if (urlsMatch && referenceImages.length === referenceImageUrls.length) return
+    // Check if we've already loaded these exact URLs (using ref to avoid stale closure)
+    const newUrlsKey = [...referenceImageUrls].sort().join('|')
+    const lastUrlsKey = [...lastLoadedUrlsRef.current].sort().join('|')
+    if (newUrlsKey === lastUrlsKey) return
+    if (hydrateInFlightKeyRef.current === newUrlsKey) return
+
+    const requestId = (hydrateRequestIdRef.current += 1)
+    hydrateInFlightKeyRef.current = newUrlsKey
     
     ;(async () => {
       try {
@@ -414,6 +446,10 @@ export function ChatInput({
           } else {
             // Handle HTTP URLs
             const response = await fetch(url)
+            if (!response.ok) {
+              console.error(`Failed to fetch image: ${url} (${response.status})`)
+              continue
+            }
             const blob = await response.blob()
             const file = new File([blob], 'reference.png', { type: blob.type })
             files.push(file)
@@ -421,8 +457,11 @@ export function ChatInput({
           }
         }
         
-        // Clean up old preview URLs if they're blob URLs
-        imagePreviewUrls.forEach(url => {
+        // If a newer hydration request started, ignore these results
+        if (requestId !== hydrateRequestIdRef.current) return
+
+        // Clean up old blob preview URLs
+        imagePreviewUrlsRef.current.forEach(url => {
           if (url.startsWith('blob:') && !previewUrls.includes(url)) {
             URL.revokeObjectURL(url)
           }
@@ -431,8 +470,18 @@ export function ChatInput({
         setReferenceImages(files)
         setImagePreviewUrls(previewUrls)
         setReferenceImage(files.length > 0 ? files[0] : null)
+
+        // Only mark as loaded if we successfully hydrated all requested URLs
+        lastLoadedUrlsRef.current =
+          previewUrls.length === referenceImageUrls.length ? [...referenceImageUrls] : []
+        hydrateInFlightKeyRef.current = null
       } catch (err) {
         console.error('Failed to hydrate reference image URLs:', err)
+        // Reset the ref so user can try again
+        if (requestId === hydrateRequestIdRef.current) {
+          lastLoadedUrlsRef.current = []
+          hydrateInFlightKeyRef.current = null
+        }
       }
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
