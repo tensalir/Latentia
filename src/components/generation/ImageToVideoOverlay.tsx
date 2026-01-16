@@ -363,7 +363,7 @@ export function ImageToVideoOverlay({
       }
       
       // Build parameters - use URL if available, otherwise base64
-      // The API handles both: URLs are passed directly, base64 is uploaded server-side
+      // The API expects: referenceImageUrl for URLs, referenceImage for base64
       const isReferenceUrl = referenceImageData?.startsWith('http')
       const isEndFrameUrl = endFrameImageData?.startsWith('http')
       
@@ -373,13 +373,14 @@ export function ImageToVideoOverlay({
         prompt: promptText,
         parameters: {
           ...parameters,
-          referenceImageId: outputId, // Use outputId as reference ID
+          referenceImageId: outputId, // Use outputId as reference ID (for tracking/linking)
           sourceOutputId: outputId, // Link to source image
-          // Reference image: URL or base64
-          ...(referenceImageData && isReferenceUrl && { referenceImage: referenceImageData }),
+          // Reference image: URL goes to referenceImageUrl, base64 goes to referenceImage
+          ...(referenceImageData && isReferenceUrl && { referenceImageUrl: referenceImageData }),
           ...(referenceImageData && !isReferenceUrl && { referenceImage: referenceImageData }),
-          // End frame: URL or base64
-          ...(endFrameImageData && { endFrameImage: endFrameImageData }),
+          // End frame: URL goes to endFrameImageUrl, base64 goes to endFrameImage
+          ...(endFrameImageData && isEndFrameUrl && { endFrameImageUrl: endFrameImageData }),
+          ...(endFrameImageData && !isEndFrameUrl && { endFrameImage: endFrameImageData }),
         },
       })
       

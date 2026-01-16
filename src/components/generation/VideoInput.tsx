@@ -225,15 +225,20 @@ export function VideoInput({
 
     setLocalGenerating(true)
     try {
+      // Use uploaded URL, or fall back to the referenceImageUrl prop (for animate-still with existing image)
+      const effectiveReferenceUrl = uploadedReferenceUrl || referenceImageUrl || undefined
+      const effectiveEndFrameUrl = uploadedEndFrameUrl || endFrameImageUrl || undefined
+      
       await onGenerate(prompt, {
-        // Prefer uploaded URL over File (bypasses Vercel 4.5MB limit)
-        referenceImage: uploadedReferenceUrl ? undefined : referenceImage || undefined,
+        // Prefer URL over File (bypasses Vercel 4.5MB limit)
+        // Only pass File if we don't have a URL
+        referenceImage: effectiveReferenceUrl ? undefined : referenceImage || undefined,
         referenceImageId: referenceImageId || undefined,
-        referenceImageUrl: uploadedReferenceUrl || undefined,
+        referenceImageUrl: effectiveReferenceUrl,
         // Same for end frame
-        endFrameImage: uploadedEndFrameUrl ? undefined : endFrameImage || undefined,
+        endFrameImage: effectiveEndFrameUrl ? undefined : endFrameImage || undefined,
         endFrameImageId: endFrameImageId || undefined,
-        endFrameImageUrl: uploadedEndFrameUrl || undefined,
+        endFrameImageUrl: effectiveEndFrameUrl,
       })
       // Keep the last prompt AND reference image after generating (users often iterate).
       // (ChatInput does the same for images; clearing the reference can cause confusing
