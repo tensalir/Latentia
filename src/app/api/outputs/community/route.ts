@@ -3,7 +3,13 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 import { prisma } from '@/lib/prisma'
 
-// GET /api/outputs/community - Get latest prompts (generations) from all users
+// GET /api/outputs/community - Get diverse creations from all users (Loopers' Gallery)
+// 
+// Diversity rules:
+// 1. Strict prompt similarity filtering (Jaccard < 0.5)
+// 2. Max 2 images per user in any batch
+// 3. Max 2 images per session in any batch
+// 4. Spread across different users/projects
 export async function GET(request: Request) {
   try {
     const supabase = createRouteHandlerClient({ cookies })
@@ -14,11 +20,14 @@ export async function GET(request: Request) {
     }
 
     const { searchParams } = new URL(request.url)
-    const limit = Math.min(parseInt(searchParams.get('limit') || '8'), 16)
+    const limit = Math.min(parseInt(searchParams.get('limit') || '8'), 24)
+    const cursor = searchParams.get('cursor') // ISO date string for pagination
 
     const stopwords = new Set([
       'a','an','and','are','as','at','be','by','for','from','in','into','is','it','its',
       'of','on','or','that','the','their','then','this','to','with','without','your',
+      'image','photo','photograph','picture','shot','scene','showing','shows','style',
+      'high','quality','detailed','realistic','beautiful','professional',
     ])
 
     const normalize = (text: string) =>
@@ -41,7 +50,6 @@ export async function GET(request: Request) {
       if (a.size === 0 || b.size === 0) return 0
       let intersection = 0
       const [small, large] = a.size <= b.size ? [a, b] : [b, a]
-      // Use Array.from() to avoid downlevelIteration requirement
       Array.from(small).forEach((token) => {
         if (large.has(token)) intersection += 1
       })
@@ -49,20 +57,24 @@ export async function GET(request: Request) {
       return union === 0 ? 0 : intersection / union
     }
 
-    // Fetch latest *prompts* (generations) from shared projects, newest-first.
-    // We return 1 output per generation so the feed represents distinct prompts.
-    const poolSize = Math.min(Math.max(limit * 10, 64), 200)
+    // Fetch a large pool of candidates for diversity filtering
+    // Fetch more to ensure we have enough after filtering
+    const poolSize = Math.min(Math.max(limit * 15, 100), 300)
+
+    // Build cursor filter for pagination
+    const cursorFilter = cursor
+      ? { createdAt: { lt: new Date(cursor) } }
+      : {}
 
     const recentGenerations = await prisma.generation.findMany({
       where: {
         status: 'completed',
-        // Only include outputs from projects visible in the community feed.
-        // (Project owner controls this with the lock/globe toggle.)
         session: {
           project: {
             isShared: true,
           },
         },
+        ...cursorFilter,
       },
       select: {
         id: true,
@@ -70,6 +82,7 @@ export async function GET(request: Request) {
         modelId: true,
         parameters: true,
         createdAt: true,
+        userId: true,
         user: {
           select: {
             id: true,
@@ -112,7 +125,17 @@ export async function GET(request: Request) {
     const seenPromptNorms = new Set<string>()
     const seenFileUrls = new Set<string>()
     const selectedTokenSets: Set<string>[] = []
-    const similarityThreshold = 0.72
+    
+    // Diversity tracking: limit images per user and per session
+    const userCounts = new Map<string, number>()
+    const sessionCounts = new Map<string, number>()
+    const MAX_PER_USER = 2
+    const MAX_PER_SESSION = 2
+    
+    // Stricter similarity threshold (lower = more strict)
+    const similarityThreshold = 0.5
+
+    let lastCreatedAt: Date | null = null
 
     for (const g of recentGenerations) {
       if (creations.length >= limit) break
@@ -120,12 +143,23 @@ export async function GET(request: Request) {
       const output = g.outputs[0]
       if (!output) continue
 
+      // Skip duplicate file URLs
       if (seenFileUrls.has(output.fileUrl)) continue
 
+      // Diversity check: limit per user
+      const userCount = userCounts.get(g.userId) || 0
+      if (userCount >= MAX_PER_USER) continue
+
+      // Diversity check: limit per session
+      const sessionCount = sessionCounts.get(g.session.id) || 0
+      if (sessionCount >= MAX_PER_SESSION) continue
+
+      // Skip duplicate exact prompts
       const promptNorm = normalize(g.prompt)
       if (promptNorm.length === 0) continue
       if (seenPromptNorms.has(promptNorm)) continue
 
+      // Similarity check against all selected prompts
       const tokenSet = toTokenSet(g.prompt)
       let tooSimilar = false
       for (const existing of selectedTokenSets) {
@@ -136,9 +170,13 @@ export async function GET(request: Request) {
       }
       if (tooSimilar) continue
 
+      // Passed all filters - add to results
       seenFileUrls.add(output.fileUrl)
       seenPromptNorms.add(promptNorm)
       selectedTokenSets.push(tokenSet)
+      userCounts.set(g.userId, userCount + 1)
+      sessionCounts.set(g.session.id, sessionCount + 1)
+      lastCreatedAt = g.createdAt
 
       creations.push({
         id: output.id,
@@ -160,7 +198,16 @@ export async function GET(request: Request) {
       })
     }
 
-    return NextResponse.json(creations, {
+    // Build next cursor for pagination
+    const nextCursor = creations.length >= limit && lastCreatedAt
+      ? lastCreatedAt.toISOString()
+      : null
+
+    return NextResponse.json({
+      data: creations,
+      nextCursor,
+      hasMore: nextCursor !== null,
+    }, {
       headers: {
         'Cache-Control': 'no-store',
       },

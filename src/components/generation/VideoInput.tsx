@@ -622,6 +622,10 @@ export function VideoInput({
           <div className="flex flex-col gap-1.5">
             {/* Start Frame Thumbnail */}
             <div className="relative group">
+              {/* Label above thumbnail */}
+              <div className="absolute left-1/2 -translate-x-1/2 -top-5 px-1.5 py-0.5 rounded text-[8px] font-semibold uppercase tracking-wider bg-primary/90 text-primary-foreground opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-20">
+                Start
+              </div>
               <div className={`rounded-md overflow-hidden border-2 border-primary/50 shadow-lg transition-transform duration-300 group-hover:scale-105 ${
                 isOverlay ? 'w-[28px] h-[28px]' : 'w-[32px] h-[32px]'
               }`}>
@@ -630,10 +634,6 @@ export function VideoInput({
                   alt="Start frame"
                   className="w-full h-full object-cover"
                 />
-              </div>
-              {/* Label on hover */}
-              <div className="absolute -left-1 top-1/2 -translate-y-1/2 -translate-x-full px-1.5 py-0.5 rounded text-[8px] font-semibold uppercase tracking-wider bg-primary/90 text-primary-foreground opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                Start
               </div>
               {/* Remove button */}
               {!lockedReferenceImage && (
@@ -665,8 +665,8 @@ export function VideoInput({
                     className="w-full h-full object-cover"
                   />
                 </div>
-                {/* Label on hover */}
-                <div className="absolute -left-1 top-1/2 -translate-y-1/2 -translate-x-full px-1.5 py-0.5 rounded text-[8px] font-semibold uppercase tracking-wider bg-amber-500/90 text-white opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                {/* Label below thumbnail */}
+                <div className="absolute left-1/2 -translate-x-1/2 -bottom-5 px-1.5 py-0.5 rounded text-[8px] font-semibold uppercase tracking-wider bg-amber-500/90 text-white opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-20">
                   End
                 </div>
                 {/* Remove button */}

@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { useInfiniteQuery } from '@tanstack/react-query'
 
 export interface CommunityCreation {
   id: string
@@ -31,8 +31,23 @@ export interface CommunityCreation {
   }
 }
 
-async function fetchCommunityCreations(limit: number = 8): Promise<CommunityCreation[]> {
-  const response = await fetch(`/api/outputs/community?limit=${limit}`)
+interface CommunityCreationsResponse {
+  data: CommunityCreation[]
+  nextCursor: string | null
+  hasMore: boolean
+}
+
+async function fetchCommunityCreations(
+  limit: number = 8,
+  cursor?: string
+): Promise<CommunityCreationsResponse> {
+  const url = new URL('/api/outputs/community', window.location.origin)
+  url.searchParams.set('limit', String(limit))
+  if (cursor) {
+    url.searchParams.set('cursor', cursor)
+  }
+  
+  const response = await fetch(url.toString())
   if (!response.ok) {
     throw new Error('Failed to fetch community creations')
   }
@@ -40,11 +55,25 @@ async function fetchCommunityCreations(limit: number = 8): Promise<CommunityCrea
 }
 
 export function useCommunityCreations(limit: number = 8) {
-  return useQuery({
+  const query = useInfiniteQuery({
     queryKey: ['communityCreations', limit],
-    queryFn: () => fetchCommunityCreations(limit),
-    // We want this to feel “live”: newest prompts should appear quickly.
+    queryFn: ({ pageParam }) => fetchCommunityCreations(limit, pageParam),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     staleTime: 10_000,
     refetchOnWindowFocus: true,
   })
+
+  // Flatten all pages into a single array
+  const data = query.data?.pages.flatMap((page) => page.data) ?? []
+
+  return {
+    data,
+    isLoading: query.isLoading,
+    isError: query.isError,
+    error: query.error,
+    hasNextPage: query.hasNextPage,
+    isFetchingNextPage: query.isFetchingNextPage,
+    fetchNextPage: query.fetchNextPage,
+  }
 }
