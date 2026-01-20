@@ -6,29 +6,35 @@ import { useQueryClient, InfiniteData } from '@tanstack/react-query'
 import { ChatInput } from './ChatInput'
 import type { Session } from '@/types/project'
 import type { GenerationWithOutputs } from '@/types/generation'
+import type { ModelConfig } from '@/lib/models/base'
 import { useInfiniteGenerations } from '@/hooks/useInfiniteGenerations'
 import { useGenerationsRealtime } from '@/hooks/useGenerationsRealtime'
 import { useGenerateMutation } from '@/hooks/useGenerateMutation'
 import { useModelCapabilities } from '@/hooks/useModelCapabilities'
+import { useModels } from '@/hooks/useModels'
 import { useUIStore } from '@/store/uiStore'
 import { useToast } from '@/components/ui/use-toast'
-import { getAllModels, getModelsByType } from '@/lib/models/registry'
 import { createClient } from '@/lib/supabase/client'
 import { Image as ImageIcon, Video, MessageCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { logMetric } from '@/lib/metrics'
 
 // Default to Replicate Kling for reliability. The official Kling API requires
 // separate KLING_ACCESS_KEY / KLING_SECRET_KEY credentials and will fail with
 // "Authorization signature is invalid" when not configured correctly.
 const DEFAULT_VIDEO_MODEL_ID = 'replicate-kling-2.6'
 
-function getPreferredModelId(type: 'image' | 'video'): string | null {
-  const models = getModelsByType(type)
+/**
+ * Get preferred model ID from a list of models.
+ * Uses cached data from React Query instead of direct registry import.
+ */
+function getPreferredModelIdFromList(models: ModelConfig[], type: 'image' | 'video'): string | null {
+  const modelsOfType = models.filter(m => m.type === type)
   if (type === 'video') {
-    const preferred = models.find((m) => m.id === DEFAULT_VIDEO_MODEL_ID)
-    return preferred?.id ?? models[0]?.id ?? null
+    const preferred = modelsOfType.find((m) => m.id === DEFAULT_VIDEO_MODEL_ID)
+    return preferred?.id ?? modelsOfType[0]?.id ?? null
   }
-  return models[0]?.id ?? null
+  return modelsOfType[0]?.id ?? null
 }
 
 interface PaginatedGenerationsResponse {
@@ -109,6 +115,8 @@ export function GenerationInterface({
   const [showNewItemsIndicator, setShowNewItemsIndicator] = useState(false)
   const previousGenerationsCountRef = useRef(0)
   const scrollHeightBeforeLoadRef = useRef<number | null>(null)
+  const generationsReadyLoggedRef = useRef(false)
+  const sessionLoadStartRef = useRef<number>(typeof performance !== 'undefined' ? performance.now() : Date.now())
   
   // State for pasted images (passed to input components)
   const [pastedImageFiles, setPastedImageFiles] = useState<File[]>([])
@@ -206,6 +214,9 @@ export function GenerationInterface({
   // Use Zustand store for UI state
   const { selectedModel, parameters, setSelectedModel, setParameters } = useUIStore()
   
+  // Use cached models data from React Query (prefetched on server)
+  const { data: allModels = [] } = useModels()
+  
   // Use infinite query for progressive loading (loads 10 at a time)
   const {
     data: infiniteData,
@@ -217,6 +228,31 @@ export function GenerationInterface({
   
   // Flatten all pages into a single array
   const generations = infiniteData?.pages.flatMap((page) => page.data) || []
+
+  // Log timing metric when generations first load for this session
+  useEffect(() => {
+    if (isLoading || !session?.id) return
+    
+    // Reset on session change
+    if (previousSessionIdRef.current !== session.id) {
+      generationsReadyLoggedRef.current = false
+      sessionLoadStartRef.current = typeof performance !== 'undefined' ? performance.now() : Date.now()
+    }
+    
+    if (!generationsReadyLoggedRef.current) {
+      generationsReadyLoggedRef.current = true
+      const now = typeof performance !== 'undefined' ? performance.now() : Date.now()
+      logMetric({
+        name: 'client_generations_ready',
+        status: 'success',
+        durationMs: Math.round(now - sessionLoadStartRef.current),
+        meta: {
+          sessionId: session.id,
+          generationCount: generations.length,
+        },
+      })
+    }
+  }, [isLoading, session?.id, generations.length])
 
   // If Kling Official is selected but not configured correctly, generations will fail with
   // "Authorization signature is invalid". Auto-fallback to Replicate Kling so users can keep working.
@@ -335,13 +371,15 @@ export function GenerationInterface({
 
   // Set numOutputs based on generationType and model config
   useEffect(() => {
-    const all = getAllModels()
-    const current = all.find(m => m.id === selectedModel)
+    // Wait for models to load before enforcing model type
+    if (allModels.length === 0) return
+    
+    const current = allModels.find(m => m.id === selectedModel)
     const requiredType = generationType
     
     // Enforce model type per view: image sessions -> image models, video sessions -> video models
     if (!current || current.type !== requiredType) {
-      const fallbackId = getPreferredModelId(requiredType)
+      const fallbackId = getPreferredModelIdFromList(allModels, requiredType)
       if (fallbackId) {
         setSelectedModel(fallbackId)
         if (requiredType === 'video') {
@@ -373,7 +411,7 @@ export function GenerationInterface({
         setParameters({ numOutputs: defaultNumOutputs })
       }
     }
-  }, [generationType, selectedModel])
+  }, [generationType, selectedModel, allModels])
 
   // Track scroll position to determine if user is pinned to bottom
   useEffect(() => {

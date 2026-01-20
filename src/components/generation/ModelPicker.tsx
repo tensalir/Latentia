@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { ChevronUp, Star } from 'lucide-react'
 import {
@@ -9,20 +9,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { useModels, findModelInList } from '@/hooks/useModels'
 
 interface ModelPickerProps {
   selectedModel: string
   onModelSelect: (modelId: string) => void
   generationType: 'image' | 'video'
-}
-
-interface Model {
-  id: string
-  name: string
-  provider: string
-  description: string
-  type: 'image' | 'video'
-  maxResolution?: number
 }
 
 export function ModelPicker({
@@ -32,26 +24,11 @@ export function ModelPicker({
 }: ModelPickerProps) {
   const [open, setOpen] = useState(false)
   const [pinnedModels, setPinnedModels] = useState<string[]>(['gemini-nano-banana-pro'])
-  const [models, setModels] = useState<Model[]>([])
-  const [loading, setLoading] = useState(true)
 
-  // Fetch models from API
-  useEffect(() => {
-    const fetchModels = async () => {
-      try {
-        const response = await fetch(`/api/models?type=${generationType}`)
-        const data = await response.json()
-        setModels(data.models || [])
-      } catch (error) {
-        console.error('Failed to fetch models:', error)
-      } finally {
-        setLoading(false)
-      }
-    }
-    fetchModels()
-  }, [generationType])
+  // Use React Query hook for caching models
+  const { data: models = [], isLoading: loading } = useModels(generationType)
 
-  const selectedModelData = models.find((m) => m.id === selectedModel)
+  const selectedModelData = findModelInList(models, selectedModel)
 
   const togglePin = (modelId: string) => {
     setPinnedModels((prev) =>

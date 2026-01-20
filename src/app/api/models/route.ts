@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAllModels, getModelsByType } from '@/lib/models/registry'
 
+// Route segment config: models data is static and can be cached
+// Note: Can't use force-static with search params, rely on Cache-Control headers
+export const revalidate = 3600 // Allow ISR-like revalidation every hour
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)

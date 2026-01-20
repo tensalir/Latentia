@@ -1,23 +1,11 @@
-import { useQuery } from '@tanstack/react-query'
-import type { ModelConfig } from '@/lib/models/base'
+import { useModelConfig } from '@/hooks/useModels'
 
-async function fetchModelConfig(modelId: string): Promise<ModelConfig | null> {
-  const response = await fetch(`/api/models/${modelId}`)
-  
-  if (!response.ok) {
-    return null
-  }
-  
-  return response.json()
-}
-
+/**
+ * Hook to get model capabilities with React Query caching.
+ * Uses the centralized useModelConfig hook for consistent caching.
+ */
 export function useModelCapabilities(modelId: string) {
-  const { data: modelConfig, isLoading } = useQuery({
-    queryKey: ['model-config', modelId],
-    queryFn: () => fetchModelConfig(modelId),
-    enabled: !!modelId,
-    staleTime: 5 * 60 * 1000, // 5 minutes - model configs don't change often
-  })
+  const { data: modelConfig, isLoading } = useModelConfig(modelId)
 
   return {
     modelConfig,

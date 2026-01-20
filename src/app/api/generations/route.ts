@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 import { prisma } from '@/lib/prisma'
+import { logMetric } from '@/lib/metrics'
 
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -86,12 +87,20 @@ function decodeCursor(cursor: string): { createdAt: Date; id: string } | null {
 // GET /api/generations?sessionId=xxx&cursor=xxx - Get generations for a session with cursor pagination
 // Returns newest-first using keyset pagination based on (createdAt, id)
 export async function GET(request: NextRequest) {
+  const startTime = Date.now()
+  let authDuration = 0
+  let sessionQueryDuration = 0
+  let generationsQueryDuration = 0
+  let bookmarksQueryDuration = 0
+
   try {
+    const authStart = Date.now()
     const supabase = createRouteHandlerClient({ cookies })
     const {
       data: { session },
       error: authError,
     } = await supabase.auth.getSession()
+    authDuration = Date.now() - authStart
 
     if (authError || !session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -129,6 +138,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Verify user has access to this session's project
+    const sessionQueryStart = Date.now()
     const sessionData = await prisma.session.findUnique({
       where: { id: sessionId },
       include: {
@@ -141,6 +151,7 @@ export async function GET(request: NextRequest) {
         },
       },
     })
+    sessionQueryDuration = Date.now() - sessionQueryStart
 
     if (!sessionData) {
       return NextResponse.json(
@@ -195,6 +206,7 @@ export async function GET(request: NextRequest) {
 
     // Fetch generations with their outputs and user profile
     // Order by createdAt DESC, id DESC (newest first)
+    const generationsQueryStart = Date.now()
     const generations = await prisma.generation.findMany({
       where: whereClause,
       select: {
@@ -237,6 +249,7 @@ export async function GET(request: NextRequest) {
       ],
     take: limit + 1, // Fetch one extra to check if there's more
   })
+    generationsQueryDuration = Date.now() - generationsQueryStart
 
     // Check if there's more data
     const hasMore = generations.length > limit
@@ -249,6 +262,7 @@ export async function GET(request: NextRequest) {
       : undefined
 
     // Fetch bookmarks separately for efficiency
+    const bookmarksQueryStart = Date.now()
     const outputIds = data.flatMap((g: any) => g.outputs.map((o: any) => o.id))
     const bookmarks = outputIds.length > 0
       ? await (prisma as any).bookmark.findMany({
@@ -261,6 +275,7 @@ export async function GET(request: NextRequest) {
           },
         })
       : []
+    bookmarksQueryDuration = Date.now() - bookmarksQueryStart
 
     const bookmarkedOutputIds = new Set(bookmarks.map((b: any) => b.outputId))
 
@@ -279,13 +294,41 @@ export async function GET(request: NextRequest) {
       })),
     }))
 
+    const totalDuration = Date.now() - startTime
+    logMetric({
+      name: 'api_generations_get',
+      status: 'success',
+      durationMs: totalDuration,
+      meta: {
+        sessionId,
+        limit,
+        hasCursor: !!cursor,
+        generationCount: data.length,
+        hasMore,
+        authMs: authDuration,
+        sessionQueryMs: sessionQueryDuration,
+        generationsQueryMs: generationsQueryDuration,
+        bookmarksQueryMs: bookmarksQueryDuration,
+      },
+    })
+
     return NextResponse.json({
       data: generationsWithBookmarks,
       nextCursor,
       hasMore,
+    }, {
+      headers: {
+        'Server-Timing': `auth;dur=${authDuration}, session;dur=${sessionQueryDuration}, generations;dur=${generationsQueryDuration}, bookmarks;dur=${bookmarksQueryDuration}, total;dur=${totalDuration}`,
+      },
     })
   } catch (error) {
     console.error('Error fetching generations:', error)
+    logMetric({
+      name: 'api_generations_get',
+      status: 'error',
+      durationMs: Date.now() - startTime,
+      meta: { error: (error as Error).message },
+    })
     return NextResponse.json(
       { error: 'Failed to fetch generations' },
       { status: 500 }

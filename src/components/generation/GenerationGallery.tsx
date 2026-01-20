@@ -6,13 +6,13 @@ import type { GenerationWithOutputs } from '@/types/generation'
 import type { Session } from '@/types/project'
 import { useUpdateOutputMutation } from '@/hooks/useOutputMutations'
 import { usePinnedImages } from '@/hooks/usePinnedImages'
+import { useModels } from '@/hooks/useModels'
 import { useToast } from '@/components/ui/use-toast'
 import { useQueryClient } from '@tanstack/react-query'
 import { GenerationProgress } from './GenerationProgress'
 import { ImageLightbox } from './ImageLightbox'
 import { ImageToVideoOverlay } from './ImageToVideoOverlay'
 import { VideoIterationsStackHint } from './VideoIterationsStackHint'
-import { getAllModels } from '@/lib/models/registry'
 
 // Safe date formatter
 const formatDate = (date: Date | string | undefined): string => {
@@ -248,6 +248,8 @@ export function GenerationGallery({
   const queryClient = useQueryClient()
   const updateOutputMutation = useUpdateOutputMutation()
   const { pinImage, isPinning } = usePinnedImages(projectId)
+  // Use cached models data from React Query (prefetched on server)
+  const { data: allModels = [] } = useModels()
   
   const handlePinImage = useCallback((imageUrl: string) => {
     pinImage({ imageUrl })
@@ -599,7 +601,6 @@ export function GenerationGallery({
           
           // Processing generation layout
           if (generation.status === 'processing') {
-            const allModels = getAllModels()
             const modelConfig = allModels.find(m => m.id === generation.modelId)
             const modelName = modelConfig?.name || 'Unknown Model'
             const numOutputs = (generation.parameters as any)?.numOutputs || 1

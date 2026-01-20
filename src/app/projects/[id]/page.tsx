@@ -1,635 +1,166 @@
-'use client'
+import { redirect } from 'next/navigation'
+import { cookies } from 'next/headers'
+import { createServerComponentClient } from '@supabase/auth-helpers-nextjs'
+import { QueryClient, dehydrate, HydrationBoundary } from '@tanstack/react-query'
+import { prisma } from '@/lib/prisma'
+import { getAllModels, getModelsByType } from '@/lib/models/registry'
+import { ProjectClientShell } from './ProjectClientShell'
+import type { Project } from '@/types/project'
 
-import { useState, useEffect, useRef } from 'react'
-import { useParams, useRouter } from 'next/navigation'
-import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
-import { useQueryClient } from '@tanstack/react-query'
-import { Button } from '@/components/ui/button'
-import { Settings, Sun, Moon, Lock, Globe, Loader2, FileText } from 'lucide-react'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import { Textarea } from '@/components/ui/textarea'
-import { FloatingSessionBar } from '@/components/sessions/FloatingSessionBar'
-import { GenerationInterface } from '@/components/generation/GenerationInterface'
-import { BrainstormChatWidget } from '@/components/brainstorm/BrainstormChatWidget'
-import { PinnedImagesRail } from '@/components/projects/PinnedImagesRail'
-import { useSessions } from '@/hooks/useSessions'
-import { Navbar } from '@/components/navbar/Navbar'
-import { SpendingTracker } from '@/components/navbar/SpendingTracker'
-import { GeminiRateLimitTracker } from '@/components/navbar/GeminiRateLimitTracker'
-import { useToast } from '@/components/ui/use-toast'
-import { cn } from '@/lib/utils'
-import type { Session, Project } from '@/types/project'
+interface PageProps {
+  params: { id: string }
+}
 
-export default function ProjectPage() {
-  const params = useParams()
-  const router = useRouter()
-  const { toast } = useToast()
-  const [project, setProject] = useState<Project | null>(null)
-  const [projectName, setProjectName] = useState('Loading...')
-  const [projectOwnerId, setProjectOwnerId] = useState<string>('')
-  const [currentUserId, setCurrentUserId] = useState<string>('')
-  const [isAdmin, setIsAdmin] = useState(false)
-  const [updating, setUpdating] = useState(false)
-  const [activeSession, setActiveSession] = useState<Session | null>(null)
-  const [generationType, setGenerationType] = useState<'image' | 'video'>('image')
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-    // Initialize from DOM class or default to dark
-    if (typeof window !== 'undefined') {
-      return document.documentElement.classList.contains('dark') ? 'dark' : 'light'
-    }
-    return 'dark' // Default to dark for SSR
-  })
-  const [isChatOpen, setIsChatOpen] = useState(false)
-  const [externalPrompt, setExternalPrompt] = useState<string>('')
-  const [pendingPinnedImageUrl, setPendingPinnedImageUrl] = useState<string | null>(null)
-  const [showBriefingModal, setShowBriefingModal] = useState(false)
-  const [briefing, setBriefing] = useState('')
-  const [isSavingBriefing, setIsSavingBriefing] = useState(false)
-  const [briefingLoaded, setBriefingLoaded] = useState(false)
-  const supabase = createClient()
-  const queryClient = useQueryClient()
-  const hasProcessedInitialSessionsRef = useRef(false)
+export default async function ProjectPage({ params }: PageProps) {
+  const projectId = params.id
+  const supabase = createServerComponentClient({ cookies })
 
-  // Use React Query for sessions with intelligent caching
-  const { data: sessions = [], isLoading: sessionsLoading } = useSessions(params.id as string)
+  // Get current user session
+  const {
+    data: { session },
+  } = await supabase.auth.getSession()
 
-  // Initialize theme from localStorage or system preference
-  useEffect(() => {
-    const savedTheme = localStorage.getItem('theme') as 'light' | 'dark' | null
-    const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
-    const isDarkClass = document.documentElement.classList.contains('dark')
-    
-    // Priority: localStorage > current DOM class > system preference > default to dark
-    const resolvedTheme = savedTheme || (isDarkClass ? 'dark' : (systemPrefersDark ? 'dark' : 'dark'))
-    
-    setTheme(resolvedTheme)
-    document.documentElement.classList.toggle('dark', resolvedTheme === 'dark')
-  }, [])
-
-  const toggleTheme = () => {
-    const newTheme = theme === 'light' ? 'dark' : 'light'
-    setTheme(newTheme)
-    localStorage.setItem('theme', newTheme)
-    document.documentElement.classList.toggle('dark', newTheme === 'dark')
+  if (!session) {
+    redirect('/login')
   }
 
-  useEffect(() => {
-    fetchProject()
-  }, [params.id])
+  const userId = session.user.id
 
-  // Set active session when sessions data loads (do NOT auto-create sessions)
-  useEffect(() => {
-    if (sessionsLoading) return
+  // Fetch data in parallel on the server
+  const [projectData, profileData, sessionsData] = await Promise.all([
+    // Fetch project with access check
+    prisma.project.findFirst({
+      where: {
+        id: projectId,
+        OR: [
+          { ownerId: userId },
+          {
+            members: {
+              some: {
+                userId: userId,
+              },
+            },
+          },
+        ],
+      },
+    }),
+    // Fetch user profile for admin check
+    prisma.profile.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    }),
+    // Fetch sessions for this project
+    fetchSessionsForHydration(projectId, userId),
+  ])
 
-    const isFirstProcess = !hasProcessedInitialSessionsRef.current
-    if (isFirstProcess) {
-      hasProcessedInitialSessionsRef.current = true
-    }
-
-    const urlSessionId =
-      typeof window !== 'undefined'
-        ? new URLSearchParams(window.location.search).get('sessionId')
-        : null
-    const firstSessionOfType = sessions.find((s) => s.type === generationType)
-
-    if (sessions.length === 0) {
-      if (activeSession) setActiveSession(null)
-      return
-    }
-
-    if (activeSession) {
-      const updatedActiveSession = sessions.find((s) => s.id === activeSession.id)
-      setActiveSession(updatedActiveSession || null)
-      return
-    }
-
-    // If the user has selected a type, prefer a session of that type (if any)
-    const sessionsOfType = sessions.filter((s) => s.type === generationType)
-    if (sessionsOfType.length > 0) {
-      setActiveSession(sessionsOfType[0])
-      return
-    }
-
-    // Only on first load: fall back to the newest session and adopt its type
-    if (isFirstProcess) {
-      setActiveSession(sessions[0])
-      setGenerationType(sessions[0].type)
-    }
-  }, [sessionsLoading, sessions, activeSession, generationType])
-
-  const fetchProject = async () => {
-    try {
-      // Get current user
-      const { data: { user } } = await supabase.auth.getUser()
-      if (user) {
-        setCurrentUserId(user.id)
-        
-        // Fetch user profile to check admin status
-        const profileResponse = await fetch('/api/profile')
-        if (profileResponse.ok) {
-          const profile = await profileResponse.json()
-          setIsAdmin(profile.role === 'admin')
-        }
-      }
-
-      // Fetch project details
-      const response = await fetch(`/api/projects/${params.id}`)
-      if (response.ok) {
-        const projectData = await response.json()
-        setProject(projectData)
-        setProjectName(projectData.name)
-        setProjectOwnerId(projectData.ownerId)
-      }
-    } catch (error) {
-      console.error('Error fetching project:', error)
-    }
+  // If project not found or unauthorized, redirect
+  if (!projectData) {
+    redirect('/')
   }
 
-  const handleTogglePrivacy = async () => {
-    if (!project || project.ownerId !== currentUserId) return
+  const isAdmin = profileData?.role === 'admin'
 
-    const newIsShared = !project.isShared
-    
-    // Optimistic UI update
-    setProject({
-      ...project,
-      isShared: newIsShared,
-    })
-
-    setUpdating(true)
-    try {
-      const response = await fetch(`/api/projects/${project.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isShared: newIsShared }),
-      })
-
-      if (response.ok) {
-        toast({
-          title: newIsShared ? 'Sharing enabled' : 'Project set to private',
-          description: newIsShared
-            ? 'Invited members can now view this project'
-            : 'Only you can see this project now',
-          variant: 'default',
-        })
-      } else {
-        // Revert optimistic update on error
-        setProject(project)
-        throw new Error('Failed to update privacy')
-      }
-    } catch (error) {
-      // Revert optimistic update on error
-      setProject(project)
-      console.error('Error updating privacy:', error)
-      toast({
-        title: 'Update failed',
-        description: 'Failed to update project privacy',
-        variant: 'destructive',
-      })
-    } finally {
-      setUpdating(false)
-    }
+  // Convert project data to match the expected type
+  const initialProject: Project = {
+    id: projectData.id,
+    name: projectData.name,
+    ownerId: projectData.ownerId,
+    isShared: projectData.isShared,
+    createdAt: projectData.createdAt,
+    updatedAt: projectData.updatedAt,
   }
 
-  // Fetch briefing when modal opens
-  const fetchBriefing = async () => {
-    if (!params.id || briefingLoaded) return
-    try {
-      const response = await fetch(`/api/projects/${params.id}/briefing`)
-      if (response.ok) {
-        const data = await response.json()
-        setBriefing(data.briefing || '')
-        setBriefingLoaded(true)
-      }
-    } catch (error) {
-      console.error('Error fetching briefing:', error)
-    }
+  // Create query client for hydration
+  const queryClient = new QueryClient()
+
+  // Prefetch sessions into the query cache
+  if (sessionsData) {
+    queryClient.setQueryData(['sessions', projectId], sessionsData)
   }
 
-  // Save briefing
-  const saveBriefing = async () => {
-    if (!params.id) return
-    setIsSavingBriefing(true)
-    try {
-      const response = await fetch(`/api/projects/${params.id}/briefing`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ briefing }),
-      })
-      if (response.ok) {
-        toast({
-          title: 'Briefing saved',
-          description: 'Your project briefing has been updated.',
-        })
-        setShowBriefingModal(false)
-      } else {
-        throw new Error('Failed to save briefing')
-      }
-    } catch (error) {
-      console.error('Error saving briefing:', error)
-      toast({
-        title: 'Save failed',
-        description: 'Failed to save project briefing',
-        variant: 'destructive',
-      })
-    } finally {
-      setIsSavingBriefing(false)
-    }
-  }
+  // Prefetch models into the query cache (static data, no async needed)
+  const allModels = getAllModels()
+  const imageModels = getModelsByType('image')
+  const videoModels = getModelsByType('video')
+  
+  queryClient.setQueryData(['models', 'all'], allModels)
+  queryClient.setQueryData(['models', 'image'], imageModels)
+  queryClient.setQueryData(['models', 'video'], videoModels)
 
-  // Handle opening briefing modal
-  const handleOpenBriefing = () => {
-    setShowBriefingModal(true)
-    if (!briefingLoaded) {
-      fetchBriefing()
-    }
-  }
-
-  const handleSessionCreate = async (type: 'image' | 'video', name?: string): Promise<Session | null> => {
-    const projectId = params.id as string
-    const sessionName = name || `${type === 'image' ? 'Image' : 'Video'} Session ${sessions.length + 1}`
-    
-    // Create optimistic session with temporary ID
-    const tempId = `temp-${Date.now()}`
-    const now = new Date()
-    const optimisticSession: Session = {
-      id: tempId,
-      projectId,
-      name: sessionName,
-      type,
-      isPrivate: false,
-      createdAt: now,
-      updatedAt: now,
-    }
-    
-    // Optimistic update: immediately add to cache and set as active
-    queryClient.setQueryData(['sessions', projectId], (oldData: Session[] | undefined) => {
-      if (!oldData) return [optimisticSession]
-      return [...oldData, optimisticSession]
-    })
-    setActiveSession(optimisticSession)
-    setGenerationType(type)
-    
-    try {
-      const response = await fetch('/api/sessions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          projectId,
-          name: sessionName,
-          type,
-        }),
-      })
-
-      if (response.ok) {
-        const newSession = await response.json()
-        // Parse dates from strings to Date objects
-        const parsedSession: Session = {
-          ...newSession,
-          createdAt: new Date(newSession.createdAt),
-          updatedAt: new Date(newSession.updatedAt),
-        }
-        
-        // Replace temporary session with real one in cache
-        queryClient.setQueryData(['sessions', projectId], (oldData: Session[] | undefined) => {
-          if (!oldData) return [parsedSession]
-          return oldData.map(s => s.id === tempId ? parsedSession : s)
-        })
-        // Invalidate projects cache so session count updates on home page
-        queryClient.invalidateQueries({ queryKey: ['projects'] })
-        
-        // Update active session to real one
-        setActiveSession(parsedSession)
-        
-        return parsedSession
-      } else {
-        // Remove optimistic session on failure
-        queryClient.setQueryData(['sessions', projectId], (oldData: Session[] | undefined) => {
-          if (!oldData) return []
-          return oldData.filter(s => s.id !== tempId)
-        })
-        setActiveSession(null)
-        console.error('Failed to create session')
-        return null
-      }
-    } catch (error) {
-      // Remove optimistic session on error
-      queryClient.setQueryData(['sessions', projectId], (oldData: Session[] | undefined) => {
-        if (!oldData) return []
-        return oldData.filter(s => s.id !== tempId)
-      })
-      setActiveSession(null)
-      console.error('Error creating session:', error)
-      return null
-    }
-  }
-
-  const handleSessionSwitch = (sessionId: string) => {
-    const targetSession = sessions.find(s => s.id === sessionId)
-    if (targetSession) {
-      setActiveSession(targetSession)
-      setGenerationType(targetSession.type)
-    }
-  }
-
-  const handleGenerationTypeChange = (type: 'image' | 'video') => {
-    setGenerationType(type)
-    const sessionsOfType = sessions.filter((s) => s.type === type)
-    setActiveSession(sessionsOfType[0] || null)
-  }
-
-  const handleSessionRename = async (session: Session, newName: string) => {
-    if (!newName || newName === session.name) return
-
-    try {
-      const response = await fetch(`/api/sessions/${session.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: newName }),
-      })
-
-      if (response.ok) {
-        // Update cache
-        queryClient.setQueryData(['sessions', params.id], (oldData: Session[] | undefined) => {
-          if (!oldData) return []
-          return oldData.map(s => s.id === session.id ? { ...s, name: newName } : s)
-        })
-        // Update active session if it's the renamed one
-        if (activeSession?.id === session.id) {
-          setActiveSession({ ...activeSession, name: newName })
-        }
-        
-        toast({
-          title: 'Session renamed',
-          description: `Session renamed to "${newName}"`,
-        })
-      }
-    } catch (error) {
-      console.error('Error renaming session:', error)
-      toast({
-        title: 'Rename failed',
-        description: 'Failed to rename session',
-        variant: 'destructive',
-      })
-    }
-  }
-
-  const handleSessionDelete = async (session: Session) => {
-    if (!window.confirm(`Delete "${session.name}"? This will delete all generations in this session.`)) {
-      return
-    }
-
-    try {
-      const response = await fetch(`/api/sessions/${session.id}`, {
-        method: 'DELETE',
-      })
-
-      if (response.ok) {
-        // Remove from sessions cache
-        queryClient.setQueryData(['sessions', params.id], (oldData: Session[] | undefined) => {
-          if (!oldData) return []
-          return oldData.filter(s => s.id !== session.id)
-        })
-        // Invalidate projects cache so session count updates on home page
-        queryClient.invalidateQueries({ queryKey: ['projects'] })
-        // If deleted session was active, switch to another
-        if (activeSession?.id === session.id) {
-          const remainingSessions = sessions.filter(s => s.id !== session.id && s.type === generationType)
-          if (remainingSessions.length > 0) {
-            setActiveSession(remainingSessions[0])
-          } else {
-            setActiveSession(null)
-          }
-        }
-      }
-    } catch (error) {
-      console.error('Error deleting session:', error)
-    }
-  }
+  // Dehydrate the query client state
+  const dehydratedState = dehydrate(queryClient)
 
   return (
-    <div className="h-screen flex flex-col bg-background">
-      {/* Compact Centered Navbar */}
-      <Navbar
-        theme={theme}
-        projectId={params.id as string}
+    <HydrationBoundary state={dehydratedState}>
+      <ProjectClientShell
+        projectId={projectId}
+        initialProject={initialProject}
+        initialUserId={userId}
+        initialIsAdmin={isAdmin}
       />
-
-      {/* Utility Icons - Fixed Top Right */}
-      <div className="fixed top-4 right-4 z-50 flex items-center gap-1">
-        <GeminiRateLimitTracker isAdmin={isAdmin} />
-        <SpendingTracker isAdmin={isAdmin} />
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={toggleTheme}
-          className="h-8 w-8 transition-transform hover:rotate-12"
-          title={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
-        >
-          {theme === 'light' ? (
-            <Moon className="h-4 w-4" />
-          ) : (
-            <Sun className="h-4 w-4" />
-          )}
-        </Button>
-        <Link href="/settings">
-          <Button
-            variant="ghost"
-            size="icon"
-            title="Settings"
-            className="h-8 w-8"
-          >
-            <Settings className="h-4 w-4" />
-          </Button>
-        </Link>
-      </div>
-
-      {/* Main Content */}
-      <div className="flex-1 flex overflow-hidden relative">
-        {/* Project Title - Top Left, aligned with navbar */}
-        <div className="fixed left-4 top-4 z-40 flex flex-col gap-0.5">
-          {/* Row 1: Title + Privacy Toggle */}
-          <div className="flex items-center gap-2 group/title">
-            <h1 className="text-sm font-bold truncate max-w-[240px] tracking-tight" title={projectName}>
-              {projectName}
-            </h1>
-            
-            {project && project.ownerId === currentUserId && (
-              <button
-                onClick={handleTogglePrivacy}
-                disabled={updating}
-                className="opacity-0 group-hover/title:opacity-100 focus:opacity-100 bg-muted/50 hover:bg-muted/80 rounded-full p-0.5 flex items-center gap-0 transition-all duration-200 relative scale-90"
-                title={
-                  project.isShared
-                    ? 'Public (visible in Community Creations). Click to make private.'
-                    : 'Private (hidden from Community Creations). Click to make public.'
-                }
-              >
-                {/* Lock Icon - Left */}
-                <div className={`p-1 rounded-full transition-all z-10 ${
-                  !project.isShared 
-                    ? 'text-background' 
-                    : 'text-muted-foreground/60'
-                }`}>
-                  <Lock className="h-3 w-3" />
-                </div>
-                
-                {/* Globe Icon - Right */}
-                <div className={`p-1 rounded-full transition-all z-10 ${
-                  project.isShared 
-                    ? 'text-background' 
-                    : 'text-muted-foreground/60'
-                }`}>
-                  <Globe className="h-3 w-3" />
-                </div>
-
-                {/* Sliding Background */}
-                <div
-                  className={`absolute top-0.5 bottom-0.5 w-5 bg-muted-foreground/80 rounded-full transition-all duration-300 ${
-                    project.isShared ? 'left-[calc(50%-1px)]' : 'left-0.5'
-                  }`}
-                />
-              </button>
-            )}
-          </div>
-          
-          {/* Row 2: Briefing button - styled as a subtle action pill */}
-          <button
-            onClick={handleOpenBriefing}
-            className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-muted/30 hover:bg-muted/50 border border-border/40 text-[10px] font-semibold text-muted-foreground/80 hover:text-foreground transition-all w-fit uppercase tracking-wider"
-            title="Project briefing"
-          >
-            <FileText className="h-3 w-3" />
-            <span>Briefing</span>
-          </button>
-          
-          {/* Row 3: Pinned Images with subtle label */}
-          {params.id && (
-            <div className="flex flex-col gap-1 mt-2 pt-2 border-t border-border/20">
-              <span className="text-[10px] uppercase tracking-[0.1em] text-muted-foreground/40 font-bold">Pinned</span>
-              <PinnedImagesRail
-                projectId={params.id as string}
-                onSelectImage={(url) => setPendingPinnedImageUrl(url)}
-                className="max-w-[240px]"
-              />
-            </div>
-          )}
-        </div>
-        
-        {/* Floating Session Thumbnails - Vertically centered on left */}
-        <div className="fixed left-4 top-1/2 -translate-y-1/2 z-40">
-          <FloatingSessionBar
-            sessions={sessions}
-            activeSession={activeSession}
-            generationType={generationType}
-            onSessionSelect={setActiveSession}
-            onSessionCreate={handleSessionCreate}
-            onSessionRename={handleSessionRename}
-            onSessionDelete={handleSessionDelete}
-          />
-        </div>
-        
-        {/* Generation Interface - Main Column (shrinks when dock is open) */}
-        <GenerationInterface
-          session={activeSession}
-          generationType={generationType}
-          allSessions={sessions}
-          onSessionCreate={handleSessionCreate}
-          onSessionSwitch={handleSessionSwitch}
-          onGenerationTypeChange={handleGenerationTypeChange}
-          onToggleChat={() => setIsChatOpen(!isChatOpen)}
-          isChatOpen={isChatOpen}
-          externalPrompt={externalPrompt}
-          onExternalPromptConsumed={() => setExternalPrompt('')}
-          externalReferenceImageUrl={pendingPinnedImageUrl}
-          onExternalReferenceImageConsumed={() => setPendingPinnedImageUrl(null)}
-        />
-        
-        {/* Right Dock Column (Desktop Only, lg+) */}
-        <div className={cn(
-          "hidden lg:flex flex-col shrink-0 border-l border-border bg-card/50",
-          "transition-[width,opacity] duration-300 ease-in-out",
-          isChatOpen 
-            ? "w-[var(--dock-panel-w)] opacity-100" 
-            : "w-0 opacity-0 overflow-hidden"
-        )}>
-          {isChatOpen && (
-            <BrainstormChatWidget 
-              variant="docked"
-              projectId={params.id as string}
-              isOpen={true}
-              onOpenChange={setIsChatOpen}
-              onSendPrompt={setExternalPrompt}
-            />
-          )}
-        </div>
-      </div>
-
-      {/* Mobile Overlay Fallback (<lg) - Floating variant */}
-      <div className="lg:hidden">
-        <BrainstormChatWidget 
-          variant="floating"
-          projectId={params.id as string}
-          isOpen={isChatOpen}
-          onOpenChange={setIsChatOpen}
-          onSendPrompt={setExternalPrompt}
-        />
-      </div>
-
-      {/* Briefing Modal */}
-      <Dialog open={showBriefingModal} onOpenChange={setShowBriefingModal}>
-        <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader>
-            <DialogTitle>Project Briefing</DialogTitle>
-            <DialogDescription>
-              Add high-level instructions or context that will apply to all AI chats in this project.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <Textarea
-              value={briefing}
-              onChange={(e) => setBriefing(e.target.value)}
-              placeholder="e.g., 'This project focuses on Loop Earplugs marketing campaigns. Generate visuals that emphasize comfort, noise reduction, and modern lifestyle aesthetics.'"
-              rows={8}
-              className="resize-none"
-              disabled={isSavingBriefing}
-            />
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setShowBriefingModal(false)}
-              disabled={isSavingBriefing}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={saveBriefing}
-              disabled={isSavingBriefing}
-            >
-              {isSavingBriefing ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Saving...
-                </>
-              ) : (
-                'Save briefing'
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
+    </HydrationBoundary>
   )
 }
 
+/**
+ * Server-side session fetching for hydration.
+ * This mirrors the logic in /api/sessions but runs on the server.
+ */
+async function fetchSessionsForHydration(projectId: string, userId: string) {
+  try {
+    // Fetch project to check ownership/sharing
+    const project = await prisma.project.findFirst({
+      where: {
+        id: projectId,
+        OR: [
+          { ownerId: userId },
+          {
+            members: {
+              some: {
+                userId: userId,
+              },
+            },
+          },
+        ],
+      },
+    })
+
+    if (!project) {
+      return []
+    }
+
+    const isOwner = project.ownerId === userId
+    const showAllSessions = isOwner || project.isShared
+
+    const sessions = await prisma.session.findMany({
+      where: {
+        projectId,
+        ...(showAllSessions ? {} : { isPrivate: false }),
+      },
+      orderBy: {
+        updatedAt: 'desc',
+      },
+    })
+
+    // Get project owner profile for display
+    const ownerProfile = await prisma.profile.findUnique({
+      where: { id: project.ownerId },
+      select: {
+        id: true,
+        displayName: true,
+        username: true,
+      },
+    })
+
+    // Add creator info and convert dates
+    return sessions.map(session => ({
+      ...session,
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
+      creator: ownerProfile,
+    }))
+  } catch (error) {
+    console.error('Error fetching sessions for hydration:', error)
+    return []
+  }
+}

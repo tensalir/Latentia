@@ -6,8 +6,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 enum UserRole {
@@ -115,6 +116,7 @@ model Generation {
   @@index([userId])
   @@index([sessionId, userId]) // Composite index for the query
   @@index([sessionId, status])
+  @@index([sessionId, createdAt(sort: Desc), id(sort: Desc)]) // Keyset pagination (newest first)
   @@map("generations")
 }
 
@@ -153,6 +155,7 @@ model Output {
 
   @@index([generationId])
   @@index([generationId, fileType])
+  @@index([generationId, createdAt(sort: Asc)]) // For ordering outputs within generation
   @@map("outputs")
 }
 

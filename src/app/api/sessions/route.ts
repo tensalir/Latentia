@@ -2,14 +2,23 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { logMetric } from '@/lib/metrics'
 
 // GET /api/sessions?projectId=xxx - List all sessions for a project
 export async function GET(request: Request) {
+  const startTime = Date.now()
+  let authDuration = 0
+  let projectQueryDuration = 0
+  let sessionsQueryDuration = 0
+  let profileQueryDuration = 0
+
   try {
+    const authStart = Date.now()
     const supabase = createRouteHandlerClient({ cookies })
     const {
       data: { user },
     } = await supabase.auth.getUser()
+    authDuration = Date.now() - authStart
 
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -26,6 +35,7 @@ export async function GET(request: Request) {
     }
 
     // Verify user has access to this project
+    const projectQueryStart = Date.now()
     const project = await prisma.project.findFirst({
       where: {
         id: projectId,
@@ -41,6 +51,7 @@ export async function GET(request: Request) {
         ],
       },
     })
+    projectQueryDuration = Date.now() - projectQueryStart
 
     if (!project) {
       return NextResponse.json(
@@ -55,6 +66,7 @@ export async function GET(request: Request) {
     // Otherwise only show public sessions
     const showAllSessions = isOwner || project.isShared
     
+    const sessionsQueryStart = Date.now()
     const sessions = await prisma.session.findMany({
       where: {
         projectId,
@@ -66,8 +78,10 @@ export async function GET(request: Request) {
         updatedAt: 'desc',
       },
     })
+    sessionsQueryDuration = Date.now() - sessionsQueryStart
 
     // Get project owner profile for display
+    const profileQueryStart = Date.now()
     const ownerProfile = await prisma.profile.findUnique({
       where: { id: project.ownerId },
       select: {
@@ -76,6 +90,7 @@ export async function GET(request: Request) {
         username: true,
       },
     })
+    profileQueryDuration = Date.now() - profileQueryStart
 
     // Add creator info to each session
     const sessionsWithCreator = sessions.map(session => ({
@@ -83,13 +98,35 @@ export async function GET(request: Request) {
       creator: ownerProfile,
     }))
 
+    const totalDuration = Date.now() - startTime
+    logMetric({
+      name: 'api_sessions_get',
+      status: 'success',
+      durationMs: totalDuration,
+      meta: {
+        projectId,
+        sessionCount: sessions.length,
+        authMs: authDuration,
+        projectQueryMs: projectQueryDuration,
+        sessionsQueryMs: sessionsQueryDuration,
+        profileQueryMs: profileQueryDuration,
+      },
+    })
+
     return NextResponse.json(sessionsWithCreator, {
       headers: {
         'Cache-Control': 'private, max-age=30',
+        'Server-Timing': `auth;dur=${authDuration}, project;dur=${projectQueryDuration}, sessions;dur=${sessionsQueryDuration}, profile;dur=${profileQueryDuration}, total;dur=${totalDuration}`,
       },
     })
   } catch (error) {
     console.error('Error fetching sessions:', error)
+    logMetric({
+      name: 'api_sessions_get',
+      status: 'error',
+      durationMs: Date.now() - startTime,
+      meta: { error: (error as Error).message },
+    })
     return NextResponse.json(
       { error: 'Failed to fetch sessions' },
       { status: 500 }
