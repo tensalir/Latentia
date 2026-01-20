@@ -78,7 +78,12 @@ export async function GET(
       },
     })
 
-    return NextResponse.json(project)
+    return NextResponse.json(project, {
+      headers: {
+        // Short cache for private project data (revalidates often but helps slow networks)
+        'Cache-Control': 'private, max-age=60, stale-while-revalidate=120',
+      },
+    })
   } catch (error: any) {
     logMetric({
       name: 'api_project_detail',

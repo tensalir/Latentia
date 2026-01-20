@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, Suspense } from 'react'
 import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
@@ -18,13 +18,41 @@ import {
 } from '@/components/ui/dialog'
 import { Textarea } from '@/components/ui/textarea'
 import { FloatingSessionBar } from '@/components/sessions/FloatingSessionBar'
-import { GenerationInterface } from '@/components/generation/GenerationInterface'
 import { useSessions } from '@/hooks/useSessions'
 import { Navbar } from '@/components/navbar/Navbar'
 import { useToast } from '@/components/ui/use-toast'
 import { cn } from '@/lib/utils'
 import { logMetric } from '@/lib/metrics'
 import type { Session, Project } from '@/types/project'
+
+// Loading skeleton for the generation interface
+function GenerationInterfaceSkeleton() {
+  return (
+    <div className="flex-1 flex flex-col items-center justify-center bg-background animate-pulse">
+      <div className="w-full max-w-2xl px-4 space-y-4">
+        {/* Gallery skeleton */}
+        <div className="grid grid-cols-2 gap-4">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="aspect-square bg-muted rounded-lg" />
+          ))}
+        </div>
+        {/* Input skeleton */}
+        <div className="h-24 bg-muted rounded-lg" />
+      </div>
+    </div>
+  )
+}
+
+// Loading skeleton for session bar
+function SessionBarSkeleton() {
+  return (
+    <div className="flex flex-col gap-2 animate-pulse">
+      {[...Array(3)].map((_, i) => (
+        <div key={i} className="w-12 h-12 bg-muted rounded-lg" />
+      ))}
+    </div>
+  )
+}
 
 // Defer non-critical UI components to reduce initial bundle and improve first paint
 const BrainstormChatWidget = dynamic(
@@ -42,6 +70,15 @@ const SpendingTracker = dynamic(
 const GeminiRateLimitTracker = dynamic(
   () => import('@/components/navbar/GeminiRateLimitTracker').then(mod => ({ default: mod.GeminiRateLimitTracker })),
   { ssr: false }
+)
+
+// Defer heavy GenerationInterface component with loading skeleton
+const GenerationInterface = dynamic(
+  () => import('@/components/generation/GenerationInterface').then(mod => ({ default: mod.GenerationInterface })),
+  { 
+    ssr: false,
+    loading: () => <GenerationInterfaceSkeleton />
+  }
 )
 
 // Track page load start time
@@ -592,15 +629,19 @@ export function ProjectClientShell({
         
         {/* Floating Session Thumbnails - Vertically centered on left */}
         <div className="fixed left-4 top-1/2 -translate-y-1/2 z-40">
-          <FloatingSessionBar
-            sessions={sessions}
-            activeSession={activeSession}
-            generationType={generationType}
-            onSessionSelect={setActiveSession}
-            onSessionCreate={handleSessionCreate}
-            onSessionRename={handleSessionRename}
-            onSessionDelete={handleSessionDelete}
-          />
+          {sessionsLoading ? (
+            <SessionBarSkeleton />
+          ) : (
+            <FloatingSessionBar
+              sessions={sessions}
+              activeSession={activeSession}
+              generationType={generationType}
+              onSessionSelect={setActiveSession}
+              onSessionCreate={handleSessionCreate}
+              onSessionRename={handleSessionRename}
+              onSessionDelete={handleSessionDelete}
+            />
+          )}
         </div>
         
         {/* Generation Interface - Main Column (shrinks when dock is open) */}

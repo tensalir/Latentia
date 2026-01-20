@@ -150,7 +150,7 @@ const ReferenceImageThumbnail = ({ generation, onPinImage }: ReferenceImageThumb
           onMouseEnter={() => setHoveredIndex(0)}
           onMouseLeave={() => setHoveredIndex(null)}
         >
-          <img src={urls[0]} alt="Reference" className="w-full h-full object-cover" />
+          <img src={urls[0]} alt="Reference" className="w-full h-full object-cover" loading="lazy" />
           {onPinImage && hoveredIndex === 0 && (
             <button
               onClick={(e) => handlePinClick(e, urls[0])}
@@ -175,6 +175,7 @@ const ReferenceImageThumbnail = ({ generation, onPinImage }: ReferenceImageThumb
                   src={url}
                   alt={`Reference ${index + 1}`}
                   className="w-full h-full object-cover rounded-[4px]"
+                  loading="lazy"
                 />
                 {onPinImage && hoveredIndex === index && (
                   <button
@@ -1107,7 +1108,11 @@ export function GenerationGallery({
                         height={output.height || 512}
                         className="w-full h-full object-cover cursor-pointer"
                         loading="lazy"
-                        unoptimized={false}
+                        // Optimize for gallery view: lower quality, responsive sizes
+                        quality={75}
+                        sizes="(max-width: 768px) 50vw, (max-width: 1200px) 33vw, 400px"
+                        placeholder="blur"
+                        blurDataURL="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAhEAABAwMFAQEAAAAAAAAAAAABAgMFAAQGBxESITFRQf/EABUBAQEAAAAAAAAAAAAAAAAAAAAB/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8ArMAD/9k="
                         onClick={() => setLightboxData({
                           imageUrl: output.fileUrl,
                           output: output,

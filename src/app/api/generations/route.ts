@@ -112,6 +112,8 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '10') // Default to 10 for infinite scroll
     // Debug mode: include full parameters (for admin/debugging)
     const includeParameters = searchParams.get('includeParameters') === 'true'
+    // Light mode: omit outputs for faster initial load (load outputs lazily)
+    const lightMode = searchParams.get('light') === 'true'
 
     if (!sessionId) {
       return NextResponse.json(
@@ -206,6 +208,7 @@ export async function GET(request: NextRequest) {
 
     // Fetch generations with their outputs and user profile
     // Order by createdAt DESC, id DESC (newest first)
+    // In light mode, omit outputs to reduce payload size
     const generationsQueryStart = Date.now()
     const generations = await prisma.generation.findMany({
       where: whereClause,
@@ -226,29 +229,34 @@ export async function GET(request: NextRequest) {
             username: true,
           },
         },
-        outputs: {
-          select: {
-            id: true,
-            generationId: true,
-            fileUrl: true,
-            fileType: true,
-            width: true,
-            height: true,
-            duration: true,
-            isStarred: true,
-            createdAt: true,
+        // Only include outputs in full mode (not light mode)
+        ...(lightMode ? {} : {
+          outputs: {
+            select: {
+              id: true,
+              generationId: true,
+              fileUrl: true,
+              fileType: true,
+              width: true,
+              height: true,
+              duration: true,
+              isStarred: true,
+              createdAt: true,
+            },
+            orderBy: {
+              createdAt: 'asc' as const,
+            },
           },
-          orderBy: {
-            createdAt: 'asc',
-          },
+        }),
+        // In light mode, just get output count for display
+        ...(lightMode ? { _count: { select: { outputs: true } } } : {}),
       },
-    },
       orderBy: [
         { createdAt: 'desc' }, // Newest first
         { id: 'desc' }, // Tie-breaker for UUID stability
       ],
-    take: limit + 1, // Fetch one extra to check if there's more
-  })
+      take: limit + 1, // Fetch one extra to check if there's more
+    })
     generationsQueryDuration = Date.now() - generationsQueryStart
 
     // Check if there's more data
@@ -261,38 +269,52 @@ export async function GET(request: NextRequest) {
       ? encodeCursor(lastItem.createdAt, lastItem.id) 
       : undefined
 
-    // Fetch bookmarks separately for efficiency
-    const bookmarksQueryStart = Date.now()
-    const outputIds = data.flatMap((g: any) => g.outputs.map((o: any) => o.id))
-    const bookmarks = outputIds.length > 0
-      ? await (prisma as any).bookmark.findMany({
-          where: {
-            outputId: { in: outputIds },
-            userId: session.user.id,
-          },
-          select: {
-            outputId: true,
-          },
-        })
-      : []
-    bookmarksQueryDuration = Date.now() - bookmarksQueryStart
-
-    const bookmarkedOutputIds = new Set(bookmarks.map((b: any) => b.outputId))
+    // In light mode, skip bookmarks query (outputs not included anyway)
+    let bookmarkedOutputIds = new Set<string>()
+    if (!lightMode) {
+      // Fetch bookmarks separately for efficiency
+      const bookmarksQueryStart = Date.now()
+      const outputIds = data.flatMap((g: any) => g.outputs?.map((o: any) => o.id) || [])
+      const bookmarks = outputIds.length > 0
+        ? await (prisma as any).bookmark.findMany({
+            where: {
+              outputId: { in: outputIds },
+              userId: session.user.id,
+            },
+            select: {
+              outputId: true,
+            },
+          })
+        : []
+      bookmarksQueryDuration = Date.now() - bookmarksQueryStart
+      bookmarkedOutputIds = new Set(bookmarks.map((b: any) => b.outputId))
+    }
 
     // Add isBookmarked field to outputs, isOwner field to generations, and sanitize parameters
-    const generationsWithBookmarks = data.map((generation: any) => ({
-      ...generation,
-      // Indicate if current user owns this generation (for delete permissions in UI)
-      isOwner: generation.userId === session.user.id,
-      // Sanitize parameters by default; pass full parameters only in debug mode
-      parameters: includeParameters
-        ? generation.parameters
-        : sanitizeParameters(generation.parameters),
-      outputs: generation.outputs.map((output: any) => ({
-        ...output,
-        isBookmarked: bookmarkedOutputIds.has(output.id),
-      })),
-    }))
+    const generationsWithBookmarks = data.map((generation: any) => {
+      const result: any = {
+        ...generation,
+        // Indicate if current user owns this generation (for delete permissions in UI)
+        isOwner: generation.userId === session.user.id,
+        // Sanitize parameters by default; pass full parameters only in debug mode
+        parameters: includeParameters
+          ? generation.parameters
+          : sanitizeParameters(generation.parameters),
+      }
+      
+      // In light mode, include outputCount instead of full outputs array
+      if (lightMode) {
+        result.outputCount = generation._count?.outputs || 0
+        delete result._count
+      } else {
+        result.outputs = (generation.outputs || []).map((output: any) => ({
+          ...output,
+          isBookmarked: bookmarkedOutputIds.has(output.id),
+        }))
+      }
+      
+      return result
+    })
 
     const totalDuration = Date.now() - startTime
     logMetric({
@@ -305,6 +327,7 @@ export async function GET(request: NextRequest) {
         hasCursor: !!cursor,
         generationCount: data.length,
         hasMore,
+        lightMode,
         authMs: authDuration,
         sessionQueryMs: sessionQueryDuration,
         generationsQueryMs: generationsQueryDuration,
@@ -316,8 +339,12 @@ export async function GET(request: NextRequest) {
       data: generationsWithBookmarks,
       nextCursor,
       hasMore,
+      lightMode, // Include in response so client knows what mode was used
     }, {
       headers: {
+        // Private cache for user-specific generation data
+        // stale-while-revalidate helps slow networks serve stale content quickly while updating
+        'Cache-Control': 'private, max-age=15, stale-while-revalidate=60',
         'Server-Timing': `auth;dur=${authDuration}, session;dur=${sessionQueryDuration}, generations;dur=${generationsQueryDuration}, bookmarks;dur=${bookmarksQueryDuration}, total;dur=${totalDuration}`,
       },
     })
