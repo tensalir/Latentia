@@ -906,7 +906,7 @@ export function GenerationInterface({
     // The user will write a video-specific prompt (optionally enhanced).
     setPrompt('')
     // Force default video model when moving into a video session
-    const preferredVideoModelId = getPreferredModelId('video')
+    const preferredVideoModelId = getPreferredModelIdFromList(allModels, 'video')
     if (preferredVideoModelId) {
       setSelectedModel(preferredVideoModelId)
     }
