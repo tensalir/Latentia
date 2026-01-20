@@ -1,7 +1,9 @@
 'use client'
 
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Plus, Image as ImageIcon, Video, Loader2, Pencil, Trash2, Check, X } from 'lucide-react'
+import { fetchGenerationsPage } from '@/lib/api/generations'
 import type { Session } from '@/types/project'
 
 interface FloatingSessionBarProps {
@@ -29,12 +31,39 @@ export function FloatingSessionBar({
   onSessionRename,
   onSessionDelete,
 }: FloatingSessionBarProps) {
+  const queryClient = useQueryClient()
   const [thumbnails, setThumbnails] = useState<Record<string, SessionThumbnail>>({})
   const [hoveredSession, setHoveredSession] = useState<string | null>(null)
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null)
   const [editingName, setEditingName] = useState('')
   const [isSaving, setIsSaving] = useState(false)
   const editInputRef = useRef<HTMLInputElement>(null)
+  const prefetchedSessionsRef = useRef<Set<string>>(new Set())
+
+  // Prefetch a session's generations on hover for instant switching
+  const handleSessionHover = useCallback((sessionId: string) => {
+    setHoveredSession(sessionId)
+    
+    // Skip if already prefetched, is the active session, or is a temp session
+    if (
+      prefetchedSessionsRef.current.has(sessionId) ||
+      activeSession?.id === sessionId ||
+      sessionId.startsWith('temp-')
+    ) {
+      return
+    }
+
+    // Mark as prefetched
+    prefetchedSessionsRef.current.add(sessionId)
+
+    // Prefetch the first page of generations (limit 5) so gallery renders instantly on switch
+    queryClient.prefetchInfiniteQuery({
+      queryKey: ['generations', 'infinite', sessionId],
+      queryFn: () => fetchGenerationsPage({ sessionId, limit: 5 }),
+      initialPageParam: undefined,
+      staleTime: 30 * 1000, // 30 seconds
+    })
+  }, [queryClient, activeSession?.id])
 
   // Focus input when editing starts
   useEffect(() => {
@@ -95,54 +124,73 @@ export function FloatingSessionBar({
     [filteredSessions]
   )
 
-  // Fetch latest image for each session
+  // Get projectId from the first session (all sessions in props belong to the same project)
+  const projectId = sessions[0]?.projectId
+
+  // Fetch thumbnails for all sessions in a single bulk request
   useEffect(() => {
-    const fetchThumbnails = async () => {
-      for (const session of filteredSessions) {
-        // Check if we already have this thumbnail (using functional update to avoid stale closure)
-        setThumbnails(prev => {
-          if (prev[session.id]?.imageUrl !== undefined) return prev // Already fetched
-          const isTempSession = session.id.startsWith('temp-')
-          return {
-            ...prev,
-            // Optimistic sessions use temporary ids (temp-*). Skip thumbnail fetching for those.
-            [session.id]: { sessionId: session.id, imageUrl: null, isLoading: !isTempSession }
-          }
-        })
+    if (!projectId || filteredSessions.length === 0) return
+
+    // Set loading state for all non-temp sessions
+    const initialThumbnails: Record<string, SessionThumbnail> = {}
+    for (const session of filteredSessions) {
+      const isTempSession = session.id.startsWith('temp-')
+      initialThumbnails[session.id] = {
+        sessionId: session.id,
+        imageUrl: null,
+        isLoading: !isTempSession,
       }
-      
-      // Fetch thumbnails for sessions that need them
-      for (const session of filteredSessions) {
-        if (session.id.startsWith('temp-')) continue
-        try {
-          const response = await fetch(`/api/generations?sessionId=${session.id}&limit=1`)
-          if (response.ok) {
-            const data = await response.json()
-            const generations = data.data || data || []
-            const latestGen = generations[0]
-            const latestOutput = latestGen?.outputs?.[0]
-            
-            setThumbnails(prev => ({
-              ...prev,
-              [session.id]: {
+    }
+    setThumbnails(initialThumbnails)
+
+    // Fetch all thumbnails in one request
+    const fetchBulkThumbnails = async () => {
+      try {
+        const params = new URLSearchParams({ projectId, type: generationType })
+        const response = await fetch(`/api/sessions/thumbnails?${params}`)
+        
+        if (response.ok) {
+          const data = await response.json()
+          const bulkThumbnails: Record<string, string | null> = data.thumbnails || {}
+          
+          // Update state with fetched thumbnails
+          setThumbnails(prev => {
+            const updated = { ...prev }
+            for (const session of filteredSessions) {
+              if (session.id.startsWith('temp-')) continue
+              updated[session.id] = {
                 sessionId: session.id,
-                imageUrl: latestOutput?.fileUrl || null,
-                isLoading: false
+                imageUrl: bulkThumbnails[session.id] || null,
+                isLoading: false,
               }
-            }))
-          }
-        } catch (error) {
-          console.error('Error fetching thumbnail for session:', session.id, error)
-          setThumbnails(prev => ({
-            ...prev,
-            [session.id]: { sessionId: session.id, imageUrl: null, isLoading: false }
-          }))
+            }
+            return updated
+          })
+        } else {
+          // On error, clear loading state
+          setThumbnails(prev => {
+            const updated = { ...prev }
+            for (const sessionId of Object.keys(updated)) {
+              updated[sessionId] = { ...updated[sessionId], isLoading: false }
+            }
+            return updated
+          })
         }
+      } catch (error) {
+        console.error('Error fetching bulk thumbnails:', error)
+        // Clear loading state on error
+        setThumbnails(prev => {
+          const updated = { ...prev }
+          for (const sessionId of Object.keys(updated)) {
+            updated[sessionId] = { ...updated[sessionId], isLoading: false }
+          }
+          return updated
+        })
       }
     }
 
-    fetchThumbnails()
-  }, [filteredSessionIds, filteredSessions])
+    fetchBulkThumbnails()
+  }, [projectId, generationType, filteredSessionIds, filteredSessions])
 
   return (
     <div className="flex flex-col items-start gap-3">
@@ -173,7 +221,7 @@ export function FloatingSessionBar({
             <div
               key={session.id}
               className="relative"
-              onMouseEnter={() => setHoveredSession(session.id)}
+              onMouseEnter={() => handleSessionHover(session.id)}
               onMouseLeave={() => setHoveredSession(null)}
             >
               {/* Fluid Expandable Session Card */}

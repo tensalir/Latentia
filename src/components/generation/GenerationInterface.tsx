@@ -217,17 +217,71 @@ export function GenerationInterface({
   // Use cached models data from React Query (prefetched on server)
   const { data: allModels = [] } = useModels()
   
-  // Use infinite query for progressive loading (loads 10 at a time)
+  // Use infinite query for progressive loading
+  // Start with a smaller page (5) for faster first paint, then backfill older items
   const {
     data: infiniteData,
     isLoading,
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
-  } = useInfiniteGenerations(session?.id || null, 10)
+  } = useInfiniteGenerations(session?.id || null, 5)
   
   // Flatten all pages into a single array
   const generations = infiniteData?.pages.flatMap((page) => page.data) || []
+
+  // Track if we've done the initial backfill for this session
+  const hasBackfilledRef = useRef<string | null>(null)
+
+  // Background backfill: after first page renders, fetch more pages on idle
+  // This pre-loads older generations so scrolling up is instant
+  useEffect(() => {
+    // Only backfill once per session, after initial data loads
+    if (!session?.id || isLoading || !infiniteData) return
+    if (hasBackfilledRef.current === session.id) return
+    if (!hasNextPage || isFetchingNextPage) return
+
+    // Mark as backfilling for this session
+    hasBackfilledRef.current = session.id
+
+    // Use requestIdleCallback if available, otherwise setTimeout
+    const scheduleBackfill = (callback: () => void) => {
+      if (typeof requestIdleCallback !== 'undefined') {
+        requestIdleCallback(callback, { timeout: 2000 })
+      } else {
+        setTimeout(callback, 100)
+      }
+    }
+
+    // Backfill up to 3 more pages (15 more items at 5 per page)
+    let pagesBackfilled = 0
+    const maxBackfillPages = 3
+
+    const backfillNextPage = () => {
+      if (pagesBackfilled >= maxBackfillPages) return
+      
+      // Check if there's still more to fetch (re-check since state may have changed)
+      const currentData = queryClient.getQueryData(['generations', 'infinite', session.id]) as InfiniteData<PaginatedGenerationsResponse> | undefined
+      const lastPage = currentData?.pages[currentData.pages.length - 1]
+      if (!lastPage?.hasMore) return
+
+      pagesBackfilled++
+      fetchNextPage().then(() => {
+        // Schedule next backfill if there's more
+        scheduleBackfill(backfillNextPage)
+      })
+    }
+
+    // Start backfill after a short delay to not compete with initial render
+    scheduleBackfill(backfillNextPage)
+  }, [session?.id, isLoading, infiniteData, hasNextPage, isFetchingNextPage, fetchNextPage, queryClient])
+
+  // Reset backfill tracking when session changes
+  useEffect(() => {
+    if (previousSessionIdRef.current !== session?.id) {
+      hasBackfilledRef.current = null
+    }
+  }, [session?.id])
 
   // Log timing metric when generations first load for this session
   useEffect(() => {

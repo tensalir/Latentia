@@ -23,7 +23,28 @@ import { Navbar } from '@/components/navbar/Navbar'
 import { useToast } from '@/components/ui/use-toast'
 import { cn } from '@/lib/utils'
 import { logMetric } from '@/lib/metrics'
+import { fetchGenerationsPage } from '@/lib/api/generations'
 import type { Session, Project } from '@/types/project'
+
+/**
+ * Check if we should skip prefetching due to network conditions.
+ * Returns true if prefetching should be skipped.
+ */
+function shouldSkipPrefetch(): boolean {
+  if (typeof navigator === 'undefined') return false
+  
+  const connection = (navigator as any).connection
+  if (!connection) return false
+  
+  // Skip if user has Save-Data enabled
+  if (connection.saveData) return true
+  
+  // Skip on very slow connections (2g, slow-2g)
+  const slowTypes = ['slow-2g', '2g']
+  if (slowTypes.includes(connection.effectiveType)) return true
+  
+  return false
+}
 
 // Loading skeleton for the generation interface
 function GenerationInterfaceSkeleton() {
@@ -212,6 +233,49 @@ export function ProjectClientShell({
       setGenerationType(sessions[0].type)
     }
   }, [sessionsLoading, sessions, activeSession, generationType, projectId])
+
+  // Track which sessions we've already prefetched
+  const prefetchedSessionsRef = useRef<Set<string>>(new Set())
+
+  // Prefetch nearby sessions in the background for instant switching
+  useEffect(() => {
+    if (sessionsLoading || !activeSession) return
+    
+    // Skip prefetching on slow networks or if user has Save-Data enabled
+    if (shouldSkipPrefetch()) return
+
+    // Get other sessions of the same type (excluding active)
+    const otherSessions = sessions
+      .filter(s => s.id !== activeSession.id && s.type === generationType && !s.id.startsWith('temp-'))
+      .slice(0, 3) // Prefetch up to 3 nearby sessions
+
+    if (otherSessions.length === 0) return
+
+    // Schedule prefetching on idle (low priority)
+    const schedulePrefetch = (callback: () => void) => {
+      if (typeof requestIdleCallback !== 'undefined') {
+        requestIdleCallback(callback, { timeout: 3000 })
+      } else {
+        setTimeout(callback, 500)
+      }
+    }
+
+    schedulePrefetch(() => {
+      for (const session of otherSessions) {
+        // Skip if already prefetched
+        if (prefetchedSessionsRef.current.has(session.id)) continue
+        prefetchedSessionsRef.current.add(session.id)
+
+        // Prefetch the first page (limit 5) so gallery can render immediately on switch
+        queryClient.prefetchInfiniteQuery({
+          queryKey: ['generations', 'infinite', session.id],
+          queryFn: () => fetchGenerationsPage({ sessionId: session.id, limit: 5 }),
+          initialPageParam: undefined,
+          staleTime: 30 * 1000, // 30 seconds
+        })
+      }
+    })
+  }, [sessionsLoading, activeSession, sessions, generationType, queryClient])
 
   const fetchProject = async () => {
     try {
