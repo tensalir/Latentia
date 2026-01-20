@@ -257,11 +257,11 @@ export function VideoInput({
         // Only pass File if we don't have a URL
         referenceImage: effectiveReferenceUrl ? undefined : referenceImage || undefined,
         referenceImageId: referenceImageId || undefined,
-        referenceImageUrl: effectiveReferenceUrl,
+        referenceImageUrl: effectiveReferenceUrl ?? undefined,
         // Same for end frame
         endFrameImage: effectiveEndFrameUrl ? undefined : endFrameImage || undefined,
         endFrameImageId: endFrameImageId || undefined,
-        endFrameImageUrl: effectiveEndFrameUrl,
+        endFrameImageUrl: effectiveEndFrameUrl ?? undefined,
       })
       // Keep the last prompt AND reference image after generating (users often iterate).
       // (ChatInput does the same for images; clearing the reference can cause confusing
