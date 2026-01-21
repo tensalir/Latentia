@@ -60,6 +60,15 @@ export function useDebouncedValue<T>(value: T, delay: number): T {
 }
 
 /**
+ * Create a stable, normalized query key for product renders.
+ * This ensures cache hits work correctly across different call sites.
+ */
+function createProductRendersKey(search: string, name: string | undefined, type: string | undefined) {
+  // Normalize to consistent string values to ensure stable cache keys
+  return ['product-renders', search || '', name || '', type || ''] as const
+}
+
+/**
  * Hook to fetch product renders with React Query caching.
  * 
  * Features:
@@ -74,14 +83,19 @@ export function useProductRenders(options: UseProductRendersOptions = {}) {
   // Debounce search to avoid excessive API calls while typing
   const debouncedSearch = useDebouncedValue(search || '', 300)
   
+  // Create stable query key
+  const queryKey = createProductRendersKey(debouncedSearch, name, type)
+  
   return useQuery({
-    queryKey: ['product-renders', { search: debouncedSearch, name, type }],
+    queryKey,
     queryFn: () => fetchProductRenders({ search: debouncedSearch, name, type }),
     enabled,
     staleTime: 5 * 60 * 1000, // 5 minutes - renders rarely change
     gcTime: 30 * 60 * 1000, // 30 minutes - keep in cache for quick revisits
+    // Disable ALL automatic refetching - only fetch on explicit query key change
     refetchOnMount: false,
     refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
     // Keep previous data visible while fetching new data (no blanking)
     placeholderData: keepPreviousData,
   })
@@ -93,13 +107,14 @@ export function useProductRenders(options: UseProductRendersOptions = {}) {
  */
 export function useProductNames(enabled: boolean = true) {
   const { data } = useQuery({
-    queryKey: ['product-renders', { search: '', name: undefined, type: undefined }],
+    queryKey: createProductRendersKey('', undefined, undefined),
     queryFn: () => fetchProductRenders({}),
     enabled,
     staleTime: 5 * 60 * 1000,
     gcTime: 30 * 60 * 1000,
     refetchOnMount: false,
     refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   })
   
   return data?.productNames || []
@@ -113,12 +128,15 @@ export function usePrefetchProductRenders() {
   const queryClient = useQueryClient()
   
   return useCallback((options: UseProductRendersOptions) => {
+    // Use the same key format as useProductRenders for cache hits
+    const queryKey = createProductRendersKey(
+      options.search || '',
+      options.name,
+      options.type
+    )
+    
     queryClient.prefetchQuery({
-      queryKey: ['product-renders', { 
-        search: options.search || '', 
-        name: options.name, 
-        type: options.type 
-      }],
+      queryKey,
       queryFn: () => fetchProductRenders(options),
       staleTime: 5 * 60 * 1000,
     })
