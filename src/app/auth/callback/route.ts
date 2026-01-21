@@ -6,6 +6,7 @@ import type { NextRequest } from 'next/server'
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url)
   const code = requestUrl.searchParams.get('code')
+  const type = requestUrl.searchParams.get('type')
   const cookieStore = cookies()
 
   if (code) {
@@ -16,6 +17,11 @@ export async function GET(request: NextRequest) {
       console.error('[auth/callback] Error exchanging code for session:', error.message)
       // Redirect to login with error
       return NextResponse.redirect(new URL('/login?error=auth_callback_failed', requestUrl.origin))
+    }
+
+    // If this is a password recovery flow, redirect to the reset password page
+    if (type === 'recovery') {
+      return NextResponse.redirect(new URL('/reset-password', requestUrl.origin))
     }
   }
 
