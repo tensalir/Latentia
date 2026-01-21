@@ -213,7 +213,7 @@ interface GenerationGalleryProps {
   onReuseParameters: (generation: GenerationWithOutputs) => void
   videoSessions?: Session[]
   onConvertToVideo?: (generation: GenerationWithOutputs, videoSessionId: string, imageUrl?: string) => void
-  onCreateVideoSession?: ((type: 'image' | 'video', name: string) => Promise<Session | null>) | undefined
+  onCreateVideoSession?: ((type: 'image' | 'video', name: string, options?: { skipSwitch?: boolean }) => Promise<Session | null>) | undefined
   currentGenerationType?: 'image' | 'video'
   currentUser?: { displayName: string | null } | null
   /**

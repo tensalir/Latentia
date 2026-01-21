@@ -25,7 +25,7 @@ interface ImageToVideoOverlayProps {
   /** Project ID for session management */
   projectId: string
   /** Callback when a video session is created */
-  onCreateSession?: (type: 'video', name: string) => Promise<Session | null>
+  onCreateSession?: (type: 'video', name: string, options?: { skipSwitch?: boolean }) => Promise<Session | null>
   /** Callback after successful generation */
   onGenerationStarted?: () => void
 }
@@ -203,7 +203,9 @@ export function ImageToVideoOverlay({
       console.log('[ImageToVideoOverlay] Creating new session:', newSessionName)
       setIsCreatingSession(true)
       try {
-        const newSession = await onCreateSession('video', newSessionName.trim())
+        // Pass skipSwitch: true to prevent switching tabs when creating session from overlay
+        // The user wants to stay in the image view while animating a still
+        const newSession = await onCreateSession('video', newSessionName.trim(), { skipSwitch: true })
         if (newSession) {
           setSelectedSessionId(newSession.id)
           setSessionMode('existing')

@@ -66,7 +66,7 @@ interface GenerationInterfaceProps {
   session: Session | null
   generationType: 'image' | 'video'
   allSessions?: Session[]
-  onSessionCreate?: (type: 'image' | 'video', name: string) => Promise<Session | null>
+  onSessionCreate?: (type: 'image' | 'video', name: string, options?: { skipSwitch?: boolean }) => Promise<Session | null>
   onSessionSwitch?: (sessionId: string) => void
   onGenerationTypeChange?: (type: 'image' | 'video') => void
   onToggleChat?: () => void

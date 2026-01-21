@@ -419,8 +419,13 @@ export function ProjectClientShell({
     }
   }
 
-  const handleSessionCreate = async (type: 'image' | 'video', name?: string): Promise<Session | null> => {
+  const handleSessionCreate = async (
+    type: 'image' | 'video', 
+    name?: string,
+    options?: { skipSwitch?: boolean }
+  ): Promise<Session | null> => {
     const sessionName = name || `${type === 'image' ? 'Image' : 'Video'} Session ${sessions.length + 1}`
+    const skipSwitch = options?.skipSwitch ?? false
     
     // Create optimistic session with temporary ID
     const tempId = `temp-${Date.now()}`
@@ -435,13 +440,18 @@ export function ProjectClientShell({
       updatedAt: now,
     }
     
-    // Optimistic update: immediately add to cache and set as active
+    // Optimistic update: immediately add to cache
     queryClient.setQueryData(['sessions', projectId], (oldData: Session[] | undefined) => {
       if (!oldData) return [optimisticSession]
       return [...oldData, optimisticSession]
     })
-    setActiveSession(optimisticSession)
-    setGenerationType(type)
+    
+    // Only switch active session and generation type if not skipped
+    // (e.g., when creating from ImageToVideoOverlay, we want to stay in image view)
+    if (!skipSwitch) {
+      setActiveSession(optimisticSession)
+      setGenerationType(type)
+    }
     
     try {
       const response = await fetch('/api/sessions', {
@@ -473,8 +483,10 @@ export function ProjectClientShell({
         // Invalidate projects cache so session count updates on home page
         queryClient.invalidateQueries({ queryKey: ['projects'] })
         
-        // Update active session to real one
-        setActiveSession(parsedSession)
+        // Update active session to real one (only if we switched to it)
+        if (!skipSwitch) {
+          setActiveSession(parsedSession)
+        }
         
         return parsedSession
       } else {
@@ -483,7 +495,9 @@ export function ProjectClientShell({
           if (!oldData) return []
           return oldData.filter(s => s.id !== tempId)
         })
-        setActiveSession(null)
+        if (!skipSwitch) {
+          setActiveSession(null)
+        }
         console.error('Failed to create session')
         return null
       }
@@ -493,7 +507,9 @@ export function ProjectClientShell({
         if (!oldData) return []
         return oldData.filter(s => s.id !== tempId)
       })
-      setActiveSession(null)
+      if (!skipSwitch) {
+        setActiveSession(null)
+      }
       console.error('Error creating session:', error)
       return null
     }
