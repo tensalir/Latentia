@@ -92,7 +92,7 @@ export default async function ProjectPage({ params }: PageProps) {
   // Prefetch first session's generations so user sees content immediately
   // Use same logic as client: prefer first image session, fallback to first session
   if (sessionsData && sessionsData.length > 0) {
-    const firstImageSession = sessionsData.find((s: Session) => s.type === 'image')
+    const firstImageSession = sessionsData.find((s) => s.type === 'image')
     const firstSession = firstImageSession || sessionsData[0]
     
     if (firstSession && !firstSession.id.startsWith('temp-')) {

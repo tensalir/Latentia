@@ -105,9 +105,21 @@ export async function GET(
       isBookmarked: bookmarkedOutputIds.has(output.id),
     }))
 
+    // Return full generation data for cache updates (used by realtime hook)
     return NextResponse.json({
       id: generation.id,
+      sessionId: generation.sessionId,
+      userId: generation.userId,
+      modelId: generation.modelId,
+      prompt: generation.prompt,
+      negativePrompt: generation.negativePrompt,
+      parameters: generation.parameters,
+      status: generation.status,
+      cost: generation.cost,
+      createdAt: generation.createdAt,
       outputs: outputsWithBookmarks,
+      // Include ownership flag for UI
+      isOwner: isOwner,
     })
   } catch (error: any) {
     console.error('Error fetching generation:', error)

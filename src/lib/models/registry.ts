@@ -9,6 +9,7 @@ import {
   SEEDREAM_4_CONFIG,
   REVE_CONFIG,
   KLING_2_6_CONFIG,
+  NANO_BANANA_BACKUP_CONFIG,
 } from './adapters/replicate'
 import {
   KlingOfficialAdapter,
@@ -37,6 +38,7 @@ class ModelRegistry {
     this.register(SEEDREAM_4_CONFIG, ReplicateAdapter)
     this.register(REVE_CONFIG, ReplicateAdapter)
     this.register(KLING_2_6_CONFIG, ReplicateAdapter)
+    this.register(NANO_BANANA_BACKUP_CONFIG, ReplicateAdapter) // Backup for when Google API has issues
     
     // Register Official Kling API (preferred for frame interpolation)
     this.register(KLING_OFFICIAL_CONFIG, KlingOfficialAdapter)

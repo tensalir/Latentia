@@ -242,8 +242,8 @@ export class GeminiAdapter extends BaseModelAdapter {
     console.log('Nano banana pro: Reference images count:', referenceImages.length)
     
     // Toggle between Replicate and Gemini API for Nano Banana
-    // Set to false to use Gemini API (AI Studio) directly for speed testing
-    // Set to true to use Replicate fallback
+    // Set to false to use Google's Gemini API directly (PREFERRED - faster and cheaper)
+    // Set to true to bypass Google APIs and use Replicate as fallback
     const USE_REPLICATE_DIRECTLY = false
     
     if (USE_REPLICATE_DIRECTLY && REPLICATE_API_KEY) {
@@ -282,8 +282,8 @@ export class GeminiAdapter extends BaseModelAdapter {
       }
     }
     
-    // Original Vertex AI / Gemini API path (currently disabled)
     // Gemini 3 Pro Image (Nano banana pro) endpoint
+    // Uses Vertex AI if configured, otherwise falls back to Gemini API directly
     const endpoint = `${this.baseUrl}/models/gemini-3-pro-image-preview:generateContent`
 
     const numImages = request.numOutputs || 1

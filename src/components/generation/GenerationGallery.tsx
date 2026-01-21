@@ -9,6 +9,7 @@ import { usePinnedImages } from '@/hooks/usePinnedImages'
 import { useModels } from '@/hooks/useModels'
 import { useToast } from '@/components/ui/use-toast'
 import { useQueryClient } from '@tanstack/react-query'
+import { markGenerationDismissed } from '@/hooks/useGenerationsRealtime'
 import { GenerationProgress } from './GenerationProgress'
 import { ImageLightbox } from './ImageLightbox'
 import { ImageToVideoOverlay } from './ImageToVideoOverlay'
@@ -269,15 +270,20 @@ export function GenerationGallery({
   const [overlayOutputId, setOverlayOutputId] = useState<string | null>(null)
   const [overlayImageUrl, setOverlayImageUrl] = useState<string | null>(null)
 
-  // CRITICAL: Memoize getItemKey so the virtualizer doesn't re-init on every render.
-  // This function returns a stable key for each index, preventing cached measurements
-  // from being applied to a different generation when the list is replaced/reordered.
+  // CRITICAL: Use a ref to hold generations so getItemKey can be stable (no dependencies).
+  // Without this, every data refetch creates a new getItemKey function, causing the 
+  // virtualizer to recalculate measurements and potentially flicker.
+  const generationsRef = useRef(generations)
+  generationsRef.current = generations
+
+  // getItemKey must be stable (empty deps) to prevent virtualizer re-initialization.
+  // We access generations via ref to avoid dependency while still getting correct keys.
   const getItemKey = useCallback(
     (index: number) => {
-      const gen = generations[index]
+      const gen = generationsRef.current[index]
       return gen?.clientId || gen?.id || String(index)
     },
-    [generations]
+    [] // Stable - no dependencies, uses ref for data access
   )
 
   // Virtualizer for efficient rendering of large lists
@@ -445,6 +451,24 @@ export function GenerationGallery({
   const handleDeleteGeneration = async (generationId: string) => {
     if (!sessionId) return
     
+    // Mark as dismissed FIRST so it won't reappear from realtime or refetch
+    markGenerationDismissed(sessionId, generationId)
+    
+    // Also remove from cache immediately for instant feedback
+    queryClient.setQueryData(
+      ['generations', 'infinite', sessionId],
+      (old: any) => {
+        if (!old) return old
+        return {
+          ...old,
+          pages: old.pages.map((page: any) => ({
+            ...page,
+            data: page.data.filter((gen: any) => gen.id !== generationId),
+          })),
+        }
+      }
+    )
+    
     try {
       const response = await fetch(`/api/generations/${generationId}`, {
         method: 'DELETE',
@@ -462,8 +486,8 @@ export function GenerationGallery({
         variant: "default",
       })
       
-      // Invalidate queries to refetch
-      queryClient.invalidateQueries({ queryKey: ['generations', sessionId] })
+      // Note: We don't need to invalidate since we already removed from cache
+      // and marked as dismissed to prevent reappearance
     } catch (error: any) {
       console.error('Error deleting generation:', error)
       toast({
@@ -471,6 +495,8 @@ export function GenerationGallery({
         description: error.message || "Failed to delete generation",
         variant: "destructive",
       })
+      // Note: Even on error, we keep it dismissed to prevent flicker
+      // The user can refresh if they want to see it again
     }
   }
 

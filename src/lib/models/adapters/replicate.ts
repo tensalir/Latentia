@@ -12,6 +12,64 @@ if (typeof window === 'undefined' && !REPLICATE_API_KEY) {
 }
 
 /**
+ * Nano Banana Pro (Backup) Model Configuration
+ * Google's Nano Banana Pro via Replicate - use when Google's API has issues
+ * Documentation: https://replicate.com/google/nano-banana-pro
+ */
+export const NANO_BANANA_BACKUP_CONFIG: ModelConfig = {
+  id: 'replicate-nano-banana-pro',
+  name: 'Nano Banana Pro (Backup)',
+  provider: 'Google (Replicate)',
+  type: 'image',
+  description: 'Same as Nano Banana Pro but via Replicate - use when Google API has timeouts or quota issues',
+  supportedAspectRatios: ['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9'],
+  defaultAspectRatio: '1:1',
+  maxResolution: 4096,
+  capabilities: {
+    editing: true,
+    'text-2-image': true,
+    multiImageEditing: true,
+  },
+  parameters: [
+    {
+      name: 'aspectRatio',
+      type: 'select',
+      label: 'Aspect Ratio',
+      options: [
+        { label: '1:1 (Square)', value: '1:1' },
+        { label: '16:9 (Landscape)', value: '16:9' },
+        { label: '9:16 (Portrait)', value: '9:16' },
+        { label: '4:3 (Landscape)', value: '4:3' },
+        { label: '3:4 (Portrait)', value: '3:4' },
+        { label: '3:2 (Landscape)', value: '3:2' },
+        { label: '2:3 (Portrait)', value: '2:3' },
+        { label: '21:9 (Ultrawide)', value: '21:9' },
+      ],
+    },
+    {
+      name: 'resolution',
+      type: 'select',
+      label: 'Resolution',
+      default: 1024,
+      options: [
+        { label: '1K', value: 1024 },
+        { label: '2K', value: 2048 },
+        { label: '4K', value: 4096 },
+      ],
+    },
+    {
+      name: 'numOutputs',
+      type: 'select',
+      label: 'Images',
+      default: 1,
+      options: [
+        { label: '1 image', value: 1 },
+      ],
+    },
+  ],
+}
+
+/**
  * Seedream 4.5 Model Configuration
  * Next-gen image generation model by ByteDance via Replicate
  * Documentation: https://replicate.com/bytedance/seedream-4.5
@@ -237,6 +295,8 @@ export class ReplicateAdapter extends BaseModelAdapter {
         modelPath = 'bytedance/seedream-4.5' // Upgraded to Seedream 4.5
       } else if (this.config.id === 'replicate-reve') {
         modelPath = 'reve/create'
+      } else if (this.config.id === 'replicate-nano-banana-pro') {
+        modelPath = 'google/nano-banana-pro'
       } else {
         throw new Error(`Unknown Replicate model: ${this.config.id}`)
       }
@@ -294,6 +354,37 @@ export class ReplicateAdapter extends BaseModelAdapter {
           console.log('[Seedream-4.5] ⚠️ No reference image provided - generating text-to-image only')
         }
       }
+
+      // Nano Banana Pro (Backup) specific parameters
+      if (this.config.id === 'replicate-nano-banana-pro') {
+        // Resolution mapping - Nano Banana Pro uses "1K", "2K", "4K" strings
+        const resolution = parameters?.resolution || request.resolution
+        const resolutionStr = resolution === 4096 ? '4K' : resolution === 2048 ? '2K' : '1K'
+        input.resolution = resolutionStr
+        console.log(`[Nano-Banana-Backup] Using resolution: ${resolutionStr}`)
+
+        // Build reference images array from all possible sources
+        let referenceImages: string[] = []
+        
+        if (request.referenceImages && Array.isArray(request.referenceImages) && request.referenceImages.length > 0) {
+          referenceImages = request.referenceImages
+          console.log(`[Nano-Banana-Backup] Using referenceImages array: ${referenceImages.length} image(s)`)
+        } else if (referenceImage && typeof referenceImage === 'string' && referenceImage.length > 0) {
+          referenceImages = [referenceImage]
+          console.log(`[Nano-Banana-Backup] Using single referenceImage`)
+        } else if (request.referenceImageUrl && typeof request.referenceImageUrl === 'string') {
+          referenceImages = [request.referenceImageUrl]
+          console.log(`[Nano-Banana-Backup] Using referenceImageUrl`)
+        }
+
+        if (referenceImages.length > 0) {
+          input.image_input = referenceImages
+          console.log(`[Nano-Banana-Backup] ✅ Passing ${referenceImages.length} reference image(s) to API`)
+        } else {
+          console.log('[Nano-Banana-Backup] ⚠️ No reference image provided - text-to-image only')
+        }
+      }
+
       // Reve model doesn't support image input or multiple outputs
 
       console.log('Submitting to Replicate:', input)

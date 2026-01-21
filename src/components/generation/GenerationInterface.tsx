@@ -8,7 +8,7 @@ import type { Session } from '@/types/project'
 import type { GenerationWithOutputs } from '@/types/generation'
 import type { ModelConfig } from '@/lib/models/base'
 import { useInfiniteGenerations } from '@/hooks/useInfiniteGenerations'
-import { useGenerationsRealtime } from '@/hooks/useGenerationsRealtime'
+import { useGenerationsRealtime, markGenerationDismissed, isGenerationDismissed } from '@/hooks/useGenerationsRealtime'
 import { useGenerateMutation } from '@/hooks/useGenerateMutation'
 import { useModelCapabilities } from '@/hooks/useModelCapabilities'
 import { useModels } from '@/hooks/useModels'
@@ -150,9 +150,15 @@ export function GenerationInterface({
   /**
    * Dismiss/remove a stuck generation from the UI cache.
    * Used when a generation is stuck in 'processing' state but doesn't exist in the database.
+   * Also marks the generation as dismissed so it won't reappear from refetches or realtime events.
    */
   const handleDismissGeneration = useCallback((generationId: string, clientId?: string) => {
     console.log('Dismissing stuck generation:', generationId, clientId)
+    
+    // Mark as dismissed FIRST so realtime events don't bring it back
+    if (session?.id) {
+      markGenerationDismissed(session.id, generationId)
+    }
     
     // Remove from regular generations cache
     queryClient.setQueryData<GenerationWithOutputs[]>(
@@ -227,8 +233,13 @@ export function GenerationInterface({
     isFetchingNextPage,
   } = useInfiniteGenerations(session?.id || null, 5)
   
-  // Flatten all pages into a single array
-  const generations = infiniteData?.pages.flatMap((page) => page.data) || []
+  // Flatten all pages into a single array, filtering out dismissed generations
+  // This ensures dismissed generations never reappear after refetch
+  const generations = useMemo(() => {
+    const allGenerations = infiniteData?.pages.flatMap((page) => page.data) || []
+    if (!session?.id) return allGenerations
+    return allGenerations.filter((gen) => !isGenerationDismissed(session.id, gen.id))
+  }, [infiniteData, session?.id])
 
   // Track if we've done the initial backfill for this session
   const hasBackfilledRef = useRef<string | null>(null)
