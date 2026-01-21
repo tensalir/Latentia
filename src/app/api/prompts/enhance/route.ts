@@ -6,6 +6,9 @@ import Anthropic from '@anthropic-ai/sdk'
 import { getSkillSystemPrompt } from '@/lib/skills/registry'
 import { getModelConfig } from '@/lib/models/registry'
 
+// Default to Sonnet 4.5 - configurable via ANTHROPIC_PROMPT_ENHANCE_MODEL env var
+const DEFAULT_PROMPT_ENHANCE_MODEL = 'claude-sonnet-4-5-20250929'
+
 export async function POST(request: NextRequest) {
   try {
     const supabase = createRouteHandlerClient({ cookies })
@@ -291,7 +294,7 @@ Return ONLY the enhanced prompt text. Nothing else.`
     }
 
     const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: process.env.ANTHROPIC_PROMPT_ENHANCE_MODEL || DEFAULT_PROMPT_ENHANCE_MODEL,
       max_tokens: 2000,
       temperature: 0.7,
       system: systemPrompt,

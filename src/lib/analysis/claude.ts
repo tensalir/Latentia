@@ -5,7 +5,8 @@
 
 import Anthropic from '@anthropic-ai/sdk'
 
-const CLAUDE_MODEL = 'claude-sonnet-4-20250514'
+// Default to Sonnet 4.5 - configurable via ANTHROPIC_ANALYSIS_MODEL env var
+const CLAUDE_MODEL = process.env.ANTHROPIC_ANALYSIS_MODEL || 'claude-sonnet-4-5-20250929'
 
 export interface ParsedAnalysis {
   subjects: string[]      // Main subjects (e.g., "woman", "car", "landscape")

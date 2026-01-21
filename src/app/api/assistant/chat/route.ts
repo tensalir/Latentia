@@ -158,9 +158,9 @@ export async function POST(request: NextRequest) {
       content: msg.content,
     }))
 
-    // Call Claude
+    // Call Claude - default to Sonnet 4.5, configurable via env
     const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: process.env.ANTHROPIC_ASSISTANT_MODEL || 'claude-sonnet-4-5-20250929',
       max_tokens: 1500,
       temperature: 0.7,
       system: fullSystemPrompt,

@@ -133,9 +133,9 @@ IMPORTANT:
       })
     }
 
-    // Call Claude Vision API
+    // Call Claude Vision API - default to Sonnet 4.5, configurable via env
     const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: process.env.ANTHROPIC_VISION_MODEL || 'claude-sonnet-4-5-20250929',
       max_tokens: 4096,
       messages: [
         {

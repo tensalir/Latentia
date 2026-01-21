@@ -6,8 +6,8 @@ import { anthropic } from '@ai-sdk/anthropic'
 import { prisma } from '@/lib/prisma'
 import { loadSkill, combineSkills } from '@/lib/skills/registry'
 
-// Default model if env var not set
-const DEFAULT_MODEL = 'claude-sonnet-4-20250514'
+// Default model if env var not set - Sonnet 4.5 recommended per Anthropic docs
+const DEFAULT_MODEL = 'claude-sonnet-4-5-20250929'
 
 // Markers for embedded image data URLs
 const IMAGE_DATA_START = '<<IMAGE_DATA:'
