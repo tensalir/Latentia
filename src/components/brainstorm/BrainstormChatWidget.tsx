@@ -86,6 +86,10 @@ export function BrainstormChatWidget({ projectId, isOpen: controlledIsOpen, onOp
   const [isResizing, setIsResizing] = useState(false)
   const resizeStartY = useRef(0)
   const resizeStartHeight = useRef(0)
+  
+  // Track if mouse is hovering over the widget (for paste routing)
+  const isHoveredRef = useRef(false)
+  const widgetContainerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     activeThreadIdRef.current = activeThreadId
@@ -436,6 +440,45 @@ export function BrainstormChatWidget({ projectId, isOpen: controlledIsOpen, onOp
     }
   }, [isResizing, handleResizeMove, handleResizeEnd])
 
+  // Global paste handler - intercepts paste when mouse is over this widget
+  // Uses capture phase to run before GenerationInterface's handler
+  useEffect(() => {
+    if (!isOpen) return
+    
+    const handlePaste = (e: ClipboardEvent) => {
+      // Only intercept if mouse is hovering over this widget
+      if (!isHoveredRef.current) return
+      
+      // Check if clipboard has image data
+      const items = e.clipboardData?.items
+      if (!items) return
+      
+      const imageItems = Array.from(items).filter(item => item.type.startsWith('image/'))
+      if (imageItems.length === 0) return
+      
+      // Stop the event from reaching GenerationInterface's handler
+      e.stopImmediatePropagation()
+      e.preventDefault()
+      
+      // Convert clipboard items to Files
+      const files: File[] = []
+      for (const item of imageItems) {
+        const blob = item.getAsFile()
+        if (blob) {
+          files.push(blob)
+        }
+      }
+      
+      if (files.length > 0) {
+        addFiles(files)
+      }
+    }
+    
+    // Use capture phase to run before other handlers
+    document.addEventListener('paste', handlePaste, true)
+    return () => document.removeEventListener('paste', handlePaste, true)
+  }, [isOpen])
+
   // Drag and drop handlers
   const handleDragEnter = (e: React.DragEvent) => {
     e.preventDefault()
@@ -566,7 +609,12 @@ export function BrainstormChatWidget({ projectId, isOpen: controlledIsOpen, onOp
 
       {/* Chat panel */}
       {isOpen && (
-        <div className={cn("relative", variant === 'docked' && "w-full h-full")}>
+        <div 
+          ref={widgetContainerRef}
+          className={cn("relative", variant === 'docked' && "w-full h-full")}
+          onMouseEnter={() => { isHoveredRef.current = true }}
+          onMouseLeave={() => { isHoveredRef.current = false }}
+        >
           <div 
             ref={dropZoneRef}
             onDragEnter={handleDragEnter}
