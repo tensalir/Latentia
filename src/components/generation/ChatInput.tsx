@@ -208,47 +208,55 @@ export function ChatInput({
   }
 
   // Process and add image files (used by both file input and drag-and-drop)
+  // Uses functional state updates to ensure correct behavior when called from stale closures (e.g., paste handlers)
   const processImageFiles = (files: File[]) => {
     const imageFiles = files.filter(file => file.type.startsWith('image/'))
     
     if (imageFiles.length === 0) return
     
     if (supportsMultiImage) {
-      // Calculate how many images we can add
-      const currentCount = referenceImages.length
-      const availableSlots = maxReferenceImages - currentCount
-      
-      if (availableSlots <= 0) {
-        toast({
-          title: 'Maximum images reached',
-          description: `This model supports up to ${maxReferenceImages} reference images.`,
-        })
-        return
-      }
-      
-      // Only take as many images as we have slots for
-      const filesToAdd = imageFiles.slice(0, availableSlots)
-      if (filesToAdd.length < imageFiles.length) {
-        toast({
-          title: 'Some images not added',
-          description: `Only ${filesToAdd.length} of ${imageFiles.length} images added. Maximum is ${maxReferenceImages}.`,
-        })
-      }
-      
-      // Add new images to the array
-      const newFiles = [...referenceImages, ...filesToAdd]
-      const newPreviewUrls = [...imagePreviewUrls, ...filesToAdd.map(file => URL.createObjectURL(file))]
-      setReferenceImages(newFiles)
-      setImagePreviewUrls(newPreviewUrls)
-      // Keep single image for backward compatibility (use first one)
-      if (newFiles.length > 0) {
-        setReferenceImage(newFiles[0])
-      }
+      // Use functional updates to get the current state values
+      // This is critical for paste handlers which may have stale closures
+      setReferenceImages(prevReferenceImages => {
+        const currentCount = prevReferenceImages.length
+        const availableSlots = maxReferenceImages - currentCount
+        
+        if (availableSlots <= 0) {
+          toast({
+            title: 'Maximum images reached',
+            description: `This model supports up to ${maxReferenceImages} reference images.`,
+          })
+          return prevReferenceImages
+        }
+        
+        // Only take as many images as we have slots for
+        const filesToAdd = imageFiles.slice(0, availableSlots)
+        if (filesToAdd.length < imageFiles.length) {
+          toast({
+            title: 'Some images not added',
+            description: `Only ${filesToAdd.length} of ${imageFiles.length} images added. Maximum is ${maxReferenceImages}.`,
+          })
+        }
+        
+        // Add new images to the array
+        const newFiles = [...prevReferenceImages, ...filesToAdd]
+        
+        // Update preview URLs using ref to get current value, then set state
+        const newPreviewUrls = [...imagePreviewUrlsRef.current, ...filesToAdd.map(file => URL.createObjectURL(file))]
+        setImagePreviewUrls(newPreviewUrls)
+        
+        // Keep single image for backward compatibility (use first one)
+        if (newFiles.length > 0) {
+          setReferenceImage(newFiles[0])
+        }
+        
+        return newFiles
+      })
     } else {
       // Single image mode - use first file only
       const file = imageFiles[0]
-      // Clean up old preview URLs
-      imagePreviewUrls.forEach(url => {
+      // Clean up old preview URLs using ref for current value
+      imagePreviewUrlsRef.current.forEach(url => {
         if (url.startsWith('blob:')) {
           URL.revokeObjectURL(url)
         }
