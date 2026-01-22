@@ -988,13 +988,18 @@ export class GeminiAdapter extends BaseModelAdapter {
     const aspectRatio = request.aspectRatio || '16:9'
     
     // Calculate dimensions based on aspect ratio and resolution
+    // Veo 3.1 supports 720p, 1080p, and 4K (2160)
     const getDimensions = (aspectRatio: string, resolution: number) => {
       const [widthRatio, heightRatio] = aspectRatio.split(':').map(Number)
       if (aspectRatio === '16:9') {
-        return resolution === 1080 ? { width: 1920, height: 1080 } : { width: 1280, height: 720 }
+        if (resolution === 2160) return { width: 3840, height: 2160 }
+        if (resolution === 1080) return { width: 1920, height: 1080 }
+        return { width: 1280, height: 720 }
       }
       if (aspectRatio === '9:16') {
-        return resolution === 1080 ? { width: 1080, height: 1920 } : { width: 720, height: 1280 }
+        if (resolution === 2160) return { width: 2160, height: 3840 }
+        if (resolution === 1080) return { width: 1080, height: 1920 }
+        return { width: 720, height: 1280 }
       }
       if (aspectRatio === '1:1') {
         return { width: resolution, height: resolution }
@@ -1167,8 +1172,9 @@ export class GeminiAdapter extends BaseModelAdapter {
       instances: [cleanInstance],
       parameters: {
         aspectRatio: options.aspectRatio,
-        // Resolution must be "720p" or "1080p" (string)
-        resolution: options.resolution === 1080 ? '1080p' : '720p',
+        // Resolution must be "720p", "1080p", or "4k" (string)
+        // Per Veo 3.1 docs: 1080p/4k require 8 seconds duration
+        resolution: options.resolution === 2160 ? '4k' : options.resolution === 1080 ? '1080p' : '720p',
         // Duration in seconds as number (not string!)
         durationSeconds: duration,
       },
@@ -1346,7 +1352,7 @@ export const VEO_3_1_CONFIG: ModelConfig = {
   defaultAspectRatio: '16:9',
   // Veo 3.1 officially supports: 16:9 and 9:16 only (per docs)
   supportedAspectRatios: ['16:9', '9:16'],
-  maxResolution: 1080,
+  maxResolution: 2160, // 4K support
   capabilities: {
     'text-2-video': true,
     'image-2-video': true,
@@ -1365,6 +1371,7 @@ export const VEO_3_1_CONFIG: ModelConfig = {
       options: [
         { label: '720p', value: 720 },
         { label: '1080p', value: 1080 },
+        { label: '4K', value: 2160 },
       ],
     },
     {

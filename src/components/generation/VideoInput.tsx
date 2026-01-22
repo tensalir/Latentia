@@ -124,6 +124,9 @@ export function VideoInput({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const endFrameFileInputRef = useRef<HTMLInputElement>(null)
   
+  // Detected aspect ratio from start image (for Kling "auto" mode)
+  const [detectedAspectRatio, setDetectedAspectRatio] = useState<string | null>(null)
+  
   // Resizable input height - available in both default and overlay modes
   const [inputHeight, setInputHeight] = useState(52) // Default min height (matches ChatInput)
   const [isResizing, setIsResizing] = useState(false)
@@ -162,6 +165,12 @@ export function VideoInput({
   // Check if model supports frame interpolation (start + end frames)
   // Only kling-official and gemini-veo-3.1 support this
   const supportsFrameInterpolation = modelConfig?.capabilities?.['frame-interpolation'] === true
+  
+  // Check if this is a Kling model (for auto aspect ratio detection)
+  const isKlingModel = selectedModel.includes('kling')
+  
+  // Whether Kling should use auto aspect ratio (when start image is present)
+  const klingAutoAspectRatio = isKlingModel && (imagePreviewUrl || referenceImageUrl)
 
   // UI controls
   const showStartFrameControl =
@@ -180,6 +189,15 @@ export function VideoInput({
   // Get duration options from model config
   const durationOptions = durationParam?.options || []
   const hasDuration = durationOptions.length > 0
+  
+  // Veo 3.1 constraint: 1080p and 4K require 8 seconds duration
+  const isVeoModel = selectedModel === 'gemini-veo-3.1'
+  const veoRequires8Seconds = isVeoModel && (parameters.resolution === 1080 || parameters.resolution === 2160)
+  
+  // Filter duration options based on Veo constraints
+  const availableDurationOptions = veoRequires8Seconds
+    ? durationOptions.filter((opt: any) => opt.value === 8)
+    : durationOptions
   
   // Update parameters when model changes if current values aren't supported
   useEffect(() => {
@@ -208,6 +226,14 @@ export function VideoInput({
         }
       }
       
+      // Veo 3.1 constraint: 1080p and 4K require 8 seconds duration
+      const effectiveResolution = updates.resolution ?? parameters.resolution
+      if (selectedModel === 'gemini-veo-3.1' && (effectiveResolution === 1080 || effectiveResolution === 2160)) {
+        if (parameters.duration !== 8) {
+          updates.duration = 8
+        }
+      }
+      
       if (Object.keys(updates).length > 0) {
         onParametersChange({ ...parameters, ...updates })
       }
@@ -230,6 +256,69 @@ export function VideoInput({
       }
     }
   }, [modelConfig, supportsFrameInterpolation])
+
+  // Veo 3.1: Enforce 8 seconds duration when resolution is 1080p or 4K
+  useEffect(() => {
+    if (selectedModel === 'gemini-veo-3.1' && (parameters.resolution === 1080 || parameters.resolution === 2160)) {
+      if (parameters.duration !== 8) {
+        console.log('[VideoInput] Veo 3.1: Forcing duration to 8s for 1080p/4K')
+        onParametersChange({ ...parameters, duration: 8 })
+      }
+    }
+  }, [selectedModel, parameters.resolution])
+
+  // Detect aspect ratio from start image for Kling "auto" mode
+  useEffect(() => {
+    // Helper to snap dimensions to the closest known aspect ratio
+    const snapToClosestRatio = (width: number, height: number): string => {
+      const knownRatios = [
+        { label: '16:9', value: 16 / 9 },
+        { label: '9:16', value: 9 / 16 },
+        { label: '4:3', value: 4 / 3 },
+        { label: '3:4', value: 3 / 4 },
+        { label: '1:1', value: 1 },
+        { label: '4:5', value: 4 / 5 },
+        { label: '5:4', value: 5 / 4 },
+        { label: '3:2', value: 3 / 2 },
+        { label: '2:3', value: 2 / 3 },
+        { label: '21:9', value: 21 / 9 },
+      ]
+      
+      const actualRatio = width / height
+      let closest = knownRatios[0]
+      let minDiff = Math.abs(actualRatio - closest.value)
+      
+      for (const ratio of knownRatios) {
+        const diff = Math.abs(actualRatio - ratio.value)
+        if (diff < minDiff) {
+          minDiff = diff
+          closest = ratio
+        }
+      }
+      
+      return closest.label
+    }
+    
+    const imageUrl = imagePreviewUrl || referenceImageUrl
+    
+    if (!isKlingModel || !imageUrl) {
+      setDetectedAspectRatio(null)
+      return
+    }
+    
+    // Load the image to get its dimensions
+    const img = new Image()
+    img.onload = () => {
+      const ratio = snapToClosestRatio(img.naturalWidth, img.naturalHeight)
+      console.log(`[VideoInput] Kling: Detected start image aspect ratio ${ratio} (${img.naturalWidth}x${img.naturalHeight})`)
+      setDetectedAspectRatio(ratio)
+    }
+    img.onerror = () => {
+      console.warn('[VideoInput] Failed to load start image for aspect ratio detection')
+      setDetectedAspectRatio(null)
+    }
+    img.src = imageUrl
+  }, [isKlingModel, imagePreviewUrl, referenceImageUrl])
 
   const handleSubmit = async () => {
     console.log('[VideoInput] handleSubmit called:', {
@@ -1037,62 +1126,83 @@ export function VideoInput({
         )}
 
 
-        {/* Aspect Ratio Popover */}
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={generating}
-              className="h-8 text-xs px-3 rounded-lg bg-white/5 border-white/10 hover:bg-white/10 transition-colors"
-            >
-              <Ratio className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />
-              {parameters.aspectRatio}
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-auto p-3 bg-background/95 backdrop-blur-xl border-white/10 rounded-xl shadow-2xl" align="start">
-            <div className="space-y-2">
-              <p className="text-xs font-medium text-muted-foreground">Aspect Ratio</p>
-              <AspectRatioSelector
-                value={parameters.aspectRatio}
-                onChange={(ratio: string) => onParametersChange({ ...parameters, aspectRatio: ratio })}
-                options={supportedAspectRatios}
-              />
-            </div>
-          </PopoverContent>
-        </Popover>
+        {/* Aspect Ratio Popover - or locked "Auto" for Kling with start image */}
+        {klingAutoAspectRatio ? (
+          // Kling with start image: Show locked auto aspect ratio
+          <div 
+            className="h-8 text-xs px-3 rounded-lg bg-white/5 border border-white/10 flex items-center gap-1.5 opacity-70"
+            title="Kling follows the source image's aspect ratio"
+          >
+            <Ratio className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="text-muted-foreground">Auto</span>
+            {detectedAspectRatio && (
+              <span className="text-foreground/80">({detectedAspectRatio})</span>
+            )}
+          </div>
+        ) : (
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={generating}
+                className="h-8 text-xs px-3 rounded-lg bg-white/5 border-white/10 hover:bg-white/10 transition-colors"
+              >
+                <Ratio className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />
+                {parameters.aspectRatio}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-3 bg-background/95 backdrop-blur-xl border-white/10 rounded-xl shadow-2xl" align="start">
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground">Aspect Ratio</p>
+                <AspectRatioSelector
+                  value={parameters.aspectRatio}
+                  onChange={(ratio: string) => onParametersChange({ ...parameters, aspectRatio: ratio })}
+                  options={supportedAspectRatios}
+                />
+              </div>
+            </PopoverContent>
+          </Popover>
+        )}
 
-        {/* Resolution Dropdown */}
-        <Select
-          value={String(parameters.resolution)}
-          onValueChange={(value) => onParametersChange({ ...parameters, resolution: parseInt(value) })}
-          disabled={generating}
-        >
-          <SelectTrigger className="h-8 text-xs px-3 rounded-lg bg-white/5 border-white/10 hover:bg-white/10 transition-colors w-auto min-w-[80px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent className="bg-background/95 backdrop-blur-xl border-white/10 rounded-lg">
-            {resolutionOptions.map(option => (
-              <SelectItem key={option.value} value={String(option.value)} className="rounded-md text-xs">
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {/* Resolution Dropdown - Only show if model supports resolution parameter */}
+        {resolutionParam && (
+          <Select
+            value={String(parameters.resolution)}
+            onValueChange={(value) => onParametersChange({ ...parameters, resolution: parseInt(value) })}
+            disabled={generating}
+          >
+            <SelectTrigger className="h-8 text-xs px-3 rounded-lg bg-white/5 border-white/10 hover:bg-white/10 transition-colors w-auto min-w-[80px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="bg-background/95 backdrop-blur-xl border-white/10 rounded-lg">
+              {resolutionOptions.map((option: any) => (
+                <SelectItem key={option.value} value={String(option.value)} className="rounded-md text-xs">
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
 
         {/* Duration Dropdown - Only for video models that support it */}
         {hasDuration && (
           <Select
             value={String(parameters.duration || 8)}
             onValueChange={(value) => onParametersChange({ ...parameters, duration: parseInt(value) })}
-            disabled={generating}
+            disabled={generating || veoRequires8Seconds}
           >
-            <SelectTrigger className="h-8 text-xs px-3 rounded-lg bg-white/5 border-white/10 hover:bg-white/10 transition-colors w-auto min-w-[100px]">
+            <SelectTrigger 
+              className={`h-8 text-xs px-3 rounded-lg bg-white/5 border-white/10 hover:bg-white/10 transition-colors w-auto min-w-[100px] ${
+                veoRequires8Seconds ? 'opacity-70' : ''
+              }`}
+              title={veoRequires8Seconds ? 'Veo 3.1: 1080p/4K requires 8 seconds' : undefined}
+            >
               <Clock className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />
               <SelectValue />
             </SelectTrigger>
             <SelectContent className="bg-background/95 backdrop-blur-xl border-white/10 rounded-lg">
-              {durationOptions.map((option) => (
+              {availableDurationOptions.map((option: any) => (
                 <SelectItem key={option.value} value={String(option.value)} className="rounded-md text-xs">
                   {option.label}
                 </SelectItem>

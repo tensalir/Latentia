@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect, forwardRef } from 'react'
 import Image from 'next/image'
 import { Download, RotateCcw, Info, Copy, Bookmark, Check, Video, Wand2, X, Trash2, Pin, ArrowDownRight } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
@@ -197,6 +197,115 @@ const ReferenceImageThumbnail = ({ generation, onPinImage }: ReferenceImageThumb
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * Video card with auto aspect ratio detection and hover overlay actions.
+ * Uses object-contain to avoid cropping regardless of the video's actual dimensions.
+ */
+interface VideoCardWithOverlayProps {
+  output: any
+  generation: GenerationWithOutputs
+  fallbackAspectRatio: string
+  isHighlighted: boolean
+  onDownload: (fileUrl: string, outputId: string, fileType: string) => void
+  onReuseParameters: (generation: GenerationWithOutputs) => void
+  onToggleBookmark: (outputId: string, isBookmarked: boolean) => void
+  onToggleApproval: (outputId: string, isApproved: boolean) => void
+}
+
+function VideoCardWithOverlay({
+  output,
+  generation,
+  fallbackAspectRatio,
+  isHighlighted,
+  onDownload,
+  onReuseParameters,
+  onToggleBookmark,
+  onToggleApproval,
+}: VideoCardWithOverlayProps) {
+  const [aspectRatio, setAspectRatio] = useState<string>(fallbackAspectRatio.replace(':', ' / '))
+  
+  const handleLoadedMetadata = (e: React.SyntheticEvent<HTMLVideoElement>) => {
+    const video = e.currentTarget
+    if (video.videoWidth && video.videoHeight) {
+      // Use actual video dimensions for aspect ratio
+      setAspectRatio(`${video.videoWidth} / ${video.videoHeight}`)
+    }
+  }
+  
+  return (
+    <div
+      className={`group relative bg-muted rounded-xl overflow-hidden border hover:border-primary/50 hover:shadow-lg transition-all duration-200 ${
+        isHighlighted
+          ? 'border-primary ring-2 ring-primary ring-offset-2 ring-offset-background animate-pulse'
+          : 'border-border/50'
+      }`}
+      style={{ aspectRatio }}
+    >
+      <video
+        src={output.fileUrl}
+        className="w-full h-full object-contain"
+        controls
+        onLoadedMetadata={handleLoadedMetadata}
+      />
+
+      {/* Hover Overlay with Actions (no convert-to-video button in video view) */}
+      <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-150 pointer-events-none">
+        {/* Top Left - Download + Reuse */}
+        <div className="absolute top-2 left-2 pointer-events-auto flex items-center gap-1">
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              onDownload(output.fileUrl, output.id, output.fileType)
+            }}
+            className="p-1.5 bg-white/20 backdrop-blur-sm rounded-lg hover:bg-white/30 transition-colors"
+            title="Download"
+          >
+            <Download className="h-3.5 w-3.5 text-white" />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              onReuseParameters(generation)
+            }}
+            className="p-1.5 bg-white/20 backdrop-blur-sm rounded-lg hover:bg-white/30 transition-colors"
+            title="Reuse"
+          >
+            <RotateCcw className="h-3.5 w-3.5 text-white" />
+          </button>
+        </div>
+        
+        {/* Top Right - Bookmark + Approval */}
+        <div className="absolute top-2 right-2 pointer-events-auto flex items-center gap-1">
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              onToggleBookmark(output.id, (output as any).isBookmarked || false)
+            }}
+            className="p-1.5 bg-white/20 backdrop-blur-sm rounded-lg hover:bg-white/30 transition-colors"
+            title={(output as any).isBookmarked ? 'Remove bookmark' : 'Bookmark'}
+          >
+            <Bookmark className={`h-3.5 w-3.5 text-white ${(output as any).isBookmarked ? 'fill-white' : ''}`} />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              onToggleApproval(output.id, (output as any).isApproved || false)
+            }}
+            className={`p-1.5 backdrop-blur-sm rounded-lg transition-colors ${
+              (output as any).isApproved
+                ? 'bg-green-500/90 hover:bg-green-600/90'
+                : 'bg-white/20 hover:bg-white/30'
+            }`}
+            title={(output as any).isApproved ? 'Approved for review' : 'Approve for review'}
+          >
+            <Check className={`h-3.5 w-3.5 ${(output as any).isApproved ? 'text-white' : 'text-white'}`} />
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -1042,78 +1151,19 @@ export function GenerationGallery({
                 <div className="flex-1 grid grid-cols-1 gap-3 max-w-5xl">
                   {generation.outputs && generation.outputs.length > 0 ? (
                     generation.outputs.map((output) => {
-                      const aspectRatio = (generation.parameters as any)?.aspectRatio || '16:9'
+                      const fallbackAspectRatio = (generation.parameters as any)?.aspectRatio || '16:9'
                       return (
-                        <div
+                        <VideoCardWithOverlay
                           key={output.id}
-                          className={`group relative bg-muted rounded-xl overflow-hidden border hover:border-primary/50 hover:shadow-lg transition-all duration-200 ${
-                            highlightOutputId === output.id
-                              ? 'border-primary ring-2 ring-primary ring-offset-2 ring-offset-background animate-pulse'
-                              : 'border-border/50'
-                          }`}
-                          style={{ aspectRatio: getAspectRatioStyle(aspectRatio) }}
-                        >
-                          <video
-                            src={output.fileUrl}
-                            className="w-full h-full object-cover"
-                            controls
-                          />
-
-                        {/* Hover Overlay with Actions (no convert-to-video button in video view) */}
-                        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-150 pointer-events-none">
-                          {/* Top Left - Download + Reuse */}
-                          <div className="absolute top-2 left-2 pointer-events-auto flex items-center gap-1">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleDownload(output.fileUrl, output.id, output.fileType)
-                              }}
-                              className="p-1.5 bg-white/20 backdrop-blur-sm rounded-lg hover:bg-white/30 transition-colors"
-                              title="Download"
-                            >
-                              <Download className="h-3.5 w-3.5 text-white" />
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                onReuseParameters(generation)
-                              }}
-                              className="p-1.5 bg-white/20 backdrop-blur-sm rounded-lg hover:bg-white/30 transition-colors"
-                              title="Reuse"
-                            >
-                              <RotateCcw className="h-3.5 w-3.5 text-white" />
-                            </button>
-                          </div>
-                          
-                          {/* Top Right - Bookmark + Approval */}
-                          <div className="absolute top-2 right-2 pointer-events-auto flex items-center gap-1">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleToggleBookmark(output.id, (output as any).isBookmarked || false)
-                              }}
-                              className="p-1.5 bg-white/20 backdrop-blur-sm rounded-lg hover:bg-white/30 transition-colors"
-                              title={(output as any).isBookmarked ? 'Remove bookmark' : 'Bookmark'}
-                            >
-                              <Bookmark className={`h-3.5 w-3.5 text-white ${(output as any).isBookmarked ? 'fill-white' : ''}`} />
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleToggleApproval(output.id, (output as any).isApproved || false)
-                              }}
-                              className={`p-1.5 backdrop-blur-sm rounded-lg transition-colors ${
-                                (output as any).isApproved
-                                  ? 'bg-green-500/90 hover:bg-green-600/90'
-                                  : 'bg-white/20 hover:bg-white/30'
-                              }`}
-                              title={(output as any).isApproved ? 'Approved for review' : 'Approve for review'}
-                            >
-                              <Check className={`h-3.5 w-3.5 ${(output as any).isApproved ? 'text-white' : 'text-white'}`} />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
+                          output={output}
+                          generation={generation}
+                          fallbackAspectRatio={fallbackAspectRatio}
+                          isHighlighted={highlightOutputId === output.id}
+                          onDownload={handleDownload}
+                          onReuseParameters={onReuseParameters}
+                          onToggleBookmark={handleToggleBookmark}
+                          onToggleApproval={handleToggleApproval}
+                        />
                       )
                     })
                   ) : (

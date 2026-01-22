@@ -850,6 +850,17 @@ function IterationCard({
   const hasOutput = iteration.outputs.length > 0
   const videoOutput = iteration.outputs[0]
   
+  // Auto-detect aspect ratio from video metadata
+  const fallbackAspectRatio = (iteration.parameters as any)?.aspectRatio || '16:9'
+  const [aspectRatio, setAspectRatio] = useState<string>(fallbackAspectRatio.replace(':', ' / '))
+  
+  const handleLoadedMetadata = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
+    const video = e.currentTarget
+    if (video.videoWidth && video.videoHeight) {
+      setAspectRatio(`${video.videoWidth} / ${video.videoHeight}`)
+    }
+  }, [])
+  
   // Check if prompt is long enough to need expand
   const promptNeedsExpand = iteration.prompt.length > 150
   
@@ -891,15 +902,16 @@ function IterationCard({
   
   return (
     <div className="group rounded-xl border border-border bg-card/50 overflow-hidden hover:border-primary/30 transition-all duration-300 shadow-sm hover:shadow-xl">
-      {/* Video Preview / Placeholder */}
-      <div className="aspect-video bg-muted relative overflow-hidden">
+      {/* Video Preview / Placeholder - uses auto-detected aspect ratio */}
+      <div className="bg-muted relative overflow-hidden" style={{ aspectRatio }}>
         {hasOutput && iteration.status === 'completed' ? (
           <>
             <video
               src={videoOutput.fileUrl}
-              className="w-full h-full object-cover"
+              className="w-full h-full object-contain"
               controls
               preload="metadata"
+              onLoadedMetadata={handleLoadedMetadata}
             />
             {/* Hover Overlay with Actions */}
             <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-150 pointer-events-none z-10">
