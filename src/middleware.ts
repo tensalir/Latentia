@@ -3,7 +3,8 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
 // Public routes that don't require authentication checks
-const PUBLIC_ROUTES = ['/login', '/signup', '/auth']
+// Includes password recovery pages so unauthenticated users can reset their password
+const PUBLIC_ROUTES = ['/login', '/signup', '/auth', '/forgot-password', '/reset-password']
 
 // Routes that skip middleware entirely (no auth call needed)
 const SKIP_AUTH_ROUTES = ['/api']
