@@ -10,6 +10,7 @@ export interface VideoIterationOutput {
   height: number | null
   duration: number | null
   createdAt: Date
+  isBookmarked?: boolean
 }
 
 export interface VideoIteration {

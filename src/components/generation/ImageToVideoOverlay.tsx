@@ -464,21 +464,60 @@ export function ImageToVideoOverlay({
   }, [ensureVideoSession, generateMutation, selectedModel, parameters, outputId, refetch, onGenerationStarted, queryClient, toast, sessionMode, selectedSessionId, newSessionName, onCreateSession, videoSessions])
   
   // Handle bookmark toggle for video outputs
-  const handleToggleBookmark = useCallback(async (outputId: string, isBookmarked: boolean) => {
+  const handleToggleBookmark = useCallback(async (targetOutputId: string, isBookmarked: boolean) => {
+    const newBookmarkState = !isBookmarked
+    
+    // Optimistic update: immediately update the iterations cache
+    queryClient.setQueryData(
+      ['videoIterations', outputId, 20], // Match the query key from useVideoIterations
+      (old: VideoIterationsResponse | undefined) => {
+        if (!old) return old
+        return {
+          ...old,
+          iterations: old.iterations.map((iteration) => ({
+            ...iteration,
+            outputs: iteration.outputs.map((output) =>
+              output.id === targetOutputId
+                ? { ...output, isBookmarked: newBookmarkState }
+                : output
+            ),
+          })),
+        }
+      }
+    )
+    
     try {
       const method = isBookmarked ? 'DELETE' : 'POST'
       const response = await fetch('/api/bookmarks', {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ outputId }),
+        body: JSON.stringify({ outputId: targetOutputId }),
       })
       if (!response.ok) throw new Error('Failed to toggle bookmark')
-      // Refetch iterations to update bookmark state
+      // Refetch iterations to sync with server
       refetch()
     } catch (error) {
       console.error('Error toggling bookmark:', error)
+      // Revert optimistic update on error
+      queryClient.setQueryData(
+        ['videoIterations', outputId, 20],
+        (old: VideoIterationsResponse | undefined) => {
+          if (!old) return old
+          return {
+            ...old,
+            iterations: old.iterations.map((iteration) => ({
+              ...iteration,
+              outputs: iteration.outputs.map((output) =>
+                output.id === targetOutputId
+                  ? { ...output, isBookmarked: isBookmarked } // Revert to original
+                  : output
+              ),
+            })),
+          }
+        }
+      )
     }
-  }, [refetch])
+  }, [outputId, queryClient, refetch])
   
   // Handle approve toggle for video outputs
   const handleToggleApproval = useCallback(async (outputId: string, isApproved: boolean) => {
@@ -894,13 +933,13 @@ function IterationCard({
                   onClick={(e) => {
                     e.stopPropagation()
                     if (videoOutput) {
-                      onBookmark?.(videoOutput.id, (videoOutput as any).isBookmarked || false)
+                      onBookmark?.(videoOutput.id, videoOutput.isBookmarked || false)
                     }
                   }}
                   className="p-1.5 bg-white/20 backdrop-blur-sm rounded-lg hover:bg-white/30 transition-colors"
-                  title={(videoOutput as any)?.isBookmarked ? 'Remove bookmark' : 'Bookmark'}
+                  title={videoOutput?.isBookmarked ? 'Remove bookmark' : 'Bookmark'}
                 >
-                  <Bookmark className={`h-3.5 w-3.5 text-white ${(videoOutput as any)?.isBookmarked ? 'fill-white' : ''}`} />
+                  <Bookmark className={`h-3.5 w-3.5 text-white ${videoOutput?.isBookmarked ? 'fill-white' : ''}`} />
                 </button>
                 <button
                   onClick={(e) => {

@@ -62,8 +62,9 @@ export async function GET(
     const project = sourceOutput.generation.session.project
     const isOwner = project.ownerId === userId
     const isMember = project.members.length > 0
+    const isPublicProject = project.isShared === true
 
-    if (!isOwner && !isMember) {
+    if (!isOwner && !isMember && !isPublicProject) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
     }
 
@@ -117,6 +118,19 @@ export async function GET(
         })
       : []
 
+    // Fetch bookmarks for these outputs
+    const outputIds = outputs.map((o) => o.id)
+    const bookmarks = outputIds.length > 0
+      ? await prisma.bookmark.findMany({
+          where: {
+            outputId: { in: outputIds },
+            userId,
+          },
+          select: { outputId: true },
+        })
+      : []
+    const bookmarkedOutputIds = new Set(bookmarks.map((b) => b.outputId))
+
     // Group outputs by generation
     type OutputSubset = {
       id: string
@@ -126,6 +140,7 @@ export async function GET(
       height: number | null
       duration: number | null
       createdAt: Date
+      isBookmarked: boolean
     }
     const outputsByGeneration = outputs.reduce((acc, output) => {
       if (!acc[output.generationId]) {
@@ -139,6 +154,7 @@ export async function GET(
         height: output.height,
         duration: output.duration,
         createdAt: output.createdAt,
+        isBookmarked: bookmarkedOutputIds.has(output.id),
       })
       return acc
     }, {} as Record<string, OutputSubset[]>)

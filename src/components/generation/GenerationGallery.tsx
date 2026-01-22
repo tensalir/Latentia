@@ -419,6 +419,37 @@ export function GenerationGallery({
   const handleToggleBookmark = async (outputId: string, isBookmarked: boolean) => {
     if (!sessionId) return
     
+    // Optimistic update: immediately update local cache for instant UI feedback
+    const newBookmarkState = !isBookmarked
+    queryClient.setQueryData(
+      ['generations', 'infinite', sessionId],
+      (old: any) => {
+        if (!old) return old
+        return {
+          ...old,
+          pages: old.pages.map((page: any) => ({
+            ...page,
+            data: page.data.map((gen: any) => ({
+              ...gen,
+              outputs: gen.outputs?.map((output: any) =>
+                output.id === outputId
+                  ? { ...output, isBookmarked: newBookmarkState }
+                  : output
+              ),
+            })),
+          })),
+        }
+      }
+    )
+    
+    // Also update lightbox state if it's showing this output
+    if (lightboxData?.output?.id === outputId) {
+      setLightboxData(prev => prev ? {
+        ...prev,
+        output: { ...prev.output, isBookmarked: newBookmarkState }
+      } : null)
+    }
+    
     try {
       const method = isBookmarked ? 'DELETE' : 'POST'
       
@@ -440,6 +471,34 @@ export function GenerationGallery({
       queryClient.invalidateQueries({ queryKey: ['generations', sessionId] })
     } catch (error) {
       console.error('Error toggling bookmark:', error)
+      // Revert optimistic update on error
+      queryClient.setQueryData(
+        ['generations', 'infinite', sessionId],
+        (old: any) => {
+          if (!old) return old
+          return {
+            ...old,
+            pages: old.pages.map((page: any) => ({
+              ...page,
+              data: page.data.map((gen: any) => ({
+                ...gen,
+                outputs: gen.outputs?.map((output: any) =>
+                  output.id === outputId
+                    ? { ...output, isBookmarked: isBookmarked } // Revert to original state
+                    : output
+                ),
+              })),
+            })),
+          }
+        }
+      )
+      // Also revert lightbox state if needed
+      if (lightboxData?.output?.id === outputId) {
+        setLightboxData(prev => prev ? {
+          ...prev,
+          output: { ...prev.output, isBookmarked: isBookmarked }
+        } : null)
+      }
       toast({
         title: "Error",
         description: "Failed to update bookmark status",
@@ -674,14 +733,16 @@ export function GenerationGallery({
                       ? 'border-amber-500/50 border-amber-500/30'
                       : 'border-border/50 border-primary/30'
                   }`} style={{ minHeight: '320px' }}>
-                  {/* Cancel button - top left, only visible on hover when processing */}
-                  <button
-                    onClick={() => handleCancelGeneration(generation.id)}
-                    className="absolute top-2 left-2 p-1.5 bg-destructive/90 hover:bg-destructive rounded-full opacity-0 group-hover:opacity-100 transition-opacity z-10"
-                    title="Cancel generation"
-                  >
-                    <X className="h-4 w-4 text-white" />
-                  </button>
+                  {/* Cancel button - top left, only visible on hover when processing (owner only) */}
+                  {generation.isOwner !== false && (
+                    <button
+                      onClick={() => handleCancelGeneration(generation.id)}
+                      className="absolute top-2 left-2 p-1.5 bg-destructive/90 hover:bg-destructive rounded-full opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                      title="Cancel generation"
+                    >
+                      <X className="h-4 w-4 text-white" />
+                    </button>
+                  )}
                   
                   {/* Status badge (only when taking longer than usual) */}
                   {isTakingLong && (
@@ -831,15 +892,13 @@ export function GenerationGallery({
                     <h3 className="text-lg font-semibold text-destructive mb-2">Generation Failed</h3>
                     <p className="text-sm text-foreground/80 mb-4">{errorMessage}</p>
                     <div className="flex gap-2">
-                      {generation.isOwner !== false && (
-                        <button
-                          onClick={() => onReuseParameters(generation)}
-                          className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm font-medium"
-                        >
-                          <RotateCcw className="h-4 w-4" />
-                          Try Again
-                        </button>
-                      )}
+                      <button
+                        onClick={() => onReuseParameters(generation)}
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm font-medium"
+                      >
+                        <RotateCcw className="h-4 w-4" />
+                        Try Again
+                      </button>
                       {generation.isOwner !== false && (
                         <button
                           onClick={() => handleDeleteGeneration(generation.id)}
