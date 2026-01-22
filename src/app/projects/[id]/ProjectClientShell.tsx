@@ -142,11 +142,21 @@ export function ProjectClientShell({
   const [briefing, setBriefing] = useState('')
   const [isSavingBriefing, setIsSavingBriefing] = useState(false)
   const [briefingLoaded, setBriefingLoaded] = useState(false)
+  // Deep-link support: outputId from URL for scroll-to-output
+  const [deepLinkOutputId, setDeepLinkOutputId] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      return new URLSearchParams(window.location.search).get('outputId')
+    }
+    return null
+  })
   const supabase = createClient()
   const queryClient = useQueryClient()
   const hasProcessedInitialSessionsRef = useRef(false)
+  // Track if we've consumed the URL session/output params (to avoid re-processing on re-renders)
+  const hasConsumedUrlParamsRef = useRef(false)
   const sessionsReadyLoggedRef = useRef(false)
   const projectReadyLoggedRef = useRef(!!initialProject) // Already logged if we have initial data
+  const canManageSessions = Boolean(projectOwnerId && currentUserId && projectOwnerId === currentUserId)
 
   // Use React Query for sessions with intelligent caching (will use prefetched data)
   const { data: sessions = [], isLoading: sessionsLoading } = useSessions(projectId)
@@ -207,11 +217,22 @@ export function ProjectClientShell({
       typeof window !== 'undefined'
         ? new URLSearchParams(window.location.search).get('sessionId')
         : null
-    const firstSessionOfType = sessions.find((s) => s.type === generationType)
 
     if (sessions.length === 0) {
       if (activeSession) setActiveSession(null)
       return
+    }
+
+    // PRIORITY 1: On first load, if URL has sessionId, use that session
+    // This fixes deep-links from Bookmarks/Review/Gallery opening the wrong session
+    if (isFirstProcess && urlSessionId && !hasConsumedUrlParamsRef.current) {
+      const matchingSession = sessions.find((s) => s.id === urlSessionId)
+      if (matchingSession) {
+        hasConsumedUrlParamsRef.current = true
+        setActiveSession(matchingSession)
+        setGenerationType(matchingSession.type)
+        return
+      }
     }
 
     if (activeSession) {
@@ -718,8 +739,8 @@ export function ProjectClientShell({
               generationType={generationType}
               onSessionSelect={setActiveSession}
               onSessionCreate={handleSessionCreate}
-              onSessionRename={handleSessionRename}
-              onSessionDelete={handleSessionDelete}
+              onSessionRename={canManageSessions ? handleSessionRename : undefined}
+              onSessionDelete={canManageSessions ? handleSessionDelete : undefined}
             />
           )}
         </div>
@@ -738,6 +759,8 @@ export function ProjectClientShell({
           onExternalPromptConsumed={() => setExternalPrompt('')}
           externalReferenceImageUrl={pendingPinnedImageUrl}
           onExternalReferenceImageConsumed={() => setPendingPinnedImageUrl(null)}
+          deepLinkOutputId={deepLinkOutputId}
+          onDeepLinkOutputConsumed={() => setDeepLinkOutputId(null)}
         />
         
         {/* Right Dock Column (Desktop Only, lg+) */}

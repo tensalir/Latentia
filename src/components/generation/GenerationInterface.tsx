@@ -79,6 +79,10 @@ interface GenerationInterfaceProps {
   externalReferenceImageUrl?: string | null
   /** Callback when external reference image is consumed */
   onExternalReferenceImageConsumed?: () => void
+  /** Deep-link: outputId to scroll to and highlight */
+  deepLinkOutputId?: string | null
+  /** Callback when deep-link output has been scrolled to */
+  onDeepLinkOutputConsumed?: () => void
 }
 
 export function GenerationInterface({
@@ -94,6 +98,8 @@ export function GenerationInterface({
   onExternalPromptConsumed,
   externalReferenceImageUrl,
   onExternalReferenceImageConsumed,
+  deepLinkOutputId,
+  onDeepLinkOutputConsumed,
 }: GenerationInterfaceProps) {
   const { toast } = useToast()
   const queryClient = useQueryClient()
@@ -117,6 +123,13 @@ export function GenerationInterface({
   const scrollHeightBeforeLoadRef = useRef<number | null>(null)
   const generationsReadyLoggedRef = useRef(false)
   const sessionLoadStartRef = useRef<number>(typeof performance !== 'undefined' ? performance.now() : Date.now())
+  
+  // Deep-link scroll/highlight state
+  const [scrollToOutputId, setScrollToOutputId] = useState<string | null>(null)
+  const [highlightOutputId, setHighlightOutputId] = useState<string | null>(null)
+  const deepLinkSeekingRef = useRef(false)
+  const deepLinkPagesLoadedRef = useRef(0)
+  const MAX_DEEPLINK_PAGES = 10 // Max pages to load when seeking deep-link output
   
   // State for pasted images (passed to input components)
   const [pastedImageFiles, setPastedImageFiles] = useState<File[]>([])
@@ -293,6 +306,42 @@ export function GenerationInterface({
       hasBackfilledRef.current = null
     }
   }, [session?.id])
+
+  // Deep-link output seeking: load older pages until the target output is found
+  useEffect(() => {
+    if (!deepLinkOutputId || !session?.id || isLoading) return
+    if (!deepLinkSeekingRef.current) return
+    
+    // Check if the output is already in the loaded generations
+    const outputFound = generations.some((gen) =>
+      gen.outputs?.some((output) => output.id === deepLinkOutputId)
+    )
+    
+    if (outputFound) {
+      // Found! Set scroll/highlight targets and consume the deep-link
+      setScrollToOutputId(deepLinkOutputId)
+      setHighlightOutputId(deepLinkOutputId)
+      deepLinkSeekingRef.current = false
+      onDeepLinkOutputConsumed?.()
+      
+      // Clear highlight after a few seconds
+      setTimeout(() => {
+        setHighlightOutputId(null)
+      }, 3000)
+      return
+    }
+    
+    // Not found yet - load more pages if available
+    if (hasNextPage && !isFetchingNextPage && deepLinkPagesLoadedRef.current < MAX_DEEPLINK_PAGES) {
+      deepLinkPagesLoadedRef.current += 1
+      fetchNextPage()
+    } else if (!hasNextPage || deepLinkPagesLoadedRef.current >= MAX_DEEPLINK_PAGES) {
+      // Give up - output not found after loading all available pages or max pages
+      console.warn(`Deep-link output ${deepLinkOutputId} not found in session ${session.id}`)
+      deepLinkSeekingRef.current = false
+      onDeepLinkOutputConsumed?.()
+    }
+  }, [deepLinkOutputId, session?.id, isLoading, generations, hasNextPage, isFetchingNextPage, fetchNextPage, onDeepLinkOutputConsumed])
 
   // Log timing metric when generations first load for this session
   useEffect(() => {
@@ -511,15 +560,28 @@ export function GenerationInterface({
   useEffect(() => {
     const isNewSession = session?.id !== previousSessionIdRef.current
     if (isNewSession && session?.id) {
-      // Mark that we need to scroll to bottom once data loads
-      pendingScrollToBottomRef.current = true
+      // Reset deep-link seeking state for new session
+      deepLinkSeekingRef.current = false
+      deepLinkPagesLoadedRef.current = 0
+      setScrollToOutputId(null)
+      setHighlightOutputId(null)
+      
+      // If we have a deep-link outputId, DON'T scroll to bottom - we'll scroll to the output instead
+      if (deepLinkOutputId) {
+        // Set up for deep-link seeking
+        deepLinkSeekingRef.current = true
+        pendingScrollToBottomRef.current = false
+      } else {
+        // Mark that we need to scroll to bottom once data loads
+        pendingScrollToBottomRef.current = true
+      }
       previousGenerationsCountRef.current = 0 // Reset count for new session
       sessionAutoScrollAttemptCountRef.current = 0
-      isPinnedToBottomRef.current = true
-      setIsPinnedToBottom(true)
+      isPinnedToBottomRef.current = !deepLinkOutputId
+      setIsPinnedToBottom(!deepLinkOutputId)
     }
     previousSessionIdRef.current = session?.id || null
-  }, [session?.id])
+  }, [session?.id, deepLinkOutputId])
 
   const scrollToBottomNow = useCallback(
     (reason: 'session-load' | 'pinned-resize' | 'new-items') => {
@@ -1078,6 +1140,9 @@ export function GenerationInterface({
                 currentUser={currentUser}
                 onDismissGeneration={handleDismissGeneration}
                 scrollContainerRef={scrollContainerRef}
+                scrollToOutputId={scrollToOutputId}
+                highlightOutputId={highlightOutputId}
+                onScrollToOutputComplete={() => setScrollToOutputId(null)}
                 onUseAsReference={(imageUrl) => {
                   if (generationType === 'video') {
                     setReferenceImageUrl(imageUrl)

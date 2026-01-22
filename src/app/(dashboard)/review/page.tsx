@@ -14,8 +14,9 @@ export default function ReviewPage() {
   const queryClient = useQueryClient()
   const { data: approvedOutputs = [], isLoading, refetch } = useApprovedOutputs()
 
-  const handleOpenSession = (projectId: string, sessionId: string) => {
-    router.push(`/projects/${projectId}?sessionId=${sessionId}`)
+  const handleOpenSession = (projectId: string, sessionId: string, outputId?: string) => {
+    const url = `/projects/${projectId}?sessionId=${sessionId}${outputId ? `&outputId=${outputId}` : ''}`
+    router.push(url)
   }
 
   const handleUnapprove = async (outputId: string) => {
@@ -129,7 +130,8 @@ export default function ReviewPage() {
               onClick={() =>
                 handleOpenSession(
                   output.generation.session.project.id,
-                  output.generation.session.id
+                  output.generation.session.id,
+                  output.id
                 )
               }
             >
@@ -204,7 +206,8 @@ export default function ReviewPage() {
                     e.stopPropagation()
                     handleOpenSession(
                       output.generation.session.project.id,
-                      output.generation.session.id
+                      output.generation.session.id,
+                      output.id
                     )
                   }}
                   className="flex-1 h-8 text-xs"

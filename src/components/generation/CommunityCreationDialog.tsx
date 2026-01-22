@@ -1,8 +1,11 @@
 'use client'
 
 import Image from 'next/image'
-import { X, User, Copy, Check } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { X, User, Copy, Check, Download, ExternalLink } from 'lucide-react'
 import { useState, useEffect } from 'react'
+import { Button } from '@/components/ui/button'
+import { useToast } from '@/components/ui/use-toast'
 import type { CommunityCreation } from '@/hooks/useCommunityCreations'
 
 interface CommunityCreationDialogProps {
@@ -52,6 +55,8 @@ export function CommunityCreationDialog({
   open,
   onClose,
 }: CommunityCreationDialogProps) {
+  const router = useRouter()
+  const { toast } = useToast()
   const [copied, setCopied] = useState(false)
 
   useEffect(() => {
@@ -72,8 +77,8 @@ export function CommunityCreationDialog({
 
   if (!open || !creation) return null
 
-  const { generation, fileUrl, fileType } = creation
-  const { prompt, modelId, parameters, user, createdAt } = generation
+  const { generation, fileUrl, fileType, id: outputId } = creation
+  const { prompt, modelId, parameters, user, createdAt, session } = generation
   const referenceImageUrl = getReferenceImageUrl(parameters)
 
   const handleCopyPrompt = async () => {
@@ -84,6 +89,42 @@ export function CommunityCreationDialog({
     } catch (error) {
       console.error('Failed to copy:', error)
     }
+  }
+
+  const handleDownload = async () => {
+    try {
+      const response = await fetch(fileUrl)
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      const extension = fileType === 'video' ? 'mp4' : 'png'
+      link.download = `community-${outputId}.${extension}`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+      
+      toast({
+        title: 'Downloaded',
+        description: `${fileType === 'video' ? 'Video' : 'Image'} saved to downloads`,
+      })
+    } catch (error) {
+      console.error('Download failed:', error)
+      toast({
+        title: 'Download failed',
+        description: 'Failed to download file',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  const handleOpenInSession = () => {
+    // Deep-link with sessionId AND outputId for precise scroll
+    router.push(
+      `/projects/${session.project.id}?sessionId=${session.id}&outputId=${outputId}`
+    )
+    onClose()
   }
 
   return (
@@ -188,6 +229,27 @@ export function CommunityCreationDialog({
                 </div>
               </div>
             )}
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex items-center gap-2 mt-4 pt-4 border-t border-border">
+            <Button
+              variant="default"
+              size="sm"
+              onClick={handleOpenInSession}
+              className="flex-1 gap-2"
+            >
+              <ExternalLink className="h-4 w-4" />
+              Open in Session
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleDownload}
+              className="gap-2"
+            >
+              <Download className="h-4 w-4" />
+            </Button>
           </div>
         </div>
 

@@ -230,6 +230,18 @@ interface GenerationGalleryProps {
    * Callback to use a generated image as a reference in the prompt bar.
    */
   onUseAsReference?: (imageUrl: string) => void
+  /**
+   * Deep-link: output ID to scroll to (one-time scroll action).
+   */
+  scrollToOutputId?: string | null
+  /**
+   * Deep-link: output ID to highlight (visual highlight effect).
+   */
+  highlightOutputId?: string | null
+  /**
+   * Callback when scroll-to-output action is complete.
+   */
+  onScrollToOutputComplete?: () => void
 }
 
 export function GenerationGallery({
@@ -245,6 +257,9 @@ export function GenerationGallery({
   onDismissGeneration,
   scrollContainerRef,
   onUseAsReference,
+  scrollToOutputId,
+  highlightOutputId,
+  onScrollToOutputComplete,
 }: GenerationGalleryProps) {
   const { toast } = useToast()
   const queryClient = useQueryClient()
@@ -298,6 +313,37 @@ export function GenerationGallery({
     overscan: 5, // Render 5 extra items above/below viewport for smooth scrolling
   })
 
+  // Deep-link scroll-to-output: scroll to the generation containing the target output
+  useEffect(() => {
+    if (!scrollToOutputId || generations.length === 0) return
+    
+    // Find the generation index containing the target output
+    const generationIndex = generations.findIndex((gen) =>
+      gen.outputs?.some((output) => output.id === scrollToOutputId)
+    )
+    
+    if (generationIndex === -1) return
+    
+    // Use virtualizer if available, otherwise fall back to scrollIntoView
+    const useVirtualization = !!scrollContainerRef?.current && generations.length > 10
+    
+    if (useVirtualization) {
+      // Small delay to ensure virtualizer has measured items
+      setTimeout(() => {
+        virtualizer.scrollToIndex(generationIndex, { align: 'center', behavior: 'smooth' })
+        onScrollToOutputComplete?.()
+      }, 100)
+    } else {
+      // For non-virtualized: find the DOM element by data-index attribute
+      setTimeout(() => {
+        const element = document.querySelector(`[data-index="${generationIndex}"]`)
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }
+        onScrollToOutputComplete?.()
+      }, 100)
+    }
+  }, [scrollToOutputId, generations, virtualizer, scrollContainerRef, onScrollToOutputComplete])
 
   // Convert aspect ratio string to CSS aspect-ratio value
   const getAspectRatioStyle = (aspectRatio?: string) => {
@@ -1000,7 +1046,11 @@ export function GenerationGallery({
                       return (
                         <div
                           key={output.id}
-                          className="group relative bg-muted rounded-xl overflow-hidden border border-border/50 hover:border-primary/50 hover:shadow-lg transition-all duration-200"
+                          className={`group relative bg-muted rounded-xl overflow-hidden border hover:border-primary/50 hover:shadow-lg transition-all duration-200 ${
+                            highlightOutputId === output.id
+                              ? 'border-primary ring-2 ring-primary ring-offset-2 ring-offset-background animate-pulse'
+                              : 'border-border/50'
+                          }`}
                           style={{ aspectRatio: getAspectRatioStyle(aspectRatio) }}
                         >
                           <video
@@ -1182,7 +1232,11 @@ export function GenerationGallery({
                   
                   {/* Main image card */}
                   <div
-                    className="relative bg-muted rounded-xl overflow-hidden border border-border/50 group-hover:border-primary/50 group-hover:shadow-lg transition-all duration-200"
+                    className={`relative bg-muted rounded-xl overflow-hidden border group-hover:border-primary/50 group-hover:shadow-lg transition-all duration-200 ${
+                      highlightOutputId === output.id
+                        ? 'border-primary ring-2 ring-primary ring-offset-2 ring-offset-background animate-pulse'
+                        : 'border-border/50'
+                    }`}
                     style={{ aspectRatio: getAspectRatioStyle(aspectRatio), zIndex: 1 }}
                   >
                     {output.fileType === 'image' && (
