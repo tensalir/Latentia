@@ -365,6 +365,12 @@ export function GenerationInterface({
     return modelConfig.capabilities?.['image-2-video'] === true
   }, [modelConfig, generationType])
   
+  // Check if current model supports multiple reference images (for wider prompt bar)
+  const supportsMultiImage = useMemo(() => {
+    if (!modelConfig || generationType !== 'image') return false
+    return modelConfig.capabilities?.multiImageEditing === true
+  }, [modelConfig, generationType])
+  
   // Global paste handler for Cmd/Ctrl+V with images
   useEffect(() => {
     if (!session) return
@@ -1103,10 +1109,14 @@ export function GenerationInterface({
       )}
 
       {/* Chat Input - Floating Card at Bottom - Responsive width using dock tokens */}
+      {/* Use wider max-width for multi-image models to accommodate thumbnail strip */}
       <div className={cn(
         "absolute bottom-[var(--dock-bottom)] left-1/2 -translate-x-1/2",
-        "w-full max-w-[var(--dock-prompt-max-w)] px-4 xl:px-6 z-30",
-        "transition-[max-width] duration-300 ease-in-out"
+        "w-full px-4 xl:px-6 z-30",
+        "transition-[max-width] duration-300 ease-in-out",
+        supportsMultiImage 
+          ? "max-w-[var(--dock-prompt-max-w-multi)]" 
+          : "max-w-[var(--dock-prompt-max-w)]"
       )}>
         <div className="flex items-center gap-3">
           {/* Prompt Bar */}

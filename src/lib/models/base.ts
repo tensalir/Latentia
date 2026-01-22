@@ -31,6 +31,7 @@ export interface ModelConfig {
     'image-2-video'?: boolean
     'frame-interpolation'?: boolean // Supports start + end frame video interpolation
     multiImageEditing?: boolean // Supports multiple reference images
+    maxReferenceImages?: number // Maximum number of reference images supported (default 14 for multi-image models)
     audioGeneration?: boolean // Supports generating audio with video
   }
   pricing?: {

@@ -5,7 +5,11 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { Image as ImageIcon, ImagePlus, Ratio, ChevronDown, Upload, FolderOpen, X, Circle, GripHorizontal, Pin } from 'lucide-react'
+import { Image as ImageIcon, ImagePlus, Ratio, ChevronDown, Upload, FolderOpen, X, Circle, GripHorizontal, Pin, ZoomIn } from 'lucide-react'
+import {
+  Dialog,
+  DialogContent,
+} from '@/components/ui/dialog'
 import { useModelCapabilities } from '@/hooks/useModelCapabilities'
 import { usePinnedImages } from '@/hooks/usePinnedImages'
 import { useToast } from '@/components/ui/use-toast'
@@ -66,6 +70,9 @@ export function ChatInput({
   const [browseModalOpen, setBrowseModalOpen] = useState(false)
   const [rendersModalOpen, setRendersModalOpen] = useState(false)
   const [stylePopoverOpen, setStylePopoverOpen] = useState(false)
+  // Full-view lightbox state
+  const [fullviewOpen, setFullviewOpen] = useState(false)
+  const [fullviewImageUrl, setFullviewImageUrl] = useState<string | null>(null)
   const [isEnhancing, setIsEnhancing] = useState(false)
   // Ref guard to avoid race conditions where users click Generate
   // before React has re-rendered with the latest enhancing state.
@@ -98,6 +105,8 @@ export function ChatInput({
   const supportsImageEditing = modelConfig?.capabilities?.editing === true
   // Check if model supports multiple reference images
   const supportsMultiImage = modelConfig?.capabilities?.multiImageEditing === true
+  // Max reference images for multi-image models (default 14 per Gemini API docs)
+  const maxReferenceImages = modelConfig?.capabilities?.maxReferenceImages ?? (supportsMultiImage ? 14 : 1)
 
   // Get resolution options from model config or use defaults
   const resolutionOptions = modelParameters.find(p => p.name === 'resolution')?.options || [
@@ -205,9 +214,30 @@ export function ChatInput({
     if (imageFiles.length === 0) return
     
     if (supportsMultiImage) {
+      // Calculate how many images we can add
+      const currentCount = referenceImages.length
+      const availableSlots = maxReferenceImages - currentCount
+      
+      if (availableSlots <= 0) {
+        toast({
+          title: 'Maximum images reached',
+          description: `This model supports up to ${maxReferenceImages} reference images.`,
+        })
+        return
+      }
+      
+      // Only take as many images as we have slots for
+      const filesToAdd = imageFiles.slice(0, availableSlots)
+      if (filesToAdd.length < imageFiles.length) {
+        toast({
+          title: 'Some images not added',
+          description: `Only ${filesToAdd.length} of ${imageFiles.length} images added. Maximum is ${maxReferenceImages}.`,
+        })
+      }
+      
       // Add new images to the array
-      const newFiles = [...referenceImages, ...imageFiles]
-      const newPreviewUrls = [...imagePreviewUrls, ...imageFiles.map(file => URL.createObjectURL(file))]
+      const newFiles = [...referenceImages, ...filesToAdd]
+      const newPreviewUrls = [...imagePreviewUrls, ...filesToAdd.map(file => URL.createObjectURL(file))]
       setReferenceImages(newFiles)
       setImagePreviewUrls(newPreviewUrls)
       // Keep single image for backward compatibility (use first one)
@@ -337,6 +367,17 @@ export function ChatInput({
   const handleBrowseSelect = async (imageUrl: string) => {
     // Convert URL to File for image generation
     try {
+      if (supportsMultiImage) {
+        // Check if we've reached the max
+        if (referenceImages.length >= maxReferenceImages) {
+          toast({
+            title: 'Maximum images reached',
+            description: `This model supports up to ${maxReferenceImages} reference images.`,
+          })
+          return
+        }
+      }
+      
       const response = await fetch(imageUrl)
       const blob = await response.blob()
       const file = new File([blob], 'reference.png', { type: blob.type })
@@ -371,6 +412,12 @@ export function ChatInput({
     } catch (error) {
       console.error('Error loading image from URL:', error)
     }
+  }
+
+  // Open fullview lightbox for a thumbnail
+  const handleThumbnailClick = (previewUrl: string) => {
+    setFullviewImageUrl(previewUrl)
+    setFullviewOpen(true)
   }
 
   // Remove a specific image
@@ -523,81 +570,34 @@ export function ChatInput({
     >
       {/* Main Input Area - Card Style */}
       <div className="flex items-center gap-3">
-        {/* Input with resize handle */}
-        <div className={`flex-1 relative rounded-lg ${isEnhancing ? 'enhancing-container' : ''}`}>
-          {/* Resize handle at top of input */}
-          <div 
-            className="absolute -top-3 left-1/2 -translate-x-1/2 z-10 cursor-ns-resize group"
-            onMouseDown={handleResizeStart}
-            onTouchStart={handleResizeStart}
-          >
-            <div className={`flex items-center justify-center w-12 h-5 rounded-full transition-all ${
-              isResizing 
-                ? 'bg-primary/20 text-primary' 
-                : 'bg-muted/80 text-muted-foreground hover:bg-muted hover:text-foreground'
-            }`}>
-              <GripHorizontal className="w-5 h-3" />
-            </div>
-          </div>
-          
-          <Textarea
-            placeholder={supportsImageEditing ? "Describe an image and click generate, or drag and drop images here..." : "Describe an image and click generate..."}
-            value={transformedPrompt !== null ? transformedPrompt : prompt}
-            onChange={(e) => {
-              setTransformedPrompt(null) // Clear transformation when user types
-              onPromptChange(e.target.value)
-            }}
-            onKeyDown={handleKeyDown}
-            data-generation-input="true"
-            style={{ height: `${inputHeight}px` }}
-            className={`resize-none px-4 py-3 text-sm rounded-lg bg-muted/50 border pr-10 overflow-y-auto ${
-              isResizing ? '' : 'transition-all'
-            } ${
-              isEnhancing 
-                ? 'border-transparent' 
-                : isDragging && supportsImageEditing
-                ? 'border-primary/50'
-                : 'border-border focus-visible:ring-2 focus-visible:ring-primary focus-visible:border-primary'
-            } ${isEnhancing ? 'enhancing-text' : ''}`}
-          />
-          <PromptEnhancementButton
-            prompt={prompt}
-            modelId={selectedModel}
-            referenceImage={referenceImage}
-            onEnhancementComplete={(enhancedPrompt) => {
-              setTransformedPrompt(null)
-              onPromptChange(enhancedPrompt)
-            }}
-            onEnhancingChange={(enhancing) => {
-              isEnhancingRef.current = enhancing
-              setIsEnhancing(enhancing)
-              if (!enhancing) {
-                setTransformedPrompt(null)
-              }
-            }}
-            onTextTransform={(text) => {
-              setTransformedPrompt(text)
-            }}
-            disabled={isGenerating}
-          />
-        </div>
-
-        {/* Reference Image Picker - Right of prompt (hidden if model doesn't support input images) */}
-        {supportsImageEditing && (
-          <div className="flex items-center gap-2">
-            {/* Selected images (compact) */}
-            {supportsMultiImage &&
-              imagePreviewUrls.map((previewUrl, index) => (
-                <div key={index} className="relative group">
-                  <div className="rounded-md overflow-hidden border-2 border-primary/50 shadow-lg transition-transform duration-300 group-hover:scale-105 w-[32px] h-[32px]">
+        {/* Input column with optional thumbnails above (for multi-image models) */}
+        <div className="flex-1 flex flex-col gap-2">
+          {/* Multi-image thumbnails above textarea (Krea-style) */}
+          {supportsMultiImage && supportsImageEditing && imagePreviewUrls.length > 0 && (
+            <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent">
+              {imagePreviewUrls.map((previewUrl, index) => (
+                <div key={index} className="relative group flex-shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => handleThumbnailClick(previewUrl)}
+                    className="rounded-md overflow-hidden border-2 border-primary/50 shadow-lg transition-transform duration-300 group-hover:scale-105 w-[32px] h-[32px] cursor-pointer"
+                    title="Click to view full size"
+                  >
                     <img
                       src={previewUrl}
                       alt={`Reference ${index + 1}`}
                       className="w-full h-full object-cover"
                     />
-                  </div>
+                    {/* Zoom indicator on hover */}
+                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <ZoomIn className="h-3 w-3 text-white" />
+                    </div>
+                  </button>
                   <button
-                    onClick={() => handleRemoveImage(index)}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleRemoveImage(index)
+                    }}
                     className="absolute -top-1 -right-1 bg-background border border-border rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm hover:bg-destructive hover:text-destructive-foreground z-10"
                     title="Remove reference image"
                   >
@@ -606,7 +606,8 @@ export function ChatInput({
                   {/* Pin button - only show if we have a proper URL (not blob) */}
                   {projectId && previewUrl.startsWith('http') && (
                     <button
-                      onClick={() => {
+                      onClick={(e) => {
+                        e.stopPropagation()
                         pinImage({ imageUrl: previewUrl })
                         toast({
                           title: 'Image pinned',
@@ -621,9 +622,123 @@ export function ChatInput({
                   )}
                 </div>
               ))}
+              
+              {/* Add more button inline with thumbnails */}
+              {imagePreviewUrls.length < maxReferenceImages && (
+                <Popover open={stylePopoverOpen} onOpenChange={setStylePopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      disabled={isGenerating}
+                      className="rounded-md border-2 border-dashed border-white/20 hover:border-primary/50 hover:bg-primary/10 transition-all flex items-center justify-center w-[32px] h-[32px] flex-shrink-0"
+                      title={`Add reference image (${imagePreviewUrls.length}/${maxReferenceImages})`}
+                    >
+                      <ImagePlus className="h-3.5 w-3.5 text-muted-foreground/70" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-40 p-2" align="start">
+                    <div className="flex flex-col gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="w-full justify-start h-8 text-xs"
+                        onClick={() => {
+                          fileInputRef.current?.click()
+                          setStylePopoverOpen(false)
+                        }}
+                      >
+                        <Upload className="h-3.5 w-3.5 mr-2" />
+                        Upload
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="w-full justify-start h-8 text-xs"
+                        onClick={() => {
+                          setBrowseModalOpen(true)
+                          setStylePopoverOpen(false)
+                        }}
+                      >
+                        <FolderOpen className="h-3.5 w-3.5 mr-2" />
+                        Browse
+                      </Button>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              )}
+              
+              {/* Image count indicator */}
+              <span className="text-xs text-muted-foreground flex-shrink-0 ml-1">
+                {imagePreviewUrls.length}/{maxReferenceImages}
+              </span>
+            </div>
+          )}
 
-            {/* Add / Replace control */}
-            {supportsMultiImage ? (
+          {/* Input with resize handle */}
+          <div className={`relative rounded-lg ${isEnhancing ? 'enhancing-container' : ''}`}>
+            {/* Resize handle at top of input */}
+            <div 
+              className="absolute -top-3 left-1/2 -translate-x-1/2 z-10 cursor-ns-resize group"
+              onMouseDown={handleResizeStart}
+              onTouchStart={handleResizeStart}
+            >
+              <div className={`flex items-center justify-center w-12 h-5 rounded-full transition-all ${
+                isResizing 
+                  ? 'bg-primary/20 text-primary' 
+                  : 'bg-muted/80 text-muted-foreground hover:bg-muted hover:text-foreground'
+              }`}>
+                <GripHorizontal className="w-5 h-3" />
+              </div>
+            </div>
+            
+            <Textarea
+              placeholder={supportsImageEditing ? "Describe an image and click generate, or drag and drop images here..." : "Describe an image and click generate..."}
+              value={transformedPrompt !== null ? transformedPrompt : prompt}
+              onChange={(e) => {
+                setTransformedPrompt(null) // Clear transformation when user types
+                onPromptChange(e.target.value)
+              }}
+              onKeyDown={handleKeyDown}
+              data-generation-input="true"
+              style={{ height: `${inputHeight}px` }}
+              className={`resize-none px-4 py-3 text-sm rounded-lg bg-muted/50 border pr-10 overflow-y-auto ${
+                isResizing ? '' : 'transition-all'
+              } ${
+                isEnhancing 
+                  ? 'border-transparent' 
+                  : isDragging && supportsImageEditing
+                  ? 'border-primary/50'
+                  : 'border-border focus-visible:ring-2 focus-visible:ring-primary focus-visible:border-primary'
+              } ${isEnhancing ? 'enhancing-text' : ''}`}
+            />
+            <PromptEnhancementButton
+              prompt={prompt}
+              modelId={selectedModel}
+              referenceImage={referenceImage}
+              onEnhancementComplete={(enhancedPrompt) => {
+                setTransformedPrompt(null)
+                onPromptChange(enhancedPrompt)
+              }}
+              onEnhancingChange={(enhancing) => {
+                isEnhancingRef.current = enhancing
+                setIsEnhancing(enhancing)
+                if (!enhancing) {
+                  setTransformedPrompt(null)
+                }
+              }}
+              onTextTransform={(text) => {
+                setTransformedPrompt(text)
+              }}
+              disabled={isGenerating}
+            />
+          </div>
+        </div>
+
+        {/* Reference Image Picker - Right of prompt (for single-image editing models OR multi-image with no images yet) */}
+        {supportsImageEditing && (
+          <div className="flex items-center gap-2">
+            {/* For multi-image models with no images: show add button on the right */}
+            {supportsMultiImage && imagePreviewUrls.length === 0 && (
               <Popover open={stylePopoverOpen} onOpenChange={setStylePopoverOpen}>
                 <PopoverTrigger asChild>
                   <button
@@ -664,7 +779,10 @@ export function ChatInput({
                   </div>
                 </PopoverContent>
               </Popover>
-            ) : (
+            )}
+
+            {/* Single-image editing model: show on the right */}
+            {!supportsMultiImage && (
               <div className="relative group">
                 <Popover open={stylePopoverOpen} onOpenChange={setStylePopoverOpen}>
                   <PopoverTrigger asChild>
@@ -854,6 +972,21 @@ export function ChatInput({
         onClose={() => setRendersModalOpen(false)}
         onSelectImage={handleBrowseSelect}
       />
+
+      {/* Fullview Lightbox Dialog */}
+      <Dialog open={fullviewOpen} onOpenChange={setFullviewOpen}>
+        <DialogContent className="max-w-[90vw] max-h-[90vh] p-0 bg-transparent border-none shadow-none [&>button]:text-white [&>button]:bg-black/50 [&>button]:hover:bg-black/70">
+          {fullviewImageUrl && (
+            <div className="flex items-center justify-center">
+              <img
+                src={fullviewImageUrl}
+                alt="Full view"
+                className="max-w-[90vw] max-h-[85vh] object-contain rounded-lg shadow-2xl"
+              />
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
     </div>
   )

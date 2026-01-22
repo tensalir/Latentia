@@ -44,6 +44,7 @@
     --dock-left-gutter: 6rem;         /* pl-24 for FloatingSessionBar */
     --dock-panel-w: 320px;            /* brainstorm panel width */
     --dock-prompt-max-w: 42rem;       /* max-w-2xl equivalent */
+    --dock-prompt-max-w-multi: 48rem; /* wider for multi-image models (max-w-3xl) */
   }
 
   .dark {
@@ -75,6 +76,7 @@
   :root {
     --dock-panel-w: 360px;
     --dock-prompt-max-w: 48rem;       /* max-w-3xl */
+    --dock-prompt-max-w-multi: 56rem; /* max-w-4xl */
   }
 }
 
@@ -83,6 +85,7 @@
     --dock-left-gutter: 12rem;        /* xl:pl-48 */
     --dock-panel-w: 400px;
     --dock-prompt-max-w: 56rem;       /* max-w-4xl */
+    --dock-prompt-max-w-multi: 64rem; /* max-w-5xl */
   }
 }
 
@@ -90,6 +93,7 @@
   :root {
     --dock-panel-w: 440px;
     --dock-prompt-max-w: 64rem;       /* max-w-5xl */
+    --dock-prompt-max-w-multi: 72rem; /* max-w-6xl */
   }
 }
 
@@ -97,6 +101,7 @@
   :root {
     --dock-panel-w: 500px;
     --dock-prompt-max-w: 72rem;       /* max-w-6xl */
+    --dock-prompt-max-w-multi: 80rem; /* max-w-7xl */
   }
 }
 

@@ -1304,6 +1304,7 @@ export const NANO_BANANA_CONFIG: ModelConfig = {
     editing: true,
     'text-2-image': true,
     multiImageEditing: true, // Gemini 3 Pro Image supports multiple reference images
+    maxReferenceImages: 14, // Per Gemini API docs: up to 14 reference images
   },
   pricing: {
     perImage: 0.01,

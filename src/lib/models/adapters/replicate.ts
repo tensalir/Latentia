@@ -29,6 +29,7 @@ export const NANO_BANANA_BACKUP_CONFIG: ModelConfig = {
     editing: true,
     'text-2-image': true,
     multiImageEditing: true,
+    maxReferenceImages: 14, // Per Gemini API docs: up to 14 reference images
   },
   parameters: [
     {
@@ -88,6 +89,7 @@ export const SEEDREAM_4_CONFIG: ModelConfig = {
     'text-2-image': true,
     'image-2-image': true,
     multiImageEditing: true, // Seedream 4.5 supports 1-14 reference images
+    maxReferenceImages: 14, // Per Seedream docs: up to 14 reference images
   },
   parameters: [
     {
