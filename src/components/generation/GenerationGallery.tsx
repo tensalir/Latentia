@@ -320,6 +320,11 @@ interface GenerationGalleryProps {
   /** Project ID for the current session - needed for ImageToVideoOverlay */
   projectId: string
   onReuseParameters: (generation: GenerationWithOutputs) => void
+  /**
+   * Callback to directly rerun a generation with the same parameters.
+   * Unlike onReuseParameters, this triggers generation immediately without filling the prompt bar.
+   */
+  onRerunGeneration?: (generation: GenerationWithOutputs) => void
   videoSessions?: Session[]
   onConvertToVideo?: (generation: GenerationWithOutputs, videoSessionId: string, imageUrl?: string) => void
   onCreateVideoSession?: ((type: 'image' | 'video', name: string, options?: { skipSwitch?: boolean }) => Promise<Session | null>) | undefined
@@ -358,6 +363,7 @@ export function GenerationGallery({
   sessionId,
   projectId,
   onReuseParameters,
+  onRerunGeneration,
   videoSessions = [],
   onConvertToVideo,
   onCreateVideoSession,
@@ -880,77 +886,89 @@ export function GenerationGallery({
                 className="pb-12"
               >
                 <div className="flex gap-6 items-start">
-                  {/* Left Side: Prompt and metadata */}
-                  <div className={`w-96 flex-shrink-0 bg-prompt-card rounded-xl p-6 border flex flex-col relative group ${
-                    isLikelyStuck
-                      ? 'border-destructive/50 border-destructive'
-                      : isTakingLong
-                      ? 'border-amber-500/50 border-amber-500/30'
-                      : 'border-border/50 border-primary/30'
-                  }`} style={{ minHeight: '320px' }}>
-                  {/* Cancel button - top left, only visible on hover when processing (owner only) */}
-                  {generation.isOwner !== false && (
-                    <button
-                      onClick={() => handleCancelGeneration(generation.id)}
-                      className="absolute top-2 left-2 p-1.5 bg-destructive/90 hover:bg-destructive rounded-full opacity-0 group-hover:opacity-100 transition-opacity z-10"
-                      title="Cancel generation"
-                    >
-                      <X className="h-4 w-4 text-white" />
-                    </button>
-                  )}
-                  
-                  {/* Status badge (only when taking longer than usual) */}
-                  {isTakingLong && (
-                    <div
-                      className={`absolute top-2 left-10 px-2 py-1 text-xs font-medium rounded z-10 ${
-                        isLikelyStuck
-                          ? 'bg-destructive/20 text-destructive'
-                          : 'bg-amber-500/15 text-amber-300'
-                      }`}
-                    >
-                      {isLikelyStuck ? 'Delayed' : 'Processing'} ({Math.round(ageMinutes)}min)
-                    </div>
-                  )}
-                  
-                  <div className="flex-1 mb-4 overflow-hidden hover:overflow-y-auto transition-all group relative mt-6" style={{ maxHeight: '200px' }}>
-                    <p className="text-base font-normal leading-relaxed text-foreground/90">
-                      {generation.prompt}
-                    </p>
-                  </div>
-                  <div className="space-y-2 text-xs text-muted-foreground">
-                    {currentUser?.displayName && (
-                      <div className="flex items-center gap-2">
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          width="14"
-                          height="14"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          className="flex-shrink-0"
+                  {/* Left Side: Prompt and metadata with Rerun below */}
+                  <div className="w-96 flex-shrink-0 flex flex-col">
+                    <div className={`bg-prompt-card rounded-xl p-6 border flex flex-col relative group ${
+                      isLikelyStuck
+                        ? 'border-destructive/50 border-destructive'
+                        : isTakingLong
+                        ? 'border-amber-500/50 border-amber-500/30'
+                        : 'border-border/50 border-primary/30'
+                    }`} style={{ minHeight: '320px' }}>
+                      {/* Cancel button - top left, only visible on hover when processing (owner only) */}
+                      {generation.isOwner !== false && (
+                        <button
+                          onClick={() => handleCancelGeneration(generation.id)}
+                          className="absolute top-2 left-2 p-1.5 bg-destructive/90 hover:bg-destructive rounded-full opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                          title="Cancel generation"
                         >
-                          <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
-                          <circle cx="12" cy="7" r="4" />
-                        </svg>
-                        <span className="font-medium">{currentUser.displayName}</span>
+                          <X className="h-4 w-4 text-white" />
+                        </button>
+                      )}
+                      
+                      {/* Status badge (only when taking longer than usual) */}
+                      {isTakingLong && (
+                        <div
+                          className={`absolute top-2 left-10 px-2 py-1 text-xs font-medium rounded z-10 ${
+                            isLikelyStuck
+                              ? 'bg-destructive/20 text-destructive'
+                              : 'bg-amber-500/15 text-amber-300'
+                          }`}
+                        >
+                          {isLikelyStuck ? 'Delayed' : 'Processing'} ({Math.round(ageMinutes)}min)
+                        </div>
+                      )}
+                      
+                      <div className="flex-1 mb-4 overflow-hidden hover:overflow-y-auto transition-all group relative mt-6" style={{ maxHeight: '200px' }}>
+                        <p className="text-base font-normal leading-relaxed text-foreground/90">
+                          {generation.prompt}
+                        </p>
                       </div>
-                    )}
-                    <div className="flex items-center gap-2">
-                      <Wand2 className="h-3.5 w-3.5 text-primary" />
-                      <span className="font-medium">{modelName}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-muted-foreground/70">Generated:</span>
-                      <span className="font-medium">{formatDate(generation.createdAt)}</span>
+                      <div className="space-y-2 text-xs text-muted-foreground">
+                        {currentUser?.displayName && (
+                          <div className="flex items-center gap-2">
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              width="14"
+                              height="14"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              className="flex-shrink-0"
+                            >
+                              <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+                              <circle cx="12" cy="7" r="4" />
+                            </svg>
+                            <span className="font-medium">{currentUser.displayName}</span>
+                          </div>
+                        )}
+                        <div className="flex items-center gap-2">
+                          <Wand2 className="h-3.5 w-3.5 text-primary" />
+                          <span className="font-medium">{modelName}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-muted-foreground/70">Generated:</span>
+                          <span className="font-medium">{formatDate(generation.createdAt)}</span>
+                        </div>
+                        
+                        {/* Reference Image Thumbnail - shown during processing too */}
+                        <ReferenceImageThumbnail generation={generation} onPinImage={handlePinImage} />
+                      </div>
                     </div>
                     
-                    {/* Reference Image Thumbnail - shown during processing too */}
-                    <ReferenceImageThumbnail generation={generation} onPinImage={handlePinImage} />
+                    {/* Rerun button - outside panel, bottom right */}
+                    {onRerunGeneration && generation.isOwner !== false && (
+                      <button
+                        onClick={() => onRerunGeneration(generation)}
+                        className="text-xs text-muted-foreground/50 hover:text-primary transition-colors self-end mt-1"
+                      >
+                        Rerun
+                      </button>
+                    )}
                   </div>
-                </div>
 
                 {/* Right Side: Progress placeholders or stuck message */}
                 {isLikelyStuck ? (
@@ -1112,70 +1130,82 @@ export function GenerationGallery({
                 className="pb-12"
               >
                 <div className="flex gap-6 items-start">
-                  {/* Left Side: Prompt Display - same styling as images */}
-                  <div className="w-96 flex-shrink-0 bg-prompt-card rounded-xl p-6 border border-border flex flex-col" style={{ minHeight: '320px' }}>
-                  <div className="flex-1 overflow-hidden hover:overflow-y-auto transition-all group relative" style={{ maxHeight: '200px' }}>
-                    <p 
-                      className="text-base font-normal leading-relaxed text-foreground/90 cursor-pointer hover:text-primary transition-colors"
-                      onClick={() => handleCopyPrompt(generation.prompt)}
-                      title="Click to copy"
-                    >
-                      {generation.prompt}
-                    </p>
-                    <Copy className="h-3.5 w-3.5 absolute top-0 right-0 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-                  </div>
-                  <div className="space-y-2 text-xs text-muted-foreground mt-4">
-                    {generation.user && (
-                      <div className="flex items-center gap-2">
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          width="14"
-                          height="14"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          className="flex-shrink-0"
+                  {/* Left Side: Prompt Display with Rerun below */}
+                  <div className="w-96 flex-shrink-0 flex flex-col">
+                    <div className="bg-prompt-card rounded-xl p-6 border border-border flex flex-col" style={{ minHeight: '320px' }}>
+                      <div className="flex-1 overflow-hidden hover:overflow-y-auto transition-all group relative" style={{ maxHeight: '200px' }}>
+                        <p 
+                          className="text-base font-normal leading-relaxed text-foreground/90 cursor-pointer hover:text-primary transition-colors"
+                          onClick={() => handleCopyPrompt(generation.prompt)}
+                          title="Click to copy"
                         >
-                          <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
-                          <circle cx="12" cy="7" r="4" />
-                        </svg>
-                        <span className="font-medium">{generation.user.displayName}</span>
+                          {generation.prompt}
+                        </p>
+                        <Copy className="h-3.5 w-3.5 absolute top-0 right-0 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
                       </div>
-                    )}
-                    <div className="flex items-center gap-2">
-                      <Info className="h-3.5 w-3.5" />
-                      {(() => {
-                        const { name, provider, isFallback } = formatModelWithProvider(generation)
-                        return (
-                          <span className="font-medium">
-                            {name}
-                            {provider && (
-                              <span className={`ml-1.5 text-[10px] px-1.5 py-0.5 rounded ${
-                                isFallback 
-                                  ? 'bg-amber-500/20 text-amber-500' 
-                                  : provider === 'Google' 
-                                    ? 'bg-blue-500/20 text-blue-400'
-                                    : 'bg-purple-500/20 text-purple-400'
-                              }`}>
-                                {provider}{isFallback ? ' (fallback)' : ''}
+                      <div className="space-y-2 text-xs text-muted-foreground mt-4">
+                        {generation.user && (
+                          <div className="flex items-center gap-2">
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              width="14"
+                              height="14"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              className="flex-shrink-0"
+                            >
+                              <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+                              <circle cx="12" cy="7" r="4" />
+                            </svg>
+                            <span className="font-medium">{generation.user.displayName}</span>
+                          </div>
+                        )}
+                        <div className="flex items-center gap-2">
+                          <Info className="h-3.5 w-3.5" />
+                          {(() => {
+                            const { name, provider, isFallback } = formatModelWithProvider(generation)
+                            return (
+                              <span className="font-medium">
+                                {name}
+                                {provider && (
+                                  <span className={`ml-1.5 text-[10px] px-1.5 py-0.5 rounded ${
+                                    isFallback 
+                                      ? 'bg-amber-500/20 text-amber-500' 
+                                      : provider === 'Google' 
+                                        ? 'bg-blue-500/20 text-blue-400'
+                                        : 'bg-purple-500/20 text-purple-400'
+                                  }`}>
+                                    {provider}{isFallback ? ' (fallback)' : ''}
+                                  </span>
+                                )}
                               </span>
-                            )}
-                          </span>
-                        )
-                      })()}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-muted-foreground/70">Generated:</span>
-                      <span className="font-medium">{formatDate(generation.createdAt)}</span>
+                            )
+                          })()}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-muted-foreground/70">Generated:</span>
+                          <span className="font-medium">{formatDate(generation.createdAt)}</span>
+                        </div>
+                        
+                        {/* Reference Image Thumbnail */}
+                        <ReferenceImageThumbnail generation={generation} onPinImage={handlePinImage} />
+                      </div>
                     </div>
                     
-                    {/* Reference Image Thumbnail */}
-                    <ReferenceImageThumbnail generation={generation} onPinImage={handlePinImage} />
+                    {/* Rerun button - outside panel, bottom right */}
+                    {onRerunGeneration && generation.isOwner !== false && (
+                      <button
+                        onClick={() => onRerunGeneration(generation)}
+                        className="text-xs text-muted-foreground/50 hover:text-primary transition-colors self-end mt-1"
+                      >
+                        Rerun
+                      </button>
+                    )}
                   </div>
-                </div>
 
                 {/* Right Side: Single video container */}
                 <div className="flex-1 grid grid-cols-1 gap-3 max-w-2xl">
@@ -1230,71 +1260,83 @@ export function GenerationGallery({
               className="pb-12"
             >
               <div className="flex gap-6 items-start">
-                {/* Left Side: Prompt Display - Increased Height with Scroll on Hover */}
-                <div className="w-96 flex-shrink-0 bg-prompt-card rounded-xl p-6 border border-border flex flex-col" style={{ minHeight: '320px' }}>
-                <div className="flex-1 overflow-hidden hover:overflow-y-auto transition-all group relative" style={{ maxHeight: '200px' }}>
-                  <p 
-                    className="text-base font-normal leading-relaxed text-foreground/90 cursor-pointer hover:text-primary transition-colors"
-                    onClick={() => handleCopyPrompt(generation.prompt)}
-                    title="Click to copy"
-                  >
-                    {generation.prompt}
-                  </p>
-                  {/* Copy icon hint */}
-                  <Copy className="h-3.5 w-3.5 absolute top-0 right-0 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-                </div>
-                <div className="space-y-2 text-xs text-muted-foreground mt-4">
-                  {generation.user && (
-                    <div className="flex items-center gap-2">
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        className="flex-shrink-0"
+                {/* Left Side: Prompt Display with Rerun below */}
+                <div className="w-96 flex-shrink-0 flex flex-col">
+                  <div className="bg-prompt-card rounded-xl p-6 border border-border flex flex-col" style={{ minHeight: '320px' }}>
+                    <div className="flex-1 overflow-hidden hover:overflow-y-auto transition-all group relative" style={{ maxHeight: '200px' }}>
+                      <p 
+                        className="text-base font-normal leading-relaxed text-foreground/90 cursor-pointer hover:text-primary transition-colors"
+                        onClick={() => handleCopyPrompt(generation.prompt)}
+                        title="Click to copy"
                       >
-                        <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
-                        <circle cx="12" cy="7" r="4" />
-                      </svg>
-                      <span className="font-medium">{generation.user.displayName}</span>
+                        {generation.prompt}
+                      </p>
+                      {/* Copy icon hint */}
+                      <Copy className="h-3.5 w-3.5 absolute top-0 right-0 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
                     </div>
-                  )}
-                  <div className="flex items-center gap-2">
-                    <Info className="h-3.5 w-3.5" />
-                    {(() => {
-                      const { name, provider, isFallback } = formatModelWithProvider(generation)
-                      return (
-                        <span className="font-medium">
-                          {name}
-                          {provider && (
-                            <span className={`ml-1.5 text-[10px] px-1.5 py-0.5 rounded ${
-                              isFallback 
-                                ? 'bg-amber-500/20 text-amber-500' 
-                                : provider === 'Google' 
-                                  ? 'bg-blue-500/20 text-blue-400'
-                                  : 'bg-purple-500/20 text-purple-400'
-                            }`}>
-                              {provider}{isFallback ? ' (fallback)' : ''}
+                    <div className="space-y-2 text-xs text-muted-foreground mt-4">
+                      {generation.user && (
+                        <div className="flex items-center gap-2">
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="14"
+                            height="14"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            className="flex-shrink-0"
+                          >
+                            <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+                            <circle cx="12" cy="7" r="4" />
+                          </svg>
+                          <span className="font-medium">{generation.user.displayName}</span>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-2">
+                        <Info className="h-3.5 w-3.5" />
+                        {(() => {
+                          const { name, provider, isFallback } = formatModelWithProvider(generation)
+                          return (
+                            <span className="font-medium">
+                              {name}
+                              {provider && (
+                                <span className={`ml-1.5 text-[10px] px-1.5 py-0.5 rounded ${
+                                  isFallback 
+                                    ? 'bg-amber-500/20 text-amber-500' 
+                                    : provider === 'Google' 
+                                      ? 'bg-blue-500/20 text-blue-400'
+                                      : 'bg-purple-500/20 text-purple-400'
+                                }`}>
+                                  {provider}{isFallback ? ' (fallback)' : ''}
+                                </span>
+                              )}
                             </span>
-                          )}
-                        </span>
-                      )
-                    })()}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-muted-foreground/70">Generated:</span>
-                    <span className="font-medium">{new Date(generation.createdAt).toLocaleDateString()}</span>
-                  </div>
+                          )
+                        })()}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-muted-foreground/70">Generated:</span>
+                        <span className="font-medium">{new Date(generation.createdAt).toLocaleDateString()}</span>
+                      </div>
 
-                  {/* Reference Image Thumbnail */}
-                  <ReferenceImageThumbnail generation={generation} onPinImage={handlePinImage} />
+                      {/* Reference Image Thumbnail */}
+                      <ReferenceImageThumbnail generation={generation} onPinImage={handlePinImage} />
+                    </div>
+                  </div>
+                  
+                  {/* Rerun button - outside panel, bottom right */}
+                  {onRerunGeneration && generation.isOwner !== false && (
+                    <button
+                      onClick={() => onRerunGeneration(generation)}
+                      className="text-xs text-muted-foreground/50 hover:text-primary transition-colors self-end mt-1"
+                    >
+                      Rerun
+                    </button>
+                  )}
                 </div>
-              </div>
 
             {/* Right Side: Outputs in 2-Column Grid */}
             <div className="flex-1 grid grid-cols-2 gap-4 max-w-5xl">

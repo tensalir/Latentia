@@ -1050,6 +1050,50 @@ export function GenerationInterface({
     }
   }
 
+  const handleRerunGeneration = async (generation: GenerationWithOutputs) => {
+    if (!session) {
+      toast({
+        title: 'No session',
+        description: 'Please select a session first.',
+        variant: 'destructive',
+      })
+      return
+    }
+    
+    try {
+      const genParams = generation.parameters as any
+      
+      await generateMutation.mutateAsync({
+        sessionId: session.id,
+        modelId: generation.modelId,
+        prompt: generation.prompt,
+        parameters: {
+          aspectRatio: genParams.aspectRatio,
+          resolution: genParams.resolution,
+          numOutputs: genParams.numOutputs,
+          ...(genParams.duration && { duration: genParams.duration }),
+          ...(genParams.referenceImages && genParams.referenceImages.length > 0 && { referenceImages: genParams.referenceImages }),
+          ...(genParams.referenceImageUrl && { referenceImageUrl: genParams.referenceImageUrl }),
+          ...(genParams.referenceImageId && { referenceImageId: genParams.referenceImageId }),
+          ...(genParams.endFrameImageUrl && { endFrameImageUrl: genParams.endFrameImageUrl }),
+          ...(genParams.endFrameImageId && { endFrameImageId: genParams.endFrameImageId }),
+        },
+      })
+      
+      toast({
+        title: 'Generation started',
+        description: 'Rerunning with the same parameters.',
+      })
+    } catch (error: any) {
+      console.error('Rerun generation error:', error)
+      toast({
+        title: 'Rerun failed',
+        description: error.message || 'Failed to rerun generation. Please try again.',
+        variant: 'destructive',
+      })
+    }
+  }
+
   const handleConvertToVideo = async (generation: GenerationWithOutputs, videoSessionId: string, imageUrl?: string) => {
     if (!onSessionSwitch) return
 
@@ -1147,6 +1191,7 @@ export function GenerationInterface({
                 sessionId={session?.id || null}
                 projectId={session?.projectId || ''}
                 onReuseParameters={handleReuseParameters}
+                onRerunGeneration={handleRerunGeneration}
                 videoSessions={videoSessions}
                 onConvertToVideo={handleConvertToVideo}
                 onCreateVideoSession={onSessionCreate}

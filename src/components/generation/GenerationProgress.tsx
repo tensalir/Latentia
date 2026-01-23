@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useState, useMemo } from 'react'
-import { Loader2 } from 'lucide-react'
 
 interface GenerationProgressProps {
   estimatedTime?: number // in seconds
@@ -67,10 +66,6 @@ export function GenerationProgress({
 
   // Calculate display progress using easing curve
   const displayProgress = Math.round(calculateProgress(elapsedSeconds, estimatedTime))
-  
-  // Calculate estimated remaining time (only show if we have a reasonable estimate)
-  const estimatedRemaining = Math.max(0, estimatedTime - elapsedSeconds)
-  const showRemaining = elapsedSeconds < estimatedTime * 1.5 // Hide if way over estimate
 
   const getAspectRatioStyle = (ratio: string) => {
     return ratio.replace(':', ' / ')
@@ -129,9 +124,6 @@ export function GenerationProgress({
 
       {/* Main content */}
       <div className="absolute inset-0 flex flex-col items-center justify-center p-4 sm:p-6">
-        {/* Spinner icon */}
-        <Loader2 className="h-6 w-6 sm:h-8 sm:w-8 text-primary animate-spin mb-3" />
-        
         {/* Title */}
         <div className="text-sm sm:text-base font-medium text-foreground/80 mb-2">
           {isVideo ? 'Generating video' : 'Generating image'}
@@ -142,14 +134,9 @@ export function GenerationProgress({
           {displayProgress}%
         </div>
 
-        {/* Timer info */}
-        <div className="flex flex-col items-center gap-0.5 text-xs text-muted-foreground">
-          <span className="tabular-nums">{formatTime(elapsedSeconds)} elapsed</span>
-          {showRemaining && estimatedRemaining > 0 && (
-            <span className="tabular-nums text-muted-foreground/70">
-              ~{formatTime(estimatedRemaining)} remaining
-            </span>
-          )}
+        {/* Elapsed time */}
+        <div className="text-xs text-muted-foreground tabular-nums">
+          {formatTime(elapsedSeconds)} elapsed
         </div>
       </div>
     </div>
