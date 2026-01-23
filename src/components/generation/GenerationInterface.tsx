@@ -265,7 +265,8 @@ export function GenerationInterface({
   // Flatten all pages into a single array, filtering out dismissed generations
   // This ensures dismissed generations never reappear after refetch
   const generations = useMemo(() => {
-    const allGenerations = infiniteData?.pages.flatMap((page) => page.data) || []
+    const pages = infiniteData?.pages as { data: GenerationWithOutputs[] }[] | undefined
+    const allGenerations = pages?.flatMap((page) => page.data) || []
     if (!session?.id) return allGenerations
     return allGenerations.filter((gen) => !isGenerationDismissed(session.id, gen.id))
   }, [infiniteData, session?.id])

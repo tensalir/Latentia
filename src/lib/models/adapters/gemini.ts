@@ -1147,60 +1147,65 @@ export class GeminiAdapter extends BaseModelAdapter {
       'end frame (lastFrame)'
     )
     
-    // Build instance object according to Veo 3.1 API docs
-    // https://ai.google.dev/gemini-api/docs/video
-    const cleanInstance: any = {
-      prompt: instance.prompt,
+    // Helper to build image object in the correct schema format
+    // Veo predictLongRunning uses bytesBase64Encoded, NOT inlineData
+    type ImageSchema = 'bytesBase64Encoded' | 'inlineData'
+    const buildImageObject = (base64Data: string, mimeType: string, schema: ImageSchema) => {
+      if (schema === 'bytesBase64Encoded') {
+        return { bytesBase64Encoded: base64Data, mimeType }
+      } else {
+        return { inlineData: { mimeType, data: base64Data } }
+      }
     }
     
-    // For image-to-video, use 'image' parameter directly (not referenceImages)
-    // referenceImages is for style/content guidance with up to 3 images
-    if (startFrame) {
-      const base64Image = startFrame.bytes.toString('base64')
-      // Image-to-video uses direct 'image' field in instance
-      cleanInstance.image = {
-        inlineData: {
-          mimeType: startFrame.contentType,
-          data: base64Image,
+    // Helper to build the full payload with a given image schema
+    const buildPayload = (schema: ImageSchema) => {
+      // Build instance object according to Veo 3.1 API docs
+      // https://ai.google.dev/gemini-api/docs/video
+      const cleanInstance: any = {
+        prompt: instance.prompt,
+      }
+      
+      // For image-to-video, use 'image' parameter directly (not referenceImages)
+      // referenceImages is for style/content guidance with up to 3 images
+      if (startFrame) {
+        const base64Image = startFrame.bytes.toString('base64')
+        // Image-to-video uses direct 'image' field in instance
+        cleanInstance.image = buildImageObject(base64Image, startFrame.contentType, schema)
+        console.log(`[Veo 3.1] Added starting frame image (${base64Image.length} chars, ${startFrame.contentType}, schema: ${schema})`)
+      }
+      
+      // Build payload with separate 'parameters' object (per REST API docs)
+      const payload: any = {
+        instances: [cleanInstance],
+        parameters: {
+          aspectRatio: options.aspectRatio,
+          // Resolution must be "720p", "1080p", or "4k" (string)
+          // Per Veo 3.1 docs: 1080p/4k require 8 seconds duration
+          resolution: options.resolution === 2160 ? '4k' : options.resolution === 1080 ? '1080p' : '720p',
+          // Duration in seconds as number (not string!)
+          durationSeconds: duration,
         },
       }
-      console.log(`[Veo 3.1] Added starting frame image (${base64Image.length} chars, ${startFrame.contentType})`)
-    }
-    
-    // Build payload with separate 'parameters' object (per REST API docs)
-    const payload: any = {
-      instances: [cleanInstance],
-      parameters: {
-        aspectRatio: options.aspectRatio,
-        // Resolution must be "720p", "1080p", or "4k" (string)
-        // Per Veo 3.1 docs: 1080p/4k require 8 seconds duration
-        resolution: options.resolution === 2160 ? '4k' : options.resolution === 1080 ? '1080p' : '720p',
-        // Duration in seconds as number (not string!)
-        durationSeconds: duration,
-      },
-    }
-    
-    // Add end frame (lastFrame) for frame interpolation if provided
-    // Per docs: "The ending frame is passed as a generation constraint in the config"
-    // https://ai.google.dev/gemini-api/docs/video#using-first-and-last-video-frames
-    if (endFrame) {
-      const base64EndImage = endFrame.bytes.toString('base64')
-      payload.parameters.lastFrame = {
-        inlineData: {
-          mimeType: endFrame.contentType,
-          data: base64EndImage,
-        },
+      
+      // Add end frame (lastFrame) for frame interpolation if provided
+      // Per docs: "The ending frame is passed as a generation constraint in the config"
+      // https://ai.google.dev/gemini-api/docs/video#using-first-and-last-video-frames
+      if (endFrame) {
+        const base64EndImage = endFrame.bytes.toString('base64')
+        payload.parameters.lastFrame = buildImageObject(base64EndImage, endFrame.contentType, schema)
+        console.log(`[Veo 3.1] Added ending frame (lastFrame) for interpolation (${base64EndImage.length} chars, ${endFrame.contentType}, schema: ${schema})`)
       }
-      console.log(`[Veo 3.1] Added ending frame (lastFrame) for interpolation (${base64EndImage.length} chars, ${endFrame.contentType})`)
+      
+      return payload
     }
     
-    console.log(`[Veo 3.1] Calling API with ${duration}s video, ${options.resolution}p, ${options.aspectRatio}`)
-    console.log(`[Veo 3.1] Payload (redacted):`, JSON.stringify(redactLargeStrings(payload), null, 2))
-    
-    try {
-      // Initiate video generation
-      // According to docs, API key should be in header, not query string
-      const response = await fetch(endpoint, {
+    // Helper to make the API request
+    const makeRequest = async (payload: any): Promise<Response> => {
+      console.log(`[Veo 3.1] Calling API with ${duration}s video, ${options.resolution}p, ${options.aspectRatio}`)
+      console.log(`[Veo 3.1] Payload (redacted):`, JSON.stringify(redactLargeStrings(payload), null, 2))
+      
+      return fetch(endpoint, {
         method: 'POST',
         headers: {
           'x-goog-api-key': this.apiKey,
@@ -1208,10 +1213,47 @@ export class GeminiAdapter extends BaseModelAdapter {
         },
         body: JSON.stringify(payload),
       })
+    }
+    
+    // Check if error is a schema-related error that warrants a retry with alternative schema
+    const isSchemaError = (errorMessage: string): ImageSchema | null => {
+      const msg = errorMessage.toLowerCase()
+      if (msg.includes('inlinedata') && (msg.includes("isn't supported") || msg.includes('not supported') || msg.includes('unknown field'))) {
+        // Error mentions inlineData not supported -> try bytesBase64Encoded
+        return 'bytesBase64Encoded'
+      }
+      if (msg.includes('bytesbase64encoded') && (msg.includes("isn't supported") || msg.includes('not supported') || msg.includes('unknown field'))) {
+        // Error mentions bytesBase64Encoded not supported -> try inlineData
+        return 'inlineData'
+      }
+      return null
+    }
+    
+    try {
+      // Primary attempt: use bytesBase64Encoded schema (per Veo predictLongRunning API docs)
+      let currentSchema: ImageSchema = 'bytesBase64Encoded'
+      let payload = buildPayload(currentSchema)
+      let response = await makeRequest(payload)
 
+      // If the request failed, check if it's a schema error and retry with alternative
       if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error?.message || 'Video generation request failed')
+        const errorData = await response.json()
+        const errorMessage = errorData.error?.message || 'Video generation request failed'
+        
+        const alternativeSchema = isSchemaError(errorMessage)
+        if (alternativeSchema && alternativeSchema !== currentSchema) {
+          console.log(`[Veo 3.1] Schema error detected, retrying with ${alternativeSchema} format...`)
+          currentSchema = alternativeSchema
+          payload = buildPayload(currentSchema)
+          response = await makeRequest(payload)
+          
+          if (!response.ok) {
+            const retryErrorData = await response.json()
+            throw new Error(retryErrorData.error?.message || 'Video generation request failed after schema retry')
+          }
+        } else {
+          throw new Error(errorMessage)
+        }
       }
 
       const operation = await response.json()

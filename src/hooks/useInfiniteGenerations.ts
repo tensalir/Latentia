@@ -161,7 +161,7 @@ export function useInfiniteGenerations(sessionId: string | null, limit: number =
     // Avoid fetching for optimistic "temp-*" session IDs (not valid UUIDs; server will 500 otherwise)
     enabled: !!sessionId && !isTempSession,
     initialPageParam: undefined as string | undefined,
-    getNextPageParam: (lastPage) => {
+    getNextPageParam: (lastPage: PaginatedGenerationsResponse) => {
       // Return the cursor for the next page (older items), or undefined if no more
       return lastPage.hasMore ? (lastPage.nextCursor as string | undefined) : undefined
     },
@@ -175,7 +175,8 @@ export function useInfiniteGenerations(sessionId: string | null, limit: number =
       const allData = query.state.data
       if (!allData) return false
 
-      const allGenerations = allData.pages.flatMap((page) => page.data)
+      const pages = allData.pages as PaginatedGenerationsResponse[]
+      const allGenerations = pages.flatMap((page) => page.data)
       const hasProcessingGenerations = allGenerations.some((gen) => gen.status === 'processing')
 
       if (hasProcessingGenerations) {
@@ -186,7 +187,8 @@ export function useInfiniteGenerations(sessionId: string | null, limit: number =
     },
     // Use custom structural sharing to preserve clientId and prevent outputs from being wiped
     // This makes updates "monotonic" - visible content never disappears during refetch
-    structuralSharing: mergeGenerationsData,
+    // Cast needed because TanStack Query v5 types structuralSharing as (unknown, unknown) => unknown
+    structuralSharing: mergeGenerationsData as (oldData: unknown, newData: unknown) => unknown,
   })
 }
 
