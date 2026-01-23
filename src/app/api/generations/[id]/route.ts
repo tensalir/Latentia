@@ -131,6 +131,81 @@ export async function GET(
   }
 }
 
+// PATCH /api/generations/[id] - Update generation status (e.g., dismiss a stuck generation)
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const supabase = createRouteHandlerClient({ cookies })
+    const {
+      data: { session },
+      error: authError,
+    } = await supabase.auth.getSession()
+
+    if (authError || !session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const generationId = params.id
+    const body = await request.json()
+    const { status } = body
+
+    if (!generationId) {
+      return NextResponse.json(
+        { error: 'Generation ID is required' },
+        { status: 400 }
+      )
+    }
+
+    // Only allow setting status to 'dismissed'
+    if (status !== 'dismissed') {
+      return NextResponse.json(
+        { error: 'Only status "dismissed" is allowed' },
+        { status: 400 }
+      )
+    }
+
+    // Fetch the generation
+    const generation = await prisma.generation.findUnique({
+      where: { id: generationId },
+    })
+
+    if (!generation) {
+      return NextResponse.json(
+        { error: 'Generation not found' },
+        { status: 404 }
+      )
+    }
+
+    // Verify ownership
+    if (generation.userId !== session.user.id) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 403 }
+      )
+    }
+
+    // Update the generation status to 'dismissed'
+    const updated = await prisma.generation.update({
+      where: { id: generationId },
+      data: { status: 'dismissed' },
+    })
+
+    return NextResponse.json({
+      id: generationId,
+      status: updated.status,
+      message: 'Generation dismissed successfully',
+    })
+  } catch (error: any) {
+    console.error('Error dismissing generation:', error)
+    return NextResponse.json(
+      { error: 'Failed to dismiss generation', details: error.message },
+      { status: 500 }
+    )
+  }
+}
+
 export async function DELETE(
   request: NextRequest,
   { params }: { params: { id: string } }
@@ -175,10 +250,10 @@ export async function DELETE(
       )
     }
 
-    // Only allow deleting cancelled or failed generations
-    if (generation.status !== 'cancelled' && generation.status !== 'failed') {
+    // Only allow deleting cancelled, failed, or dismissed generations
+    if (generation.status !== 'cancelled' && generation.status !== 'failed' && generation.status !== 'dismissed') {
       return NextResponse.json(
-        { error: 'Can only delete cancelled or failed generations' },
+        { error: 'Can only delete cancelled, failed, or dismissed generations' },
         { status: 400 }
       )
     }

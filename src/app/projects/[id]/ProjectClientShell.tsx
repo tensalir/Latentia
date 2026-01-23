@@ -128,6 +128,11 @@ export function ProjectClientShell({
   const [updating, setUpdating] = useState(false)
   const [activeSession, setActiveSession] = useState<Session | null>(null)
   const [generationType, setGenerationType] = useState<'image' | 'video'>('image')
+  // Track last active session ID for each type so we can restore it when switching tabs
+  const lastActiveSessionByTypeRef = useRef<{ image: string | null; video: string | null }>({
+    image: null,
+    video: null,
+  })
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     // Initialize from DOM class or default to dark
     if (typeof window !== 'undefined') {
@@ -254,6 +259,13 @@ export function ProjectClientShell({
       setGenerationType(sessions[0].type)
     }
   }, [sessionsLoading, sessions, activeSession, generationType, projectId])
+
+  // Track last active session for each type (for tab switching)
+  useEffect(() => {
+    if (activeSession) {
+      lastActiveSessionByTypeRef.current[activeSession.type] = activeSession.id
+    }
+  }, [activeSession])
 
   // Track which sessions we've already prefetched
   const prefetchedSessionsRef = useRef<Set<string>>(new Set())
@@ -547,6 +559,18 @@ export function ProjectClientShell({
   const handleGenerationTypeChange = (type: 'image' | 'video') => {
     setGenerationType(type)
     const sessionsOfType = sessions.filter((s) => s.type === type)
+    
+    // Try to restore the last active session for this type
+    const lastSessionId = lastActiveSessionByTypeRef.current[type]
+    if (lastSessionId) {
+      const lastSession = sessionsOfType.find(s => s.id === lastSessionId)
+      if (lastSession) {
+        setActiveSession(lastSession)
+        return
+      }
+    }
+    
+    // Fall back to first session of this type (sorted by updatedAt)
     setActiveSession(sessionsOfType[0] || null)
   }
 

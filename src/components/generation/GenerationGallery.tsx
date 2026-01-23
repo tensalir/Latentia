@@ -1148,7 +1148,7 @@ export function GenerationGallery({
                 </div>
 
                 {/* Right Side: Single video container */}
-                <div className="flex-1 grid grid-cols-1 gap-3 max-w-5xl">
+                <div className="flex-1 grid grid-cols-1 gap-3 max-w-2xl">
                   {generation.outputs && generation.outputs.length > 0 ? (
                     generation.outputs.map((output) => {
                       const fallbackAspectRatio = (generation.parameters as any)?.aspectRatio || '16:9'
@@ -1168,7 +1168,7 @@ export function GenerationGallery({
                     })
                   ) : (
                     // Fallback: Show error message if video generation has no outputs
-                    <div className="flex-1 max-w-5xl">
+                    <div className="flex-1 max-w-2xl">
                       <div className="bg-destructive/10 rounded-xl p-6 border border-destructive/50">
                         <h3 className="text-lg font-semibold text-destructive mb-2">No Video Generated</h3>
                         <p className="text-sm text-foreground/80 mb-4">

@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { Image as ImageIcon, ImagePlus, Ratio, ChevronDown, Upload, FolderOpen, X, Circle, GripHorizontal, Pin, ZoomIn } from 'lucide-react'
+import { Image as ImageIcon, ImagePlus, Ratio, ChevronDown, Upload, FolderOpen, X, Circle, GripHorizontal, Pin, ZoomIn, Loader2 } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -80,6 +80,9 @@ export function ChatInput({
   const [transformedPrompt, setTransformedPrompt] = useState<string | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  
+  // Brief visual feedback when generate is triggered
+  const [showGeneratingFeedback, setShowGeneratingFeedback] = useState(false)
   
   // Resizable input height - use refs for smooth dragging performance
   const [inputHeight, setInputHeight] = useState(52) // Default min height
@@ -183,6 +186,9 @@ export function ChatInput({
     if (!prompt.trim()) return
 
     try {
+      // Show brief visual feedback that generation was triggered
+      setShowGeneratingFeedback(true)
+      
       // Use multiple images if model supports it, otherwise use single image for backward compatibility
       if (supportsMultiImage && referenceImages.length > 0) {
         await onGenerate(prompt, { referenceImages })
@@ -196,8 +202,19 @@ export function ChatInput({
     } catch (error) {
       console.error('Generation error:', error)
       // Error handling is done in the mutation
+      setShowGeneratingFeedback(false) // Clear feedback on error
     }
   }
+  
+  // Auto-reset generating feedback after brief display
+  useEffect(() => {
+    if (showGeneratingFeedback) {
+      const timer = setTimeout(() => {
+        setShowGeneratingFeedback(false)
+      }, 1500)
+      return () => clearTimeout(timer)
+    }
+  }, [showGeneratingFeedback])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
@@ -871,11 +888,18 @@ export function ChatInput({
         {/* Generate Button */}
         <Button
           onClick={handleSubmit}
-          disabled={!prompt.trim() || isEnhancing || transformedPrompt !== null}
+          disabled={!prompt.trim() || isEnhancing || transformedPrompt !== null || showGeneratingFeedback}
           size="default"
           className="h-[52px] px-8 rounded-lg font-semibold shadow-sm hover:shadow transition-all"
         >
-          Generate
+          {showGeneratingFeedback ? (
+            <>
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              Generating
+            </>
+          ) : (
+            'Generate'
+          )}
         </Button>
       </div>
 

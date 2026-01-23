@@ -180,8 +180,10 @@ export async function GET(request: NextRequest) {
     const showAllGenerations = isOwner || project.isShared
 
     // Build base where clause
+    // Exclude dismissed generations - they should never appear in the UI
     const baseWhere: any = {
       sessionId,
+      status: { not: 'dismissed' },
       ...(showAllGenerations ? {} : { userId: session.user.id }),
     }
 

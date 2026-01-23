@@ -160,11 +160,11 @@ export function GenerationInterface({
   }, [externalReferenceImageUrl, generationType, onExternalReferenceImageConsumed])
   
   /**
-   * Dismiss/remove a stuck generation from the UI cache.
-   * Used when a generation is stuck in 'processing' state but doesn't exist in the database.
-   * Also marks the generation as dismissed so it won't reappear from refetches or realtime events.
+   * Dismiss/remove a stuck generation from the UI cache and database.
+   * Used when a generation is stuck in 'processing' state.
+   * Persists the dismissal to the database so it won't reappear after page refresh.
    */
-  const handleDismissGeneration = useCallback((generationId: string, clientId?: string) => {
+  const handleDismissGeneration = useCallback(async (generationId: string, clientId?: string) => {
     console.log('Dismissing stuck generation:', generationId, clientId)
     
     // Mark as dismissed FIRST so realtime events don't bring it back
@@ -203,9 +203,26 @@ export function GenerationInterface({
       }
     )
     
+    // Persist dismissal to database (so it won't reappear after page refresh)
+    try {
+      const response = await fetch(`/api/generations/${generationId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'dismissed' }),
+      })
+      
+      if (!response.ok) {
+        console.warn('Failed to persist dismissal to database:', await response.text())
+        // Still show success toast - the UI is updated, just not persisted
+      }
+    } catch (error) {
+      console.warn('Error persisting dismissal:', error)
+      // Still show success toast - the UI is updated
+    }
+    
     toast({
       title: 'Generation dismissed',
-      description: 'The stuck generation has been removed from the view.',
+      description: 'The stuck generation has been removed.',
     })
   }, [queryClient, session?.id, toast])
   
@@ -630,22 +647,17 @@ export function GenerationInterface({
 
       const currentHeight = container.scrollHeight
       const previousHeight = previousContentHeightRef.current
-      const heightIncreased = currentHeight > previousHeight
       
       // Update stored height
       previousContentHeightRef.current = currentHeight
 
-      const distanceFromBottom =
-        container.scrollHeight - container.scrollTop - container.clientHeight
-
-      // Keep the view pinned to bottom across late layout shifts
-      // - When opening a session: force-scroll until we actually reach bottom at least once
-      // - When user is pinned AND content height increased (new content, not cancelled generations)
+      // ONLY auto-scroll during initial session load (pendingScrollToBottomRef)
+      // NEVER auto-scroll when new items are added - this prevents the "yank" effect
+      // Users can click the "new items" indicator or scroll manually
       const shouldScrollForPending = pendingScrollToBottomRef.current
-      const shouldScrollForPinned = isPinnedToBottomRef.current && heightIncreased && distanceFromBottom < 50
       
-      if (shouldScrollForPending || shouldScrollForPinned) {
-        scrollToBottomNow(shouldScrollForPending ? 'session-load' : 'pinned-resize')
+      if (shouldScrollForPending) {
+        scrollToBottomNow('session-load')
         // Clear pending once we are actually at (or extremely near) the bottom
         const afterDistance =
           container.scrollHeight - container.scrollTop - container.clientHeight
@@ -685,15 +697,18 @@ export function GenerationInterface({
     // Update count reference
     previousGenerationsCountRef.current = currentCount
     
-    // For new items (not session change): auto-scroll if pinned, show indicator otherwise
+    // For new items (not session change): NEVER auto-scroll
+    // Always show the indicator so user can choose when to scroll
+    // This prevents the jarring "yank" effect when generating while scrolled up
     if (hasNewItems && !pendingScrollToBottomRef.current) {
-      if (isPinnedToBottom) {
-        scrollToBottomNow('new-items')
-      } else {
+      // Only show indicator if user is not already at bottom
+      // Check the ref directly to avoid race conditions with state
+      if (!isPinnedToBottomRef.current) {
         setShowNewItemsIndicator(true)
       }
+      // If user IS at bottom, they'll naturally see the new content - no scroll needed
     }
-  }, [generations.length, isLoading, isPinnedToBottom, scrollToBottomNow])
+  }, [generations.length, isLoading, scrollToBottomNow])
 
   // Load older items when scrolling to top (sentinel at top)
   useEffect(() => {

@@ -229,6 +229,17 @@ export async function POST(request: NextRequest) {
 
     console.log(`[${generation.id}] Generation created, starting async processing`)
     metricMeta.generationId = generation.id
+    
+    // Update session's updatedAt to reflect recent activity
+    // This ensures sessions sort by last interaction, not just creation date
+    await prisma.session.update({
+      where: { id: sessionId },
+      data: { updatedAt: new Date() },
+    }).catch((err) => {
+      // Non-critical - log but don't fail the generation
+      console.warn(`[${generation.id}] Failed to update session timestamp:`, err.message)
+    })
+    
     if (GENERATION_QUEUE_ENABLED) {
       await prisma.generationJob.create({
         data: {
