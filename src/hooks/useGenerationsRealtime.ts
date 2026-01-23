@@ -134,7 +134,8 @@ export function useGenerationsRealtime(sessionId: string | null, userId: string 
     try {
       console.log(`🔴 Fetching single generation: ${generationId}`)
       
-      const response = await fetch(`/api/generations/${generationId}`)
+      // Use no-store to ensure fresh data (avoid stale cache overwriting current outputs)
+      const response = await fetch(`/api/generations/${generationId}`, { cache: 'no-store' })
       if (!response.ok) {
         console.warn(`🔴 Failed to fetch generation ${generationId}: ${response.status}`)
         // Fall back to full invalidation
@@ -145,6 +146,7 @@ export function useGenerationsRealtime(sessionId: string | null, userId: string 
       const generation: GenerationWithOutputs = await response.json()
       
       // Merge the fetched generation into the infinite cache
+      // IMPORTANT: Preserve existing outputs if the fetched generation has none (monotonic update)
       queryClient.setQueryData<InfiniteData<PaginatedGenerationsResponse>>(
         ['generations', 'infinite', sessionId],
         (old) => {
@@ -155,12 +157,23 @@ export function useGenerationsRealtime(sessionId: string | null, userId: string 
             pages: old.pages.map((page) => {
               const foundIndex = page.data.findIndex(gen => gen.id === generationId)
               if (foundIndex !== -1) {
-                console.log(`🔴 Merged generation ${generationId} into cache (status: ${generation.status}, outputs: ${generation.outputs?.length || 0})`)
+                const cachedGen = page.data[foundIndex]
+                
+                // Monotonic outputs: never replace non-empty outputs with empty ones
+                // This prevents flicker when realtime fires before outputs are fully written
+                const outputs =
+                  (!generation.outputs || generation.outputs.length === 0) && 
+                  cachedGen.outputs && cachedGen.outputs.length > 0
+                    ? cachedGen.outputs
+                    : generation.outputs
+                
+                console.log(`🔴 Merged generation ${generationId} into cache (status: ${generation.status}, outputs: ${outputs?.length || 0}, preserved: ${outputs === cachedGen.outputs})`)
                 const newData = [...page.data]
                 // Preserve clientId for stable React keys
                 newData[foundIndex] = {
                   ...generation,
-                  clientId: page.data[foundIndex].clientId,
+                  clientId: cachedGen.clientId,
+                  outputs,
                 }
                 return { ...page, data: newData }
               }
@@ -177,10 +190,20 @@ export function useGenerationsRealtime(sessionId: string | null, userId: string 
           if (!old) return [generation]
           const foundIndex = old.findIndex(gen => gen.id === generationId)
           if (foundIndex !== -1) {
+            const cachedGen = old[foundIndex]
+            
+            // Monotonic outputs: preserve if new data has empty outputs
+            const outputs =
+              (!generation.outputs || generation.outputs.length === 0) &&
+              cachedGen.outputs && cachedGen.outputs.length > 0
+                ? cachedGen.outputs
+                : generation.outputs
+            
             const newData = [...old]
             newData[foundIndex] = {
               ...generation,
-              clientId: old[foundIndex].clientId,
+              clientId: cachedGen.clientId,
+              outputs,
             }
             return newData
           }

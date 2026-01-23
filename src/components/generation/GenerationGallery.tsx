@@ -791,8 +791,15 @@ export function GenerationGallery({
   }
 
   // Check if this is a video generation
+  // Uses model type as fallback when outputs are temporarily empty (prevents layout flipping)
   const isVideoGeneration = (gen: GenerationWithOutputs) => {
-    return gen.outputs?.some(output => output.fileType === 'video') ?? false
+    // First check outputs if available
+    if (gen.outputs && gen.outputs.length > 0) {
+      return gen.outputs.some(output => output.fileType === 'video')
+    }
+    // Fallback: check if the model is a video model (handles transient empty outputs)
+    const modelConfig = allModels.find(m => m.id === gen.modelId)
+    return modelConfig?.type === 'video'
   }
   
   // Get stable key for React - prefer clientId, fallback to id

@@ -1,6 +1,87 @@
-import { useInfiniteQuery } from '@tanstack/react-query'
+import { useInfiniteQuery, InfiniteData } from '@tanstack/react-query'
 import { logMetric } from '@/lib/metrics'
 import { fetchGenerationsPage, PaginatedGenerationsResponse } from '@/lib/api/generations'
+import type { GenerationWithOutputs } from '@/types/generation'
+
+/**
+ * Monotonic merge: never remove visible outputs or lose clientId during refetch.
+ * This prevents flicker where a generation briefly shows "No outputs" before real data loads.
+ */
+function mergeGenerationsData(
+  oldData: InfiniteData<PaginatedGenerationsResponse> | undefined,
+  newData: InfiniteData<PaginatedGenerationsResponse>
+): InfiniteData<PaginatedGenerationsResponse> {
+  if (!oldData) return newData
+
+  // Build a lookup of old generations by ID for fast access
+  const oldGenerationsMap = new Map<string, GenerationWithOutputs>()
+  for (const page of oldData.pages) {
+    for (const gen of page.data) {
+      oldGenerationsMap.set(gen.id, gen)
+    }
+  }
+
+  // Merge each page, preserving clientId and non-empty outputs from cache
+  const mergedPages = newData.pages.map((newPage, pageIndex) => {
+    const mergedData = newPage.data.map((newGen) => {
+      const oldGen = oldGenerationsMap.get(newGen.id)
+      if (!oldGen) return newGen
+
+      // Preserve clientId for stable React keys
+      const clientId = oldGen.clientId || newGen.clientId
+
+      // Monotonic outputs: never replace non-empty outputs with empty ones
+      // This prevents flicker when backend returns generation before outputs are fully written
+      const outputs =
+        (!newGen.outputs || newGen.outputs.length === 0) && oldGen.outputs && oldGen.outputs.length > 0
+          ? oldGen.outputs
+          : newGen.outputs
+
+      return {
+        ...newGen,
+        clientId,
+        outputs,
+      }
+    })
+
+    // For the first page (newest items), also preserve any recent processing generations
+    // that might be missing from the fresh response (race condition during creation)
+    if (pageIndex === 0) {
+      const newGenIds = new Set(newPage.data.map((g) => g.id))
+      const now = Date.now()
+      const RECENT_THRESHOLD_MS = 30 * 1000 // 30 seconds
+
+      // Find processing generations from old page 0 that are missing from new data
+      const oldPage0 = oldData.pages[0]
+      if (oldPage0) {
+        const missingRecentProcessing = oldPage0.data.filter((oldGen) => {
+          if (newGenIds.has(oldGen.id)) return false // Already in new data
+          if (oldGen.status !== 'processing') return false // Only preserve processing ones
+          const createdAtMs = new Date(oldGen.createdAt).getTime()
+          return now - createdAtMs < RECENT_THRESHOLD_MS
+        })
+
+        // Prepend missing recent processing generations (they should be newest)
+        if (missingRecentProcessing.length > 0) {
+          return {
+            ...newPage,
+            data: [...missingRecentProcessing, ...mergedData],
+          }
+        }
+      }
+    }
+
+    return {
+      ...newPage,
+      data: mergedData,
+    }
+  })
+
+  return {
+    ...newData,
+    pages: mergedPages,
+  }
+}
 
 /**
  * Fetches a page of generations from the API.
@@ -103,6 +184,9 @@ export function useInfiniteGenerations(sessionId: string | null, limit: number =
 
       return false
     },
+    // Use custom structural sharing to preserve clientId and prevent outputs from being wiped
+    // This makes updates "monotonic" - visible content never disappears during refetch
+    structuralSharing: mergeGenerationsData,
   })
 }
 

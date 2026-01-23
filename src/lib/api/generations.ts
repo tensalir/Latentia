@@ -24,7 +24,9 @@ export async function fetchGenerationsPage({
     params.append('cursor', cursor)
   }
 
-  const response = await fetch(`/api/generations?${params}`)
+  // Use no-store to prevent stale cached responses during polling/refetch
+  // This ensures we always get fresh data and don't overwrite optimistic updates with stale cache
+  const response = await fetch(`/api/generations?${params}`, { cache: 'no-store' })
 
   if (!response.ok) {
     throw new Error('Failed to fetch generations')
