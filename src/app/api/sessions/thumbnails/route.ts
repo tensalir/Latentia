@@ -40,6 +40,7 @@ export async function GET(request: NextRequest) {
     const userId = user.id
 
     // Verify user has access to this project and get ownership info
+    // (owner, explicit member, or public project)
     const project = await prisma.project.findFirst({
       where: {
         id: projectId,
@@ -52,6 +53,7 @@ export async function GET(request: NextRequest) {
               },
             },
           },
+          { isShared: true }, // Public project
         ],
       },
     })

@@ -165,9 +165,10 @@ export async function GET(request: NextRequest) {
     const project = sessionData.project
     const isOwner = project.ownerId === session.user.id
     const isMember = project.members.length > 0
+    const isPublicProject = project.isShared === true
 
-    // User must be owner or member to access
-    if (!isOwner && !isMember) {
+    // User must be owner, member, or the project must be public (isShared=true)
+    if (!isOwner && !isMember && !isPublicProject) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 403 }

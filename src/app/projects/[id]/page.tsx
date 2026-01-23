@@ -43,6 +43,8 @@ export default async function ProjectPage({ params }: PageProps) {
               },
             },
           },
+          // Public projects (visible in Community Creations) are accessible to all logged-in users
+          { isShared: true },
         ],
       },
     }),
@@ -150,6 +152,8 @@ async function fetchSessionsForHydration(projectId: string, userId: string) {
               },
             },
           },
+          // Public projects are readable by any logged-in user
+          { isShared: true },
         ],
       },
     })

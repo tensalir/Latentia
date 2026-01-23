@@ -121,6 +121,7 @@ async function checkProjectAccess(projectId: string, userId: string) {
             },
           },
         },
+        { isShared: true }, // Public project
       ],
     },
     select: { id: true, name: true },
@@ -180,6 +181,7 @@ export async function POST(
               },
             },
           },
+          { isShared: true }, // Public project
         ],
       },
       select: { id: true, name: true, briefing: true },

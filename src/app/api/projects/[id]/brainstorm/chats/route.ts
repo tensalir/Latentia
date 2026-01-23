@@ -19,6 +19,7 @@ async function checkProjectAccess(projectId: string, userId: string) {
             },
           },
         },
+        { isShared: true }, // Public project
       ],
     },
     select: { id: true },

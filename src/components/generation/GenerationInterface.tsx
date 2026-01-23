@@ -19,10 +19,9 @@ import { Image as ImageIcon, Video, MessageCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { logMetric } from '@/lib/metrics'
 
-// Default to Replicate Kling for reliability. The official Kling API requires
-// separate KLING_ACCESS_KEY / KLING_SECRET_KEY credentials and will fail with
-// "Authorization signature is invalid" when not configured correctly.
-const DEFAULT_VIDEO_MODEL_ID = 'replicate-kling-2.6'
+// Default to Kling Official API for best quality and frame interpolation support.
+// Requires KLING_ACCESS_KEY and KLING_SECRET_KEY credentials.
+const DEFAULT_VIDEO_MODEL_ID = 'kling-official'
 
 /**
  * Get preferred model ID from a list of models.
@@ -1144,17 +1143,17 @@ export function GenerationInterface({
                 highlightOutputId={highlightOutputId}
                 onScrollToOutputComplete={() => setScrollToOutputId(null)}
                 onUseAsReference={(imageUrl) => {
+                  // Clear prompt and any existing images, leaving only the reference
+                  setPrompt('')
                   if (generationType === 'video') {
                     setReferenceImageUrl(imageUrl)
                   } else {
-                    setReferenceImageUrls((prev) => {
-                      if (prev.includes(imageUrl)) return prev
-                      return [...prev, imageUrl]
-                    })
+                    // Replace all existing reference images with just this one
+                    setReferenceImageUrls([imageUrl])
                   }
                   toast({
                     title: 'Reference added',
-                    description: 'Image added to prompt bar as reference',
+                    description: 'Prompt cleared. Image set as reference.',
                   })
                 }}
               />

@@ -154,7 +154,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // SECURITY: Verify user has access to this session via project ownership or membership
+    // SECURITY: Verify user has access to this session via project ownership, membership, or public project
     const sessionRecord = await prisma.session.findFirst({
       where: {
         id: sessionId,
@@ -168,6 +168,7 @@ export async function POST(request: NextRequest) {
                 },
               },
             },
+            { isShared: true }, // Public project
           ],
         },
       },

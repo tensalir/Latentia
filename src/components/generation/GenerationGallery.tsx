@@ -1385,12 +1385,12 @@ export function GenerationGallery({
                         e.stopPropagation()
                         onUseAsReference(output.fileUrl)
                       }}
-                      className="absolute pointer-events-auto transition-all hover:scale-110 opacity-0 group-hover:opacity-100"
-                      style={{ zIndex: 10, bottom: '0.5rem', right: '1.75rem' }}
+                      className="absolute bottom-2 right-[2.5rem] pointer-events-auto transition-all hover:scale-110 opacity-0 group-hover:opacity-100 p-1.5 rounded-full bg-primary/20 hover:bg-primary/30 backdrop-blur-sm"
+                      style={{ zIndex: 10 }}
                       title="Use as reference"
                     >
                       <ArrowDownRight 
-                        className="h-4 w-4 text-primary"
+                        className="h-3.5 w-3.5 text-primary"
                         style={{
                           filter: 'drop-shadow(0 0 6px hsl(var(--primary) / 0.5)) drop-shadow(0 0 10px hsl(var(--primary) / 0.25))',
                         }}

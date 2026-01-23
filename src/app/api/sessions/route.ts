@@ -34,7 +34,7 @@ export async function GET(request: Request) {
       )
     }
 
-    // Verify user has access to this project
+    // Verify user has access to this project (owner, member, or public project)
     const projectQueryStart = Date.now()
     const project = await prisma.project.findFirst({
       where: {
@@ -48,6 +48,7 @@ export async function GET(request: Request) {
               },
             },
           },
+          { isShared: true }, // Public project
         ],
       },
     })
@@ -163,7 +164,7 @@ export async function POST(request: Request) {
       )
     }
 
-    // Verify user has access to this project
+    // Verify user has access to this project (owner, member, or public project)
     const project = await prisma.project.findFirst({
       where: {
         id: projectId,
@@ -176,6 +177,7 @@ export async function POST(request: Request) {
               },
             },
           },
+          { isShared: true }, // Public project
         ],
       },
     })

@@ -63,7 +63,7 @@ export function ImageToVideoOverlay({
   
   // Video generation state
   const [prompt, setPrompt] = useState('')
-  const [selectedModel, setSelectedModel] = useState('replicate-kling-2.6')
+  const [selectedModel, setSelectedModel] = useState('kling-official')
   const [parameters, setParameters] = useState({
     aspectRatio: '16:9',
     resolution: 720,

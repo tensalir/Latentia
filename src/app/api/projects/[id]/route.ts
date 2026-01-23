@@ -28,8 +28,10 @@ export async function GET(
     const includeSessions = searchParams.get('includeSessions') === '1' || 
                             searchParams.get('includeSessions') === 'true'
 
-    // Project visibility: owner OR explicit member (invite-based sharing)
-    // Note: isShared is just a UI toggle for the owner, not a visibility flag
+    // Project visibility:
+    // - Owner can always access
+    // - Explicit members (invite-based sharing) can access
+    // - Public projects (isShared=true, "Community Creations") are accessible to any logged-in user
     const project = await prisma.project.findFirst({
       where: {
         id: params.id,
@@ -42,6 +44,7 @@ export async function GET(
               },
             },
           }, // Explicitly invited to project
+          { isShared: true }, // Public project
         ],
       },
       include: {

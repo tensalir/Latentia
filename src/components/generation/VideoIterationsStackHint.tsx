@@ -89,27 +89,30 @@ export function VideoIterationsStackHint({ outputId, onClick }: VideoIterationsS
         }}
         className={`
           absolute bottom-2 right-2 pointer-events-auto transition-all hover:scale-110
-          ${showStackEffect ? '' : 'opacity-0 group-hover:opacity-100'}
+          p-1.5 rounded-full backdrop-blur-sm
+          ${showStackEffect 
+            ? 'bg-primary/20 hover:bg-primary/30' 
+            : 'bg-primary/20 hover:bg-primary/30 opacity-0 group-hover:opacity-100'}
         `}
         style={{ zIndex: 10 }}
         title={hasProcessing ? 'Video generating...' : hasVideos ? `${count} video${count !== 1 ? 's' : ''} - Click to view` : 'Convert to video'}
       >
         {hasProcessing ? (
           <Loader2 
-            className="h-4 w-4 text-primary animate-spin"
+            className="h-3.5 w-3.5 text-primary animate-spin"
             style={{
               filter: 'drop-shadow(0 0 6px hsl(var(--primary) / 0.6)) drop-shadow(0 0 12px hsl(var(--primary) / 0.3))',
             }}
           />
         ) : hasVideos ? (
           <Video 
-            className="h-4 w-4 text-primary"
+            className="h-3.5 w-3.5 text-primary"
             style={{
               filter: 'drop-shadow(0 0 6px hsl(var(--primary) / 0.5)) drop-shadow(0 0 10px hsl(var(--primary) / 0.25))',
             }}
           />
         ) : (
-          <Video className="h-4 w-4 text-white" />
+          <Video className="h-3.5 w-3.5 text-primary" />
         )}
       </button>
     </>

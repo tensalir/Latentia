@@ -76,10 +76,11 @@ export async function GET(
 
     // Check access
     const project = generation.session.project
-    const isOwner = project.ownerId === session.user.id
+    const isProjectOwner = project.ownerId === session.user.id
     const isMember = project.members.length > 0
+    const isPublicProject = project.isShared === true
 
-    if (!isOwner && !isMember) {
+    if (!isProjectOwner && !isMember && !isPublicProject) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 403 }
@@ -119,7 +120,7 @@ export async function GET(
       createdAt: generation.createdAt,
       outputs: outputsWithBookmarks,
       // Include ownership flag for UI
-      isOwner: isOwner,
+      isOwner: generation.userId === session.user.id,
     })
   } catch (error: any) {
     console.error('Error fetching generation:', error)

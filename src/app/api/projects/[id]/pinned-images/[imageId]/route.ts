@@ -24,36 +24,22 @@ export async function DELETE(
 
     const { id: projectId, imageId } = params
 
-    // Check project access
-    const project = await prisma.project.findFirst({
-      where: {
-        id: projectId,
-        OR: [
-          { ownerId: user.id },
-          {
+    // Check the pinned image exists and load project access info
+    const pinnedImage = await prisma.pinnedImage.findFirst({
+      where: { id: imageId, projectId },
+      select: {
+        id: true,
+        pinnedBy: true,
+        project: {
+          select: {
+            ownerId: true,
+            isShared: true,
             members: {
-              some: {
-                userId: user.id,
-              },
+              where: { userId: user.id },
+              select: { userId: true },
             },
           },
-        ],
-      },
-      select: { id: true },
-    })
-
-    if (!project) {
-      return NextResponse.json(
-        { error: 'Project not found or insufficient permissions' },
-        { status: 404 }
-      )
-    }
-
-    // Check the pinned image exists and belongs to this project
-    const pinnedImage = await prisma.pinnedImage.findFirst({
-      where: {
-        id: imageId,
-        projectId,
+        },
       },
     })
 
@@ -61,6 +47,27 @@ export async function DELETE(
       return NextResponse.json(
         { error: 'Pinned image not found' },
         { status: 404 }
+      )
+    }
+
+    const isOwner = pinnedImage.project.ownerId === user.id
+    const isMember = pinnedImage.project.members.length > 0
+    const isPublicProject = pinnedImage.project.isShared === true
+
+    // Must have access to the project
+    if (!isOwner && !isMember && !isPublicProject) {
+      return NextResponse.json(
+        { error: 'Project not found or insufficient permissions' },
+        { status: 404 }
+      )
+    }
+
+    // On public projects, only allow unpinning your own pins (or project owner / member)
+    const canUnpin = isOwner || isMember || pinnedImage.pinnedBy === user.id
+    if (!canUnpin) {
+      return NextResponse.json(
+        { error: 'Insufficient permissions to unpin this image' },
+        { status: 403 }
       )
     }
 
