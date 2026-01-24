@@ -4,8 +4,54 @@ import { fetchGenerationsPage, PaginatedGenerationsResponse } from '@/lib/api/ge
 import type { GenerationWithOutputs } from '@/types/generation'
 
 /**
+ * De-duplicate generations by id and clientId.
+ * - Keeps one generation per id (should never happen, but just in case)
+ * - Keeps one generation per clientId (prefers real UUID over temp-* id)
+ */
+function dedupeGenerations(generations: GenerationWithOutputs[]): GenerationWithOutputs[] {
+  const seenIds = new Set<string>()
+  const seenClientIds = new Map<string, GenerationWithOutputs>()
+  const result: GenerationWithOutputs[] = []
+
+  for (const gen of generations) {
+    // Skip duplicate by id
+    if (seenIds.has(gen.id)) continue
+
+    // Handle duplicate by clientId
+    if (gen.clientId) {
+      const existing = seenClientIds.get(gen.clientId)
+      if (existing) {
+        // Prefer the one with a real UUID (not temp-*)
+        const existingIsTemp = existing.id.startsWith('temp-')
+        const currentIsTemp = gen.id.startsWith('temp-')
+
+        if (existingIsTemp && !currentIsTemp) {
+          // Replace the temp one with the real one
+          const idx = result.indexOf(existing)
+          if (idx !== -1) {
+            result[idx] = gen
+            seenIds.delete(existing.id)
+            seenIds.add(gen.id)
+            seenClientIds.set(gen.clientId, gen)
+          }
+        }
+        // Otherwise keep the existing one (it's either real, or both are temp)
+        continue
+      }
+      seenClientIds.set(gen.clientId, gen)
+    }
+
+    seenIds.add(gen.id)
+    result.push(gen)
+  }
+
+  return result
+}
+
+/**
  * Monotonic merge: never remove visible outputs or lose clientId during refetch.
  * This prevents flicker where a generation briefly shows "No outputs" before real data loads.
+ * Also applies de-duplication to prevent duplicate tiles.
  */
 function mergeGenerationsData(
   oldData: InfiniteData<PaginatedGenerationsResponse> | undefined,
@@ -48,6 +94,8 @@ function mergeGenerationsData(
     // that might be missing from the fresh response (race condition during creation)
     if (pageIndex === 0) {
       const newGenIds = new Set(newPage.data.map((g) => g.id))
+      // Also track clientIds to prevent duplicates when reconciling
+      const newClientIds = new Set(newPage.data.map((g) => g.clientId).filter(Boolean))
       const now = Date.now()
       const RECENT_THRESHOLD_MS = 30 * 1000 // 30 seconds
 
@@ -55,7 +103,9 @@ function mergeGenerationsData(
       const oldPage0 = oldData.pages[0]
       if (oldPage0) {
         const missingRecentProcessing = oldPage0.data.filter((oldGen) => {
-          if (newGenIds.has(oldGen.id)) return false // Already in new data
+          if (newGenIds.has(oldGen.id)) return false // Already in new data by id
+          // Skip if a generation with the same clientId already exists (reconciled)
+          if (oldGen.clientId && newClientIds.has(oldGen.clientId)) return false
           if (oldGen.status !== 'processing') return false // Only preserve processing ones
           const createdAtMs = new Date(oldGen.createdAt).getTime()
           return now - createdAtMs < RECENT_THRESHOLD_MS
@@ -63,9 +113,11 @@ function mergeGenerationsData(
 
         // Prepend missing recent processing generations (they should be newest)
         if (missingRecentProcessing.length > 0) {
+          // Apply de-dupe to the combined result
+          const combined = [...missingRecentProcessing, ...mergedData]
           return {
             ...newPage,
-            data: [...missingRecentProcessing, ...mergedData],
+            data: dedupeGenerations(combined),
           }
         }
       }
@@ -73,7 +125,7 @@ function mergeGenerationsData(
 
     return {
       ...newPage,
-      data: mergedData,
+      data: dedupeGenerations(mergedData),
     }
   })
 

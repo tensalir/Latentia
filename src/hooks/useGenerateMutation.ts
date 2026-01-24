@@ -120,6 +120,11 @@ export function useGenerateMutation() {
       // The clientId persists even when the real id replaces the temp id
       const timestamp = Date.now()
       const clientId = `client-${timestamp}`
+      
+      // Persist clientId to request parameters so it gets stored in the DB
+      // This makes it available in Supabase realtime payloads for reconciliation
+      ;(variables.parameters as any).__clientId = clientId
+      
       const optimisticGeneration: GenerationWithOutputs = {
         id: `temp-${timestamp}`,
         clientId, // Stable key for React to prevent remount flicker

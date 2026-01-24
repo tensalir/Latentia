@@ -273,17 +273,127 @@ export function useGenerationsRealtime(sessionId: string | null, userId: string 
               }
             }
           } else if (payload.eventType === 'INSERT') {
-            // New generation inserted - only invalidate if we don't have it
-            // (optimistic updates should have added it already)
+            // New generation inserted - reconcile with optimistic entry by clientId
+            // or insert directly into cache (avoid full invalidation)
+            const insertClientId = newData?.parameters?.__clientId as string | undefined
+            const realId = newData?.id as string
+            
             const existingData = queryClient.getQueryData<InfiniteData<PaginatedGenerationsResponse>>(
               ['generations', 'infinite', sessionId]
             )
-            const exists = existingData?.pages.some(
-              page => page.data.some(gen => gen.id === newData?.id)
+            
+            // Check if we already have this generation by real ID
+            const existsById = existingData?.pages.some(
+              page => page.data.some(gen => gen.id === realId)
             )
-            if (!exists) {
-              debouncedInvalidate()
+            if (existsById) {
+              console.log(`🔴 INSERT: Generation ${realId} already exists in cache, skipping`)
+              return
             }
+            
+            // Try to find and reconcile optimistic entry by clientId
+            if (insertClientId && existingData) {
+              let reconciled = false
+              
+              queryClient.setQueryData<InfiniteData<PaginatedGenerationsResponse>>(
+                ['generations', 'infinite', sessionId],
+                (old) => {
+                  if (!old) return old
+                  
+                  return {
+                    ...old,
+                    pages: old.pages.map((page) => {
+                      const optimisticIndex = page.data.findIndex(
+                        gen => gen.clientId === insertClientId && gen.id.startsWith('temp-')
+                      )
+                      if (optimisticIndex !== -1) {
+                        reconciled = true
+                        console.log(`🔴 INSERT: Reconciling optimistic ${page.data[optimisticIndex].id} → ${realId} (clientId: ${insertClientId})`)
+                        const newPageData = [...page.data]
+                        const oldGen = newPageData[optimisticIndex]
+                        newPageData[optimisticIndex] = {
+                          ...oldGen,
+                          id: realId,
+                          userId: newData.user_id || oldGen.userId,
+                          status: newData.status || oldGen.status,
+                          createdAt: newData.created_at ? new Date(newData.created_at) : oldGen.createdAt,
+                        }
+                        return { ...page, data: newPageData }
+                      }
+                      return page
+                    }),
+                  }
+                }
+              )
+              
+              if (reconciled) {
+                // Also update the regular generations cache
+                queryClient.setQueryData<GenerationWithOutputs[]>(
+                  ['generations', sessionId],
+                  (old) => {
+                    if (!old) return old
+                    return old.map((gen) => {
+                      if (gen.clientId === insertClientId && gen.id.startsWith('temp-')) {
+                        return {
+                          ...gen,
+                          id: realId,
+                          userId: newData.user_id || gen.userId,
+                          status: newData.status || gen.status,
+                          createdAt: newData.created_at ? new Date(newData.created_at) : gen.createdAt,
+                        }
+                      }
+                      return gen
+                    })
+                  }
+                )
+                return // Successfully reconciled, no need to invalidate
+              }
+            }
+            
+            // No optimistic entry found - insert directly into page 0
+            // This handles generations from other tabs/devices
+            console.log(`🔴 INSERT: Adding new generation ${realId} to cache`)
+            const newGeneration: GenerationWithOutputs = {
+              id: realId,
+              clientId: insertClientId,
+              sessionId: newData.session_id || sessionId,
+              userId: newData.user_id || '',
+              modelId: newData.model_id || '',
+              prompt: newData.prompt || '',
+              negativePrompt: newData.negative_prompt,
+              parameters: newData.parameters || {},
+              status: newData.status || 'processing',
+              createdAt: newData.created_at ? new Date(newData.created_at) : new Date(),
+              outputs: [],
+              isOwner: newData.user_id === userId,
+            }
+            
+            queryClient.setQueryData<InfiniteData<PaginatedGenerationsResponse>>(
+              ['generations', 'infinite', sessionId],
+              (old) => {
+                if (!old || !old.pages.length) {
+                  return {
+                    pageParams: [undefined],
+                    pages: [{
+                      data: [newGeneration],
+                      nextCursor: undefined,
+                      hasMore: false,
+                    }],
+                  }
+                }
+                
+                // Insert at start of page 0 (newest-first)
+                return {
+                  ...old,
+                  pages: old.pages.map((page, idx) => {
+                    if (idx === 0) {
+                      return { ...page, data: [newGeneration, ...page.data] }
+                    }
+                    return page
+                  }),
+                }
+              }
+            )
           } else if (payload.eventType === 'DELETE') {
             // Generation deleted - mark as dismissed and remove from cache
             const deletedId = (payload.old as any)?.id

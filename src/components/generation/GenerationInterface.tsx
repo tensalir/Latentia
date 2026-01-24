@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, useMemo, useCallback } from 'react'
 import dynamic from 'next/dynamic'
 import { useQueryClient, InfiniteData } from '@tanstack/react-query'
 import { ChatInput } from './ChatInput'
@@ -274,8 +274,24 @@ export function GenerationInterface({
   // Track if we've done the initial backfill for this session
   const hasBackfilledRef = useRef<string | null>(null)
 
+  /**
+   * Helper to fetch older pages while preserving scroll position.
+   * Records the current scrollHeight before calling fetchNextPage() so that
+   * when older items are prepended, we can adjust scrollTop to keep the same
+   * content in view (scroll preservation effect handles the adjustment).
+   */
+  const fetchOlderPagePreservingScroll = useCallback(() => {
+    const container = scrollContainerRef.current
+    // Only set scrollHeight if not already tracking a load (prevents race conditions)
+    if (container && scrollHeightBeforeLoadRef.current === null && !isFetchingNextPage) {
+      scrollHeightBeforeLoadRef.current = container.scrollHeight
+    }
+    return fetchNextPage()
+  }, [fetchNextPage, isFetchingNextPage])
+
   // Background backfill: after first page renders, fetch more pages on idle
   // This pre-loads older generations so scrolling up is instant
+  // Uses fetchOlderPagePreservingScroll to prevent scroll position jumps
   useEffect(() => {
     // Only backfill once per session, after initial data loads
     if (!session?.id || isLoading || !infiniteData) return
@@ -307,7 +323,8 @@ export function GenerationInterface({
       if (!lastPage?.hasMore) return
 
       pagesBackfilled++
-      fetchNextPage().then(() => {
+      // Use scroll-preserving helper to prevent viewport jumps when older items are prepended
+      fetchOlderPagePreservingScroll().then(() => {
         // Schedule next backfill if there's more
         scheduleBackfill(backfillNextPage)
       })
@@ -315,7 +332,7 @@ export function GenerationInterface({
 
     // Start backfill after a short delay to not compete with initial render
     scheduleBackfill(backfillNextPage)
-  }, [session?.id, isLoading, infiniteData, hasNextPage, isFetchingNextPage, fetchNextPage, queryClient])
+  }, [session?.id, isLoading, infiniteData, hasNextPage, isFetchingNextPage, fetchOlderPagePreservingScroll, queryClient])
 
   // Reset backfill tracking when session changes
   useEffect(() => {
@@ -325,6 +342,7 @@ export function GenerationInterface({
   }, [session?.id])
 
   // Deep-link output seeking: load older pages until the target output is found
+  // Uses fetchOlderPagePreservingScroll to prevent scroll position jumps while paging
   useEffect(() => {
     if (!deepLinkOutputId || !session?.id || isLoading) return
     if (!deepLinkSeekingRef.current) return
@@ -349,16 +367,17 @@ export function GenerationInterface({
     }
     
     // Not found yet - load more pages if available
+    // Use scroll-preserving helper to prevent viewport jumps
     if (hasNextPage && !isFetchingNextPage && deepLinkPagesLoadedRef.current < MAX_DEEPLINK_PAGES) {
       deepLinkPagesLoadedRef.current += 1
-      fetchNextPage()
+      fetchOlderPagePreservingScroll()
     } else if (!hasNextPage || deepLinkPagesLoadedRef.current >= MAX_DEEPLINK_PAGES) {
       // Give up - output not found after loading all available pages or max pages
       console.warn(`Deep-link output ${deepLinkOutputId} not found in session ${session.id}`)
       deepLinkSeekingRef.current = false
       onDeepLinkOutputConsumed?.()
     }
-  }, [deepLinkOutputId, session?.id, isLoading, generations, hasNextPage, isFetchingNextPage, fetchNextPage, onDeepLinkOutputConsumed])
+  }, [deepLinkOutputId, session?.id, isLoading, generations, hasNextPage, isFetchingNextPage, fetchOlderPagePreservingScroll, onDeepLinkOutputConsumed])
 
   // Log timing metric when generations first load for this session
   useEffect(() => {
@@ -698,7 +717,24 @@ export function GenerationInterface({
     }
   }, [session?.id, isLoading, generations.length, scrollToBottomNow])
 
+  // CRITICAL: Use useLayoutEffect for initial session-load scroll-to-bottom
+  // This fires synchronously BEFORE the browser paints, eliminating the visible "jump"
+  // where the user briefly sees the wrong scroll position before it corrects itself.
+  useLayoutEffect(() => {
+    const container = scrollContainerRef.current
+    if (!container) return
+    
+    // Only handle initial session load scroll (not new items)
+    if (!isLoading && pendingScrollToBottomRef.current && generations.length > 0) {
+      // Scroll to bottom synchronously before paint
+      container.scrollTop = container.scrollHeight
+      // Note: Don't clear pendingScrollToBottomRef here - let ResizeObserver handle
+      // late layout shifts (images loading, virtualizer measuring, etc.)
+    }
+  }, [isLoading, generations.length])
+
   // Handle scrolling: on session load completion and new items
+  // This useEffect acts as a fallback and handles the new-items indicator
   useEffect(() => {
     if (!scrollContainerRef.current) return
     
@@ -706,7 +742,7 @@ export function GenerationInterface({
     const previousCount = previousGenerationsCountRef.current
     const hasNewItems = currentCount > previousCount && previousCount > 0
     
-    // Scroll to bottom when session data finishes loading
+    // Scroll to bottom when session data finishes loading (fallback for useLayoutEffect)
     if (!isLoading && pendingScrollToBottomRef.current && currentCount > 0) {
       // Attempt an immediate scroll (ResizeObserver will keep it pinned through late layout shifts)
       scrollToBottomNow('session-load')
@@ -732,6 +768,7 @@ export function GenerationInterface({
   }, [generations.length, isLoading, scrollToBottomNow])
 
   // Load older items when scrolling to top (sentinel at top)
+  // Uses fetchOlderPagePreservingScroll to prevent scroll position jumps
   useEffect(() => {
     if (!hasNextPage || !loadOlderRef.current || !scrollContainerRef.current) return
     
@@ -742,9 +779,8 @@ export function GenerationInterface({
       (entries) => {
         const first = entries[0]
         if (first.isIntersecting && hasNextPage && !isFetchingNextPage) {
-          // Store scroll height before loading to preserve position
-          scrollHeightBeforeLoadRef.current = container.scrollHeight
-          fetchNextPage()
+          // Use scroll-preserving helper (stores scrollHeight before fetch)
+          fetchOlderPagePreservingScroll()
         }
       },
       {
@@ -755,7 +791,7 @@ export function GenerationInterface({
     )
     observer.observe(target)
     return () => observer.disconnect()
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage])
+  }, [hasNextPage, isFetchingNextPage, fetchOlderPagePreservingScroll])
 
   // Preserve scroll position when older items are prepended
   useEffect(() => {
@@ -1155,10 +1191,46 @@ export function GenerationInterface({
   
   // Build display generations list in chronological order (oldest → newest for display)
   // API returns newest-first, so we reverse for display (newest at bottom, near the prompt)
+  // Apply de-dupe as a last-line defense against duplicate tiles
   const displayGenerations = useMemo(() => {
-    // Flatten all pages and reverse so oldest is at top, newest at bottom
-    const allGenerations = [...generations].reverse()
-    return allGenerations
+    // De-dupe by id and clientId before display
+    // This is the UI's final guard against duplicates
+    const seenIds = new Set<string>()
+    const seenClientIds = new Map<string, GenerationWithOutputs>()
+    const deduped: GenerationWithOutputs[] = []
+    
+    for (const gen of generations) {
+      // Skip duplicate by id
+      if (seenIds.has(gen.id)) continue
+      
+      // Handle duplicate by clientId (prefer real UUID over temp-*)
+      if (gen.clientId) {
+        const existing = seenClientIds.get(gen.clientId)
+        if (existing) {
+          const existingIsTemp = existing.id.startsWith('temp-')
+          const currentIsTemp = gen.id.startsWith('temp-')
+          
+          if (existingIsTemp && !currentIsTemp) {
+            // Replace temp with real
+            const idx = deduped.indexOf(existing)
+            if (idx !== -1) {
+              deduped[idx] = gen
+              seenIds.delete(existing.id)
+              seenIds.add(gen.id)
+              seenClientIds.set(gen.clientId, gen)
+            }
+          }
+          continue
+        }
+        seenClientIds.set(gen.clientId, gen)
+      }
+      
+      seenIds.add(gen.id)
+      deduped.push(gen)
+    }
+    
+    // Reverse so oldest is at top, newest at bottom
+    return deduped.reverse()
   }, [generations])
 
   if (!session) {
