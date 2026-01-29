@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { Video as VideoIcon, ImagePlus, Ratio, ChevronDown, X, Upload, FolderOpen, Clock, Loader2, GripHorizontal, Pin, Plus } from 'lucide-react'
+import { Video as VideoIcon, ImagePlus, Ratio, ChevronDown, X, Upload, FolderOpen, Clock, Loader2, GripHorizontal, Pin, Plus, ArrowLeftRight } from 'lucide-react'
 import { useModelCapabilities } from '@/hooks/useModelCapabilities'
 import { usePinnedImages } from '@/hooks/usePinnedImages'
 import { useToast } from '@/components/ui/use-toast'
@@ -406,6 +406,9 @@ export function VideoInput({
       URL.revokeObjectURL(imagePreviewUrl)
     }
     
+    // Clear parent reference first to prevent hydration effect from overriding user selection
+    onClearReferenceImage?.()
+    
     // Create preview URL immediately for instant feedback
     const previewUrl = URL.createObjectURL(file)
     setImagePreviewUrl(previewUrl)
@@ -417,6 +420,8 @@ export function VideoInput({
     try {
       const uploaded = await referenceUpload.upload(file)
       setUploadedReferenceUrl(uploaded.url)
+      // Update parent with stable URL so it persists across tab switches
+      onSetReferenceImageUrl?.(uploaded.url)
       console.log('[VideoInput] Reference image uploaded:', uploaded.url)
     } catch (error: any) {
       console.error('[VideoInput] Failed to upload reference image:', error)
@@ -487,6 +492,43 @@ export function VideoInput({
     setEndFrameImage(null) // No file needed
     setEndFrameImageId(endFrameImageIdOverride || createReferenceId())
   }
+
+  // Swap start and end frames
+  const handleSwapFrames = useCallback(() => {
+    // Capture current values
+    const startPreview = imagePreviewUrl
+    const startFile = referenceImage
+    const startUrl = uploadedReferenceUrl
+    const startId = referenceImageId
+    
+    const endPreview = endFramePreviewUrl
+    const endFile = endFrameImage
+    const endUrl = uploadedEndFrameUrl
+    const endId = endFrameImageId
+    
+    // Swap start frame state to end frame values
+    setImagePreviewUrl(endPreview)
+    setReferenceImage(endFile)
+    setUploadedReferenceUrl(endUrl)
+    setReferenceImageId(endId)
+    
+    // Swap end frame state to start frame values
+    setEndFramePreviewUrl(startPreview)
+    setEndFrameImage(startFile)
+    setUploadedEndFrameUrl(startUrl)
+    setEndFrameImageId(startId)
+    
+    // Update parent with new start frame URL if available
+    if (endUrl) {
+      onSetReferenceImageUrl?.(endUrl)
+    } else {
+      onClearReferenceImage?.()
+    }
+  }, [
+    imagePreviewUrl, referenceImage, uploadedReferenceUrl, referenceImageId,
+    endFramePreviewUrl, endFrameImage, uploadedEndFrameUrl, endFrameImageId,
+    onSetReferenceImageUrl, onClearReferenceImage
+  ])
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -612,6 +654,8 @@ export function VideoInput({
     setUploadedReferenceUrl(imageUrl) // Already uploaded!
     setReferenceImage(null) // No file needed
     setReferenceImageId(createReferenceId())
+    // Update parent so it persists across tab switches
+    onSetReferenceImageUrl?.(imageUrl)
   }
 
   // If a referenceImageUrl is provided from parent (e.g., convert-to-video),
@@ -936,6 +980,8 @@ export function VideoInput({
                     setReferenceImage(null)
                     setReferenceImageId(null)
                     setUploadedReferenceUrl(null)
+                    // Also clear parent-controlled referenceImageUrl so the hydration effect doesn't restore it
+                    onClearReferenceImage?.()
                   }}
                   className="absolute -top-1 -right-1 bg-background border border-border rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm hover:bg-destructive hover:text-destructive-foreground z-10"
                   title="Remove start frame"
@@ -944,6 +990,20 @@ export function VideoInput({
                 </button>
               )}
             </div>
+
+            {/* Swap button - shown when both start and end frames are present */}
+            {supportsFrameInterpolation && (referenceImage || imagePreviewUrl) && (endFrameImage || endFramePreviewUrl) && (
+              <button
+                onClick={handleSwapFrames}
+                disabled={isUploading || generating}
+                className={`self-center p-1 rounded-md bg-muted/50 hover:bg-muted border border-border/50 text-muted-foreground hover:text-foreground transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
+                  isOverlay ? 'my-0' : 'my-0.5'
+                }`}
+                title="Swap start and end frames"
+              >
+                <ArrowLeftRight className="h-3 w-3" />
+              </button>
+            )}
 
             {/* End Frame Thumbnail or Empty Placeholder - only show for models that support frame interpolation */}
             {supportsFrameInterpolation && (

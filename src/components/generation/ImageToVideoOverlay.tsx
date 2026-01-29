@@ -71,6 +71,9 @@ export function ImageToVideoOverlay({
     duration: 5,
   })
   
+  // Start frame URL - initialized from imageUrl prop, can be swapped with end frame
+  const [startFrameUrl, setStartFrameUrl] = useState(imageUrl)
+  
   // Video iterations for this source image
   const { iterations, count, hasProcessing, latestStatus, refetch } = useVideoIterations(
     isOpen ? outputId : null,
@@ -551,6 +554,11 @@ export function ImageToVideoOverlay({
     }
   }, [refetch])
   
+  // Reset start frame URL when imageUrl prop changes (e.g., opening overlay for different image)
+  useEffect(() => {
+    setStartFrameUrl(imageUrl)
+  }, [imageUrl])
+  
   // Close on escape
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
@@ -628,15 +636,15 @@ export function ImageToVideoOverlay({
           <div className="relative z-10 flex flex-col lg:flex-row gap-0 max-h-[calc(100vh-12rem)] overflow-hidden">
             {/* Left Panel: Source Image + Controls */}
             <div className="flex-1 p-6 space-y-6 overflow-y-auto border-r border-border dark:border-white/10 custom-scrollbar">
-              {/* Source Image Preview */}
+              {/* Source Image Preview - shows current start frame (can change via swap) */}
               <div className="relative aspect-video rounded-xl overflow-hidden bg-black/40 border border-white/10 shadow-inner group">
                 <img
-                  src={imageUrl}
-                  alt="Source image"
+                  src={startFrameUrl}
+                  alt="Start frame"
                   className="w-full h-full object-contain"
                 />
                 <div className="absolute top-3 left-3 px-2 py-1 rounded-md bg-black/60 text-white text-[10px] font-semibold tracking-wider uppercase backdrop-blur-md border border-white/10">
-                  Source Image
+                  Start Frame
                 </div>
               </div>
               
@@ -719,7 +727,8 @@ export function ImageToVideoOverlay({
                     onParametersChange={setParameters}
                     selectedModel={selectedModel}
                     onModelSelect={setSelectedModel}
-                    referenceImageUrl={imageUrl}
+                    referenceImageUrl={startFrameUrl}
+                    onSetReferenceImageUrl={setStartFrameUrl}
                     variant="overlay"
                     lockedReferenceImage={true}
                     hideReferencePicker={true}
