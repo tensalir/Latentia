@@ -72,10 +72,8 @@ interface CmfProductsDialogProps {
    *  clown library with the upload form already pointing at the
    *  selected product. */
   onUpdateReferences: (productSlug: string) => void
-  /** Fired after the user confirms deletion of a packet. The
-   *  workspace uses this to clear `activePacketId` if the deleted
-   *  packet was the one currently open. */
-  onPacketDeleted?: (packetId: string) => void
+  /** Fired after user confirms packet deletion(s). */
+  onPacketDeleted?: (packetIds: string[]) => void
 }
 
 export function CmfProductsDialog({
@@ -97,7 +95,7 @@ export function CmfProductsDialog({
   // confirmation prompt against this packet. Tracked at the dialog
   // level so the prompt overlays the products dialog cleanly and
   // survives re-renders of the inner tab.
-  const [deleteTarget, setDeleteTarget] = useState<DeletePacketTarget | null>(null)
+  const [deleteTargets, setDeleteTargets] = useState<DeletePacketTarget[] | null>(null)
   const { canWrite } = useCmfPermissions()
 
   // Default selection: first product with packets so the dialog opens
@@ -158,12 +156,24 @@ export function CmfProductsDialog({
                   onUpdateReferences(selected.productSlug)
                 }}
                 onRequestDelete={(packet) =>
-                  setDeleteTarget({
-                    id: packet.id,
-                    name: packet.cmfCode || packet.name,
-                    cmfCode: packet.cmfCode,
-                    skuCount: packet.renders.length,
-                  })
+                  setDeleteTargets([
+                    {
+                      id: packet.id,
+                      name: packet.cmfCode || packet.name,
+                      cmfCode: packet.cmfCode,
+                      skuCount: packet.renders.length,
+                    },
+                  ])
+                }
+                onRequestBulkDelete={(packetsToDelete) =>
+                  setDeleteTargets(
+                    packetsToDelete.map((packet) => ({
+                      id: packet.id,
+                      name: packet.cmfCode || packet.name,
+                      cmfCode: packet.cmfCode,
+                      skuCount: packet.renders.length,
+                    }))
+                  )
                 }
               />
             ) : (
@@ -176,9 +186,9 @@ export function CmfProductsDialog({
       </DialogContent>
 
       <DeletePacketDialog
-        target={deleteTarget}
-        onTargetChange={setDeleteTarget}
-        onDeleted={(id) => onPacketDeleted?.(id)}
+        targets={deleteTargets}
+        onTargetsChange={setDeleteTargets}
+        onDeleted={(ids) => onPacketDeleted?.(ids)}
       />
     </Dialog>
   )

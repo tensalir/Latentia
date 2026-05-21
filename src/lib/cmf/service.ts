@@ -351,6 +351,7 @@ export interface CmfMergeSummary {
   added: number
   updated: number
   unchanged: number
+  removed: number
   /** Render IDs whose component or palette specs changed on this import.
    *  The importer panel surfaces these so designers can click straight
    *  through to the affected SKU. */
@@ -368,6 +369,42 @@ export interface CreatedPacket {
   packet: CmfPacketRow
   renders: CmfRenderRow[]
   mergeSummary: CmfMergeSummary
+}
+
+function mergeIdentityKey(args: {
+  productCode?: string | null
+  label?: string | null
+}): string {
+  const code = args.productCode?.trim().toLowerCase()
+  if (code) return `code:${code}`
+  return `label:${normaliseLabelKey(args.label ?? '')}`
+}
+
+/**
+ * For true-overwrite imports (`replaceExisting=true`), compute which
+ * existing renders should be removed because they are not present in
+ * the incoming workbook row set.
+ */
+export function computeRendersToRemove(
+  existingRenders: Array<{ id: string; productCode: string | null; label: string }>,
+  incomingRows: Array<{ productCode?: string | null; label: string }>
+): string[] {
+  const incomingCounts = new Map<string, number>()
+  for (const row of incomingRows) {
+    const key = mergeIdentityKey(row)
+    incomingCounts.set(key, (incomingCounts.get(key) ?? 0) + 1)
+  }
+  const toRemove: string[] = []
+  for (const render of existingRenders) {
+    const key = mergeIdentityKey(render)
+    const left = incomingCounts.get(key) ?? 0
+    if (left <= 0) {
+      toRemove.push(render.id)
+      continue
+    }
+    incomingCounts.set(key, left - 1)
+  }
+  return toRemove
 }
 
 /**
@@ -600,7 +637,8 @@ async function mergeRowsIntoPacket(
   tx: CmfTransactionClient,
   existingPacket: NonNullable<Awaited<ReturnType<typeof findExistingPacketForMerge>>>,
   rows: CmfSkuRow[],
-  ctx: PacketWriteContext
+  ctx: PacketWriteContext,
+  replaceExisting: boolean
 ): Promise<CreatedPacket> {
   const { ownerId, importId, productSlug, inferredCmf, product } = ctx
   const renderRows: CmfRenderRow[] = []
@@ -609,6 +647,7 @@ async function mergeRowsIntoPacket(
   let added = 0
   let updated = 0
   let unchanged = 0
+  let removed = 0
 
   // Index existing renders by productCode (preferred) and by normalised
   // label so we can match incoming rows even when one identifier is
@@ -725,6 +764,32 @@ async function mergeRowsIntoPacket(
     }
   }
 
+  if (replaceExisting) {
+    const renderIdsToRemove = computeRendersToRemove(existingPacket.renders, rows)
+    if (renderIdsToRemove.length > 0) {
+      removed = renderIdsToRemove.length
+      const removedSet = new Set(renderIdsToRemove)
+      const removedRows = existingPacket.renders.filter((r) => removedSet.has(r.id))
+      for (const removedRow of removedRows) {
+        await tx.cmfActivity.create({
+          data: {
+            packetId: existingPacket.id,
+            userId: ownerId,
+            action: 'deleted_render',
+            targetId: removedRow.id,
+            metadata: {
+              label: removedRow.label,
+              productCode: removedRow.productCode,
+              importId: importId ?? null,
+              reason: 'replace_existing_overwrite',
+            },
+          },
+        })
+      }
+      await tx.cmfRender.deleteMany({ where: { id: { in: renderIdsToRemove } } })
+    }
+  }
+
   // One umbrella activity per merge so the timeline gives a quick
   // "this import touched the packet" signal even if zero SKUs moved.
   await tx.cmfActivity.create({
@@ -739,6 +804,7 @@ async function mergeRowsIntoPacket(
         added,
         updated,
         unchanged,
+        removed,
         changedRenderIds,
       },
     },
@@ -766,6 +832,7 @@ async function mergeRowsIntoPacket(
       added,
       updated,
       unchanged,
+      removed,
       changedRenderIds,
       changes,
     },
@@ -844,6 +911,7 @@ async function createPacketWithRenders(
       added: renders.length,
       updated: 0,
       unchanged: 0,
+      removed: 0,
       changedRenderIds: [],
       changes: [],
     },
@@ -901,7 +969,7 @@ export async function createPacketFromRows(
         replaceExisting
       )
       if (existing) {
-        out.push(await mergeRowsIntoPacket(tx, existing, rows, ctx))
+        out.push(await mergeRowsIntoPacket(tx, existing, rows, ctx, replaceExisting))
       } else {
         const packetName = resolvePacketName(rows, productSlug, args.packetName)
         out.push(

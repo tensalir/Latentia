@@ -22,7 +22,10 @@
  */
 
 import { test, expect } from '@playwright/test'
-import { deriveImportErrorMessage } from '../src/hooks/useCmf'
+import {
+  deriveImportErrorMessage,
+  deriveImportErrorRequestId,
+} from '../src/hooks/useCmf'
 import {
   LIST_PACKETS_ORDER_BY,
   shouldRunSignatureMerge,
@@ -51,6 +54,15 @@ test('deriveImportErrorMessage falls back for null / undefined / plain objects',
   expect(deriveImportErrorMessage(null)).toBe('Import failed')
   expect(deriveImportErrorMessage(undefined)).toBe('Import failed')
   expect(deriveImportErrorMessage({ error: 'wat' })).toBe('Import failed')
+})
+
+test('deriveImportErrorRequestId extracts requestId from mutation errors', () => {
+  const err = Object.assign(new Error('Import failed'), {
+    requestId: 'cmfimp_abc123',
+  })
+  expect(deriveImportErrorRequestId(err)).toBe('cmfimp_abc123')
+  expect(deriveImportErrorRequestId(new Error('Import failed'))).toBeNull()
+  expect(deriveImportErrorRequestId({ requestId: 123 })).toBeNull()
 })
 
 /* ── LIST_PACKETS_ORDER_BY ──────────────────────────────────────────────── */

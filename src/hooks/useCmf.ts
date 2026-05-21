@@ -192,6 +192,7 @@ export interface CmfMergeSummary {
   added: number
   updated: number
   unchanged: number
+  removed: number
   changedRenderIds: string[]
   changes: Array<{
     renderId: string
@@ -232,6 +233,7 @@ export interface CmfImportUnknownAttributeRow {
 }
 
 export interface CmfImportResponse {
+  requestId?: string
   import: {
     id: string
     status: string
@@ -296,6 +298,17 @@ export function deriveImportErrorMessage(err: unknown): string {
     return msg || 'Import failed'
   }
   return 'Import failed'
+}
+
+/**
+ * Pull non-message debug context off an import mutation error.
+ * The panel uses this to show a support reference id without
+ * polluting the human-readable error string.
+ */
+export function deriveImportErrorRequestId(err: unknown): string | null {
+  if (!err || typeof err !== 'object') return null
+  const value = (err as { requestId?: unknown }).requestId
+  return typeof value === 'string' && value.trim().length > 0 ? value : null
 }
 
 /**
@@ -364,8 +377,23 @@ export function useImportCmfWorkbook() {
         body: formData,
       })
       if (!res.ok) {
-        const error = await res.json().catch(() => ({}))
-        throw new Error(error.error || 'Import failed')
+        const payload = await res
+          .json()
+          .catch(() => ({})) as Record<string, unknown>
+        const message =
+          (typeof payload.message === 'string' && payload.message) ||
+          (typeof payload.error === 'string' && payload.error) ||
+          'Import failed'
+        const requestId =
+          typeof payload.requestId === 'string' ? payload.requestId : undefined
+        const code = typeof payload.error === 'string' ? payload.error : undefined
+        const error = new Error(message) as Error & {
+          requestId?: string
+          code?: string
+        }
+        if (requestId) error.requestId = requestId
+        if (code) error.code = code
+        throw error
       }
       return res.json()
     },

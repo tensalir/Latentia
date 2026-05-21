@@ -35,6 +35,43 @@ const MAX_WORKBOOK_BYTES = 10 * 1024 * 1024 // 10 MB
  */
 const STORAGE_UPLOAD_TIMEOUT_MS = 8000
 
+type ImportFailurePhase =
+  | 'auth'
+  | 'multipart'
+  | 'validation'
+  | 'parse'
+  | 'normalise'
+  | 'import_record'
+  | 'storage_upload'
+  | 'packet_create'
+  | 'activity_log'
+  | 'response'
+
+function createImportRequestId(): string {
+  return `cmfimp_${crypto.randomUUID()}`
+}
+
+function formatImportFailureMessage(phase: ImportFailurePhase): string {
+  switch (phase) {
+    case 'multipart':
+      return 'Import request body is invalid. Please pick the workbook again and retry.'
+    case 'validation':
+      return 'Workbook validation failed. Please check the file and try again.'
+    case 'parse':
+      return 'We could not parse this workbook. Use the template and retry.'
+    case 'normalise':
+      return 'Workbook format is not recognised. Please align tabs/headers with the template.'
+    case 'import_record':
+      return 'Import could not be saved. Please retry in a moment.'
+    case 'packet_create':
+      return 'Workbook parsed but packet creation failed. Please retry.'
+    case 'activity_log':
+      return 'Workbook imported, but activity logging failed. Please retry if history is missing.'
+    default:
+      return 'Import failed. Please try again.'
+  }
+}
+
 /**
  * Persist the raw workbook to storage and stamp the import row with
  * the resulting path. Pulled out of the route so the timeout wrapper
@@ -66,25 +103,33 @@ async function uploadImportArtifact(
  * SKUs) and the legacy flat template (single sheet, rows as SKUs).
  */
 export async function POST(request: NextRequest) {
+  const requestId = createImportRequestId()
+  let importId: string | null = null
+  let phase: ImportFailurePhase = 'auth'
+
   // Imports mutate the global library — gate on CMF write access.
   const auth = await requireCmfWrite()
-  if (!auth.profile) return auth.response
+  if (!auth.profile) {
+    auth.response.headers.set('x-cmf-request-id', requestId)
+    return auth.response
+  }
 
   const limited = cmfImportLimiter.check(auth.profile.userId)
   if (limited) return limited
 
-  let file: File | null = null
-  let packetName: string | undefined
-  let cmfCode: string | undefined
-  let notes: string | undefined
-  let createPacket = false
+  try {
+    let file: File | null = null
+    let packetName: string | undefined
+    let cmfCode: string | undefined
+    let notes: string | undefined
+    let createPacket = false
   // Opt-in signature-fallback merge. Defaults to `false` so a designer
   // iterating on a workbook without a real cmfCode always lands on a
   // fresh packet — Damien's debug Loom confirmed the alternative
   // (silent always-merge-by-signature) hid his newly added SKUs in
   // older near-identical packets.
-  let replaceExisting = false
-  try {
+    let replaceExisting = false
+    phase = 'multipart'
     const formData = await request.formData()
     file = formData.get('file') as File | null
     packetName = (formData.get('packetName') as string | null) || undefined
@@ -92,67 +137,83 @@ export async function POST(request: NextRequest) {
     notes = (formData.get('notes') as string | null) || undefined
     createPacket = (formData.get('createPacket') as string | null) === 'true'
     replaceExisting = (formData.get('replaceExisting') as string | null) === 'true'
-  } catch {
-    return cmfError('Invalid multipart body')
-  }
+    phase = 'validation'
 
-  if (!file) {
-    return cmfError('file is required')
-  }
-  if (file.size > MAX_WORKBOOK_BYTES) {
-    return cmfError(
-      `Workbook too large (max ${MAX_WORKBOOK_BYTES / (1024 * 1024)} MB)`,
-      { status: 413 }
-    )
-  }
-
-  const arrayBuffer = await file.arrayBuffer()
-  const buffer = Buffer.from(arrayBuffer)
-
-  let parsed: ReturnType<typeof parseCmfWorkbook>
-  try {
-    parsed = parseCmfWorkbook(buffer)
-  } catch (err) {
-    if (err instanceof XlsxParseError) {
-      return cmfError(err.message)
+    if (!file) {
+      return cmfError('file is required', { extra: { requestId } })
     }
-    throw err
-  }
-
-  // Route to the right normaliser. The transposed format keeps rich sheet
-  // metadata (collection, groups) we want to thread into the import record.
-  let normalised: NormalizationResult
-  let parsedRowsForRecord: unknown
-  if (parsed.format === 'transposed') {
-    normalised = normaliseParsedSheets(parsed.sheets)
-    parsedRowsForRecord = {
-      format: 'transposed',
-      sheets: parsed.sheets,
-      unmappedSheets: parsed.unmappedSheets,
+    if (file.size > MAX_WORKBOOK_BYTES) {
+      return cmfError(
+        `Workbook too large (max ${MAX_WORKBOOK_BYTES / (1024 * 1024)} MB)`,
+        { status: 413, extra: { requestId } }
+      )
     }
-  } else {
-    const rawRows = getFlatRawRows(buffer)
-    normalised = normaliseRawRows(rawRows)
-    parsedRowsForRecord = {
-      format: 'flat',
-      rows: normalised.rows,
-    }
-  }
 
-  const importRecord = await prisma.cmfImport.create({
-    data: {
-      ownerId: auth.profile.userId,
-      fileName: file.name,
-      rawRows:
-        parsed.format === 'transposed'
-          ? ({ sheets: parsed.sheets.map((s) => ({ sheetName: s.sheetName, skuCount: s.skus.length })) } as object)
-          : ({ rows: getFlatRawRows(buffer) } as object),
-      parsedRows: parsedRowsForRecord as object,
-      status: normalised.errors.length > 0 ? 'failed' : 'validated',
-      errors: normalised.errors.length > 0 ? (normalised.errors as unknown as object) : undefined,
-      rowCount: normalised.rows.length,
-    },
-  })
+    const arrayBuffer = await file.arrayBuffer()
+    const buffer = Buffer.from(arrayBuffer)
+
+    let parsed: ReturnType<typeof parseCmfWorkbook>
+    try {
+      phase = 'parse'
+      parsed = parseCmfWorkbook(buffer)
+    } catch (err) {
+      if (err instanceof XlsxParseError) {
+        return cmfError('invalid_workbook', {
+          status: 400,
+          extra: {
+            message: err.message,
+            requestId,
+          },
+        })
+      }
+      throw err
+    }
+
+    // Route to the right normaliser. The transposed format keeps rich sheet
+    // metadata (collection, groups) we want to thread into the import record.
+    phase = 'normalise'
+    let normalised: NormalizationResult
+    let parsedRowsForRecord: unknown
+    if (parsed.format === 'transposed') {
+      normalised = normaliseParsedSheets(parsed.sheets)
+      parsedRowsForRecord = {
+        format: 'transposed',
+        sheets: parsed.sheets,
+        unmappedSheets: parsed.unmappedSheets,
+      }
+    } else {
+      const rawRows = getFlatRawRows(buffer)
+      normalised = normaliseRawRows(rawRows)
+      parsedRowsForRecord = {
+        format: 'flat',
+        rows: normalised.rows,
+      }
+    }
+
+    phase = 'import_record'
+    const importRecord = await prisma.cmfImport.create({
+      data: {
+        ownerId: auth.profile.userId,
+        fileName: file.name,
+        rawRows:
+          parsed.format === 'transposed'
+            ? ({
+                sheets: parsed.sheets.map((s) => ({
+                  sheetName: s.sheetName,
+                  skuCount: s.skus.length,
+                })),
+              } as object)
+            : ({ rows: getFlatRawRows(buffer) } as object),
+        parsedRows: parsedRowsForRecord as object,
+        status: normalised.errors.length > 0 ? 'failed' : 'validated',
+        errors:
+          normalised.errors.length > 0
+            ? (normalised.errors as unknown as object)
+            : undefined,
+        rowCount: normalised.rows.length,
+      },
+    })
+    importId = importRecord.id
 
   // Upload the original .xlsx for traceability. Best-effort AND
   // time-bounded: a hanging Supabase Storage call used to leave the
@@ -166,30 +227,35 @@ export async function POST(request: NextRequest) {
   // success (file uploaded but DB never updated) is treated the same
   // as a full failure — we'd rather re-upload on the next try than
   // lie in the database about where the file lives.
-  try {
-    const path = importStoragePath(auth.profile.userId, importRecord.id)
-    await withTimeout(
-      uploadImportArtifact(buffer, path, importRecord.id),
-      STORAGE_UPLOAD_TIMEOUT_MS,
-      `storage upload exceeded ${STORAGE_UPLOAD_TIMEOUT_MS}ms`
-    )
-  } catch (err) {
-    console.warn('[cmf/import] storage upload skipped', {
-      importId: importRecord.id,
-      reason: err instanceof Error ? err.message : 'unknown error',
-    })
-  }
+    try {
+      phase = 'storage_upload'
+      const path = importStoragePath(auth.profile.userId, importRecord.id)
+      await withTimeout(
+        uploadImportArtifact(buffer, path, importRecord.id),
+        STORAGE_UPLOAD_TIMEOUT_MS,
+        `storage upload exceeded ${STORAGE_UPLOAD_TIMEOUT_MS}ms`
+      )
+    } catch (err) {
+      console.warn('[cmf/import] storage upload skipped', {
+        requestId,
+        importId: importRecord.id,
+        phase: 'storage_upload',
+        reason: err instanceof Error ? err.message : 'unknown error',
+      })
+    }
 
-  if (!createPacket || normalised.rows.length === 0) {
-    return NextResponse.json({
-      import: {
-        id: importRecord.id,
-        status: importRecord.status,
-        errors: normalised.errors,
-        rowCount: importRecord.rowCount,
-        parsedRows: normalised.rows,
-        format: parsed.format,
-        unmappedSheets: parsed.format === 'transposed' ? parsed.unmappedSheets : [],
+    phase = 'response'
+    if (!createPacket || normalised.rows.length === 0) {
+      return NextResponse.json({
+        requestId,
+        import: {
+          id: importRecord.id,
+          status: importRecord.status,
+          errors: normalised.errors,
+          rowCount: importRecord.rowCount,
+          parsedRows: normalised.rows,
+          format: parsed.format,
+          unmappedSheets: parsed.format === 'transposed' ? parsed.unmappedSheets : [],
         // Diagnostics from the parser. Only populated for the transposed
         // format — the flat fallback has no concept of multi-tab layouts
         // or per-SKU column drops, so we send empty arrays for shape
@@ -198,56 +264,62 @@ export async function POST(request: NextRequest) {
           parsed.format === 'transposed' ? parsed.unrecognisedSheets : [],
         droppedSkuColumns:
           parsed.format === 'transposed' ? parsed.droppedSkuColumns : [],
-        unknownAttributeRows:
-          parsed.format === 'transposed' ? parsed.unknownAttributeRows : [],
-      },
-    })
-  }
+          unknownAttributeRows:
+            parsed.format === 'transposed' ? parsed.unknownAttributeRows : [],
+        },
+      })
+    }
 
-  const { packets } = await createPacketFromRows({
-    ownerId: auth.profile.userId,
-    importId: importRecord.id,
-    packetName,
-    cmfCode,
-    notes,
-    rows: normalised.rows,
-    replaceExisting,
-  })
+    phase = 'packet_create'
+    const { packets } = await createPacketFromRows({
+      ownerId: auth.profile.userId,
+      importId: importRecord.id,
+      packetName,
+      cmfCode,
+      notes,
+      rows: normalised.rows,
+      replaceExisting,
+    })
 
   // Log one workbook-import event per packet so the activity timeline on
   // each product packet shows where its SKUs came from. We log on every
   // packet (not just the primary) so a designer scrolling the Eclipse
   // packet sees the import even when the Cocoon packet is "primary".
-  for (const { packet } of packets) {
-    await logCmfActivity({
-      packetId: packet.id,
-      userId: auth.profile.userId,
-      action: 'imported_workbook',
-      targetId: importRecord.id,
-      metadata: {
-        fileName: file.name,
-        rows: normalised.rows.length,
-        errors: normalised.errors.length,
-        format: parsed.format,
-      },
-    })
-  }
+    phase = 'activity_log'
+    for (const { packet } of packets) {
+      await logCmfActivity({
+        packetId: packet.id,
+        userId: auth.profile.userId,
+        action: 'imported_workbook',
+        targetId: importRecord.id,
+        metadata: {
+          fileName: file.name,
+          rows: normalised.rows.length,
+          errors: normalised.errors.length,
+          format: parsed.format,
+          requestId,
+        },
+      })
+    }
 
   // Pick the largest packet as the "primary" one — that's almost always the
   // one the designer wants to open first. Falls back to first-by-creation.
-  const primary = packets.reduce(
-    (best, current) => (current.renders.length > best.renders.length ? current : best),
-    packets[0]
-  )
+    const primary = packets.reduce(
+      (best, current) =>
+        current.renders.length > best.renders.length ? current : best,
+      packets[0]
+    )
 
-  return NextResponse.json({
-    import: {
-      id: importRecord.id,
-      status: importRecord.status,
-      errors: normalised.errors,
-      rowCount: importRecord.rowCount,
-      format: parsed.format,
-      unmappedSheets: parsed.format === 'transposed' ? parsed.unmappedSheets : [],
+    phase = 'response'
+    return NextResponse.json({
+      requestId,
+      import: {
+        id: importRecord.id,
+        status: importRecord.status,
+        errors: normalised.errors,
+        rowCount: importRecord.rowCount,
+        format: parsed.format,
+        unmappedSheets: parsed.format === 'transposed' ? parsed.unmappedSheets : [],
       // Same diagnostics as the early-return branch above. We send them
       // even on a successful import because partial successes (some
       // tabs imported, some silently dropped) used to leave designers
@@ -279,19 +351,36 @@ export async function POST(request: NextRequest) {
       }
     }),
     /** Convenience: the packet the workspace should auto-open. */
-    packet: primary
-      ? {
-          id: primary.packet.id,
-          name: primary.packet.name,
-          cmfCode: primary.packet.cmfCode,
-          status: primary.packet.status,
-          renders: primary.renders.map((r) => ({
-            id: r.id,
-            label: r.label,
-            status: r.status,
-            productSlug: r.productSlug,
-          })),
-        }
-      : null,
-  })
+      packet: primary
+        ? {
+            id: primary.packet.id,
+            name: primary.packet.name,
+            cmfCode: primary.packet.cmfCode,
+            status: primary.packet.status,
+            renders: primary.renders.map((r) => ({
+              id: r.id,
+              label: r.label,
+              status: r.status,
+              productSlug: r.productSlug,
+            })),
+          }
+        : null,
+    })
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : 'unknown error'
+    console.error('[cmf/import] request failed', {
+      requestId,
+      importId,
+      userId: auth.profile.userId,
+      phase,
+      reason,
+    })
+    return cmfError('import_failed', {
+      status: 500,
+      extra: {
+        message: formatImportFailureMessage(phase),
+        requestId,
+      },
+    })
+  }
 }

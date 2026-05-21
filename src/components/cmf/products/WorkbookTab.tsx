@@ -14,7 +14,7 @@
  * self-contained.
  */
 
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ArrowUpRight, Database, Trash2, Upload } from 'lucide-react'
 import type { ProductSummary } from '@/lib/cmf/product-summary'
 import { timeAgo } from '@/lib/cmf/format'
@@ -28,6 +28,7 @@ interface WorkbookTabProps {
   onSelectPacket: (packetId: string) => void
   onImport: () => void
   onRequestDelete: (packet: ProductSummary['packets'][number]) => void
+  onRequestBulkDelete: (packets: ProductSummary['packets']) => void
 }
 
 export function WorkbookTab({
@@ -36,7 +37,10 @@ export function WorkbookTab({
   onSelectPacket,
   onImport,
   onRequestDelete,
+  onRequestBulkDelete,
 }: WorkbookTabProps) {
+  const [showNonReadyOnly, setShowNonReadyOnly] = useState(false)
+  const [selectedPacketIds, setSelectedPacketIds] = useState<string[]>([])
   const sortedPackets = useMemo(
     () =>
       summary.packets
@@ -44,6 +48,27 @@ export function WorkbookTab({
         .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1)),
     [summary.packets]
   )
+  const visiblePackets = useMemo(
+    () =>
+      showNonReadyOnly
+        ? sortedPackets.filter((packet) => packet.status !== 'ready')
+        : sortedPackets,
+    [showNonReadyOnly, sortedPackets]
+  )
+  const selectedVisiblePackets = useMemo(
+    () => visiblePackets.filter((packet) => selectedPacketIds.includes(packet.id)),
+    [visiblePackets, selectedPacketIds]
+  )
+
+  useEffect(() => {
+    setSelectedPacketIds([])
+    setShowNonReadyOnly(false)
+  }, [summary.productSlug])
+
+  useEffect(() => {
+    const allowed = new Set(visiblePackets.map((packet) => packet.id))
+    setSelectedPacketIds((prev) => prev.filter((id) => allowed.has(id)))
+  }, [visiblePackets])
 
   if (sortedPackets.length === 0) {
     return (
@@ -89,7 +114,53 @@ export function WorkbookTab({
         </button>
       </div>
 
-      {sortedPackets.map((packet) => (
+      {canWrite && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/40 bg-muted/10 px-3 py-2">
+          <label className="inline-flex items-center gap-2 text-[11px] text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={showNonReadyOnly}
+              onChange={(e) => setShowNonReadyOnly(e.target.checked)}
+              className="h-3.5 w-3.5 accent-primary"
+            />
+            Show only non-ready packets
+          </label>
+          <div className="inline-flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setSelectedPacketIds(visiblePackets.map((packet) => packet.id))}
+              className="rounded-md border border-border/50 px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors"
+              disabled={visiblePackets.length === 0}
+            >
+              Select visible
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedPacketIds([])}
+              className="rounded-md border border-border/50 px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors"
+              disabled={selectedPacketIds.length === 0}
+            >
+              Clear
+            </button>
+            <button
+              type="button"
+              onClick={() => onRequestBulkDelete(selectedVisiblePackets)}
+              className="rounded-md border border-destructive/50 bg-destructive/5 px-2.5 py-1 text-[11px] font-medium text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={selectedVisiblePackets.length === 0}
+            >
+              Delete selected ({selectedVisiblePackets.length})
+            </button>
+          </div>
+        </div>
+      )}
+
+      {visiblePackets.length === 0 && showNonReadyOnly && (
+        <div className="rounded-lg border border-dashed border-border/40 bg-card/20 p-4 text-xs text-muted-foreground">
+          All packets for this product are ready.
+        </div>
+      )}
+
+      {visiblePackets.map((packet) => (
         <article
           key={packet.id}
           className="rounded-xl border border-border/40 bg-card/20 overflow-hidden"
@@ -107,6 +178,25 @@ export function WorkbookTab({
               onClick={() => onSelectPacket(packet.id)}
               className="flex flex-1 min-w-0 items-center justify-between gap-3 px-4 py-3 text-left"
             >
+              {canWrite && (
+                <span className="mr-1 flex-shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={selectedPacketIds.includes(packet.id)}
+                    onChange={(e) => {
+                      e.stopPropagation()
+                      setSelectedPacketIds((prev) =>
+                        e.target.checked
+                          ? [...prev, packet.id]
+                          : prev.filter((id) => id !== packet.id)
+                      )
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    aria-label={`Select ${packet.cmfCode || packet.name}`}
+                    className="h-3.5 w-3.5 accent-primary"
+                  />
+                </span>
+              )}
               <div className="min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="truncate text-sm font-semibold">

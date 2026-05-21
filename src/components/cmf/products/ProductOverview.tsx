@@ -42,6 +42,7 @@ interface ProductOverviewProps {
   onImport: () => void
   onUpdateReferences: () => void
   onRequestDelete: (packet: ProductSummary['packets'][number]) => void
+  onRequestBulkDelete: (packets: ProductSummary['packets']) => void
 }
 
 export function ProductOverview({
@@ -52,6 +53,7 @@ export function ProductOverview({
   onImport,
   onUpdateReferences,
   onRequestDelete,
+  onRequestBulkDelete,
 }: ProductOverviewProps) {
   const tone = productTone(summary)
   const productClowns = useMemo(
@@ -196,6 +198,7 @@ export function ProductOverview({
             onSelectPacket={onSelectPacket}
             onImport={onImport}
             onRequestDelete={onRequestDelete}
+            onRequestBulkDelete={onRequestBulkDelete}
           />
         </TabsContent>
 

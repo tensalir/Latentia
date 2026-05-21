@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
   deriveImportErrorMessage,
+  deriveImportErrorRequestId,
   useImportCmfWorkbook,
   type CmfImportDroppedSkuColumn,
   type CmfImportUnknownAttributeRow,
@@ -111,6 +112,8 @@ export function CmfImportPanel({ onPacketCreated, onRenderFocus }: CmfImportPane
   const [diagnostics, setDiagnostics] = useState<ImportDiagnostics>(emptyDiagnostics)
   const [lastSuccess, setLastSuccess] = useState<{
     rows: number
+    importId: string
+    requestId?: string
     packets: CreatedPacketSummary[]
   } | null>(null)
   /** True when the most recent import returned `rowCount === 0` —
@@ -123,7 +126,10 @@ export function CmfImportPanel({ onPacketCreated, onRenderFocus }: CmfImportPane
    *  surviving evidence of what went wrong. We clear this at the top
    *  of every submit so a successful retry erases the previous
    *  failure. */
-  const [importError, setImportError] = useState<string | null>(null)
+  const [importError, setImportError] = useState<{
+    message: string
+    requestId?: string
+  } | null>(null)
   /** Pending auto-close timer. The success panel is the bridge from
    *  "spinner stopped" to "workspace is on the new packet" — but
    *  Damien's video showed users closing the dialog 4s after the
@@ -231,7 +237,12 @@ export function CmfImportPanel({ onPacketCreated, onRenderFocus }: CmfImportPane
             'We couldn’t read any SKUs from this workbook. See the details panel for what went wrong.',
         })
       } else {
-        setLastSuccess({ rows: result.import.rowCount, packets: createdPackets })
+        setLastSuccess({
+          rows: result.import.rowCount,
+          importId: result.import.id,
+          requestId: result.requestId,
+          packets: createdPackets,
+        })
         const verbBits: string[] = []
         if (aggregate.added > 0) verbBits.push(`${aggregate.added} added`)
         if (aggregate.updated > 0) verbBits.push(`${aggregate.updated} changed`)
@@ -282,7 +293,8 @@ export function CmfImportPanel({ onPacketCreated, onRenderFocus }: CmfImportPane
       // keeps the error visible after the toast dismisses so the
       // designer can read it, copy it, or screenshot it.
       toast({ title: 'Import failed', description: message })
-      setImportError(message)
+      const requestId = deriveImportErrorRequestId(err) ?? undefined
+      setImportError({ message, requestId })
     }
   }
 
@@ -369,8 +381,8 @@ export function CmfImportPanel({ onPacketCreated, onRenderFocus }: CmfImportPane
           </span>
           <span className="block text-[10.5px] leading-snug text-muted-foreground">
             Without a CMF code, default is to create a new packet. Tick to
-            instead merge into the most recent matching packet (same SKU
-            set).
+            overwrite the most recent matching packet (same SKU set),
+            including removing SKUs that are no longer in this workbook.
           </span>
         </span>
       </label>
@@ -447,6 +459,16 @@ export function CmfImportPanel({ onPacketCreated, onRenderFocus }: CmfImportPane
                 {lastSuccess.packets.length > 0 &&
                   ' — open a packet below to see the result.'}
               </p>
+              <p className="text-[10px] text-emerald-700/70 dark:text-emerald-200/60 mt-1">
+                Import ID: <span className="font-mono">{lastSuccess.importId}</span>
+                {lastSuccess.requestId && (
+                  <>
+                    {' '}
+                    · Req:{' '}
+                    <span className="font-mono">{lastSuccess.requestId}</span>
+                  </>
+                )}
+              </p>
             </div>
           </div>
 
@@ -519,6 +541,14 @@ export function CmfImportPanel({ onPacketCreated, onRenderFocus }: CmfImportPane
                                   <>
                                     <span className="mx-1.5 text-muted-foreground/40">·</span>
                                     <span>{m.unchanged} unchanged</span>
+                                  </>
+                                )}
+                                {m.removed > 0 && (
+                                  <>
+                                    <span className="mx-1.5 text-muted-foreground/40">·</span>
+                                    <span className="text-destructive/90">
+                                      {m.removed} removed
+                                    </span>
                                   </>
                                 )}
                               </>
@@ -613,8 +643,14 @@ export function CmfImportPanel({ onPacketCreated, onRenderFocus }: CmfImportPane
                 Import failed
               </p>
               <p className="text-[11px] leading-snug text-foreground/90 break-words">
-                {importError}
+                {importError.message}
               </p>
+              {importError.requestId && (
+                <p className="text-[10px] text-muted-foreground">
+                  Request ID:{' '}
+                  <span className="font-mono">{importError.requestId}</span>
+                </p>
+              )}
               <p className="text-[11px] text-muted-foreground">
                 Pick the workbook again to retry. If this keeps
                 happening, share the message above with the team.

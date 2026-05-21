@@ -37,49 +37,56 @@ export interface DeletePacketTarget {
 }
 
 interface DeletePacketDialogProps {
-  /** Target packet, or null when the dialog is closed. */
-  target: DeletePacketTarget | null
-  /** Fired with `null` when the user cancels (so the parent can clear
-   *  its `deleteTarget` state). */
-  onTargetChange: (next: DeletePacketTarget | null) => void
-  /** Fired after a successful delete with the deleted packet id, so
-   *  the workspace can clear `activePacketId` if it matches. */
-  onDeleted: (packetId: string) => void
+  /** Target packet(s), or null when the dialog is closed. */
+  targets: DeletePacketTarget[] | null
+  /** Fired with `null` when the user cancels. */
+  onTargetsChange: (next: DeletePacketTarget[] | null) => void
+  /** Fired after successful deletion(s). */
+  onDeleted: (packetIds: string[]) => void
 }
 
 export function DeletePacketDialog({
-  target,
-  onTargetChange,
+  targets,
+  onTargetsChange,
   onDeleted,
 }: DeletePacketDialogProps) {
   const deleteMutation = useDeleteCmfPacket()
   const { toast } = useToast()
+  const count = targets?.length ?? 0
+  const names = (targets ?? []).map((t) => t.name)
+  const totalSkus = (targets ?? []).reduce((acc, target) => acc + target.skuCount, 0)
 
   return (
     <AlertDialog
-      open={target !== null}
+      open={targets !== null}
       onOpenChange={(next) => {
         // Block close while the network call is in flight so the user
         // can't double-fire (the spinner wouldn't even have time to
         // show otherwise).
-        if (!next && !deleteMutation.isPending) onTargetChange(null)
+        if (!next && !deleteMutation.isPending) onTargetsChange(null)
       }}
     >
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle className="flex items-center gap-2">
             <Trash2 className="h-4 w-4 text-destructive" />
-            Delete packet?
+            {count <= 1 ? 'Delete packet?' : `Delete ${count} packets?`}
           </AlertDialogTitle>
           <AlertDialogDescription className="space-y-2">
             <span className="block">
               <span className="font-semibold text-foreground">
-                {target?.name ?? ''}
+                {count <= 1 ? names[0] ?? '' : `${count} selected packets`}
               </span>{' '}
-              — {target?.skuCount ?? 0}{' '}
-              {target?.skuCount === 1 ? 'SKU' : 'SKUs'} and every attempt,
-              approval, and exported PDF tied to this packet.
+              — {totalSkus} {totalSkus === 1 ? 'SKU' : 'SKUs'} and every
+              attempt, approval, and exported PDF tied to
+              {count <= 1 ? ' this packet' : ' these packets'}.
             </span>
+            {count > 1 && (
+              <span className="block text-[11px] text-muted-foreground">
+                {names.slice(0, 4).join(' · ')}
+                {count > 4 ? ` · +${count - 4} more` : ''}
+              </span>
+            )}
             <span className="block text-destructive">
               This cannot be undone.
             </span>
@@ -96,15 +103,22 @@ export function DeletePacketDialog({
               // stay up while the network call runs so the spinner
               // is visible and the user can't double-fire.
               event.preventDefault()
-              if (!target) return
               try {
-                await deleteMutation.mutateAsync({ packetId: target.id })
+                if (!targets || targets.length === 0) return
+                const deletedIds: string[] = []
+                for (const target of targets) {
+                  await deleteMutation.mutateAsync({ packetId: target.id })
+                  deletedIds.push(target.id)
+                }
                 toast({
-                  title: 'Packet deleted',
-                  description: `${target.name} removed from the library.`,
+                  title: count <= 1 ? 'Packet deleted' : `${count} packets deleted`,
+                  description:
+                    count <= 1
+                      ? `${names[0]} removed from the library.`
+                      : 'Selected packets removed from the library.',
                 })
-                onDeleted(target.id)
-                onTargetChange(null)
+                onDeleted(deletedIds)
+                onTargetsChange(null)
               } catch (err) {
                 const message =
                   err instanceof Error ? err.message : 'Delete failed'
@@ -118,7 +132,7 @@ export function DeletePacketDialog({
             ) : (
               <Trash2 className="h-4 w-4 mr-2" />
             )}
-            Delete packet
+            {count <= 1 ? 'Delete packet' : `Delete ${count} packets`}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

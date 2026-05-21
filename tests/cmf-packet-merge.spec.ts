@@ -16,7 +16,10 @@
  */
 
 import { test, expect } from '@playwright/test'
-import { groupRowsByProductSlug } from '../src/lib/cmf/service'
+import {
+  computeRendersToRemove,
+  groupRowsByProductSlug,
+} from '../src/lib/cmf/service'
 import type { CmfSkuRow } from '../src/lib/cmf/schema'
 
 function row(productSlug: string, label: string): CmfSkuRow {
@@ -95,4 +98,29 @@ test('groupRowsByProductSlug returns the same row references (no copying)', () =
   const r1 = row('switch2', 'Switch 2 Sage')
   const groups = groupRowsByProductSlug([r1])
   expect(groups[0].rows[0]).toBe(r1)
+})
+
+test('computeRendersToRemove prunes rows missing from overwrite workbook', () => {
+  const existing = [
+    { id: 'r1', productCode: 'SW2-001', label: 'Switch 2 Sage' },
+    { id: 'r2', productCode: 'SW2-002', label: 'Switch 2 Cream' },
+    { id: 'r3', productCode: null, label: 'Switch 2 Coral' },
+  ]
+  const incoming = [
+    { productCode: 'SW2-001', label: 'Switch 2 Sage Updated Label' },
+    { productCode: null, label: 'Switch 2 Coral' },
+  ]
+  expect(computeRendersToRemove(existing, incoming)).toEqual(['r2'])
+})
+
+test('computeRendersToRemove keeps all rows when workbook still includes same set', () => {
+  const existing = [
+    { id: 'r1', productCode: null, label: 'Switch 2 Sage' },
+    { id: 'r2', productCode: null, label: 'Switch 2 Cream' },
+  ]
+  const incoming = [
+    { productCode: null, label: 'Switch-2 Sage' },
+    { productCode: null, label: 'switch2 cream' },
+  ]
+  expect(computeRendersToRemove(existing, incoming)).toEqual([])
 })
