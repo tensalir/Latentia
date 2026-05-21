@@ -277,11 +277,34 @@ export interface CmfImportResponse {
 }
 
 /**
+ * Map known machine error codes to human-readable copy. Defends the
+ * panel from ever surfacing raw codes (e.g. `import_failed`,
+ * `cmf_access_required`) when an upstream client bundle is stale or
+ * an API response lacks a `message` field.
+ */
+const CMF_IMPORT_CODE_MESSAGES: Record<string, string> = {
+  import_failed:
+    'Import failed. Please retry. If this keeps happening, share the request ID with the team.',
+  invalid_workbook:
+    'We could not parse this workbook. Use the template and retry.',
+  file_required:
+    'Please attach an .xlsx workbook before importing.',
+  workbook_too_large:
+    'That workbook is too large (max 10 MB). Trim it down and try again.',
+  cmf_access_required:
+    'CMF write access is required for this action. Ask an admin to grant CMF access in user management.',
+  unauthorized:
+    'You need to sign in again to continue importing.',
+}
+
+/**
  * Pure derivation of the user-facing import error message. Lives
  * outside the panel so a unit test can pin the mapping without
  * standing up React + the toast system. Three cases:
  *
- *   - `Error` instances: use the message verbatim.
+ *   - `Error` instances: use the message verbatim, but translate it
+ *     when the message is actually a known machine code (defensive
+ *     against stale clients that fall back to `error.error`).
  *   - Strings: use as-is so callers can pass an already-formatted
  *     message without wrapping in `new Error()`.
  *   - Anything else (null/undefined, plain objects, abort signals
@@ -291,11 +314,13 @@ export interface CmfImportResponse {
 export function deriveImportErrorMessage(err: unknown): string {
   if (err instanceof Error) {
     const msg = err.message?.trim()
-    return msg || 'Import failed'
+    if (!msg) return 'Import failed'
+    return CMF_IMPORT_CODE_MESSAGES[msg] ?? msg
   }
   if (typeof err === 'string') {
     const msg = err.trim()
-    return msg || 'Import failed'
+    if (!msg) return 'Import failed'
+    return CMF_IMPORT_CODE_MESSAGES[msg] ?? msg
   }
   return 'Import failed'
 }
@@ -308,6 +333,27 @@ export function deriveImportErrorMessage(err: unknown): string {
 export function deriveImportErrorRequestId(err: unknown): string | null {
   if (!err || typeof err !== 'object') return null
   const value = (err as { requestId?: unknown }).requestId
+  return typeof value === 'string' && value.trim().length > 0 ? value : null
+}
+
+/**
+ * Pull the sanitised server-side `reason` from a 500 import failure
+ * so the panel can show the operator-facing detail (e.g. a Prisma
+ * constraint message) alongside the friendly user copy.
+ */
+export function deriveImportErrorReason(err: unknown): string | null {
+  if (!err || typeof err !== 'object') return null
+  const value = (err as { reason?: unknown }).reason
+  return typeof value === 'string' && value.trim().length > 0 ? value : null
+}
+
+/**
+ * Pull the import failure phase from a 500 import failure so support
+ * can see which stage of the pipeline blew up.
+ */
+export function deriveImportErrorPhase(err: unknown): string | null {
+  if (!err || typeof err !== 'object') return null
+  const value = (err as { phase?: unknown }).phase
   return typeof value === 'string' && value.trim().length > 0 ? value : null
 }
 
@@ -380,18 +426,30 @@ export function useImportCmfWorkbook() {
         const payload = await res
           .json()
           .catch(() => ({})) as Record<string, unknown>
-        const message =
+        const rawMessage =
           (typeof payload.message === 'string' && payload.message) ||
           (typeof payload.error === 'string' && payload.error) ||
           'Import failed'
+        const message = CMF_IMPORT_CODE_MESSAGES[rawMessage] ?? rawMessage
         const requestId =
           typeof payload.requestId === 'string' ? payload.requestId : undefined
-        const code = typeof payload.error === 'string' ? payload.error : undefined
+        const code =
+          (typeof payload.code === 'string' && payload.code) ||
+          (typeof payload.error === 'string' && payload.error) ||
+          undefined
+        const reason =
+          typeof payload.reason === 'string' ? payload.reason : undefined
+        const phase =
+          typeof payload.phase === 'string' ? payload.phase : undefined
         const error = new Error(message) as Error & {
           requestId?: string
           code?: string
+          reason?: string
+          phase?: string
         }
         if (requestId) error.requestId = requestId
+        if (reason) error.reason = reason
+        if (phase) error.phase = phase
         if (code) error.code = code
         throw error
       }

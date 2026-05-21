@@ -73,6 +73,21 @@ function formatImportFailureMessage(phase: ImportFailurePhase): string {
 }
 
 /**
+ * Convert a thrown server-side error into a single sanitised, user-safe
+ * sentence. Trims long stack traces, strips identifiers, and caps the
+ * length so a Prisma message about a constraint or a database connection
+ * issue still tells the operator what went wrong without leaking
+ * implementation detail.
+ */
+function sanitiseImportFailureReason(err: unknown): string {
+  if (!(err instanceof Error)) return 'Unknown server error'
+  const raw = err.message || err.name || 'Unknown server error'
+  const firstLine = raw.split('\n')[0].trim()
+  if (firstLine.length <= 220) return firstLine
+  return `${firstLine.slice(0, 217)}…`
+}
+
+/**
  * Persist the raw workbook to storage and stamp the import row with
  * the resulting path. Pulled out of the route so the timeout wrapper
  * has a single awaited unit to race against — and so a future test
@@ -140,12 +155,17 @@ export async function POST(request: NextRequest) {
     phase = 'validation'
 
     if (!file) {
-      return cmfError('file is required', { extra: { requestId } })
+      return cmfError('Please attach an .xlsx workbook before importing.', {
+        extra: { code: 'file_required', requestId },
+      })
     }
     if (file.size > MAX_WORKBOOK_BYTES) {
       return cmfError(
         `Workbook too large (max ${MAX_WORKBOOK_BYTES / (1024 * 1024)} MB)`,
-        { status: 413, extra: { requestId } }
+        {
+          status: 413,
+          extra: { code: 'workbook_too_large', requestId },
+        }
       )
     }
 
@@ -158,10 +178,10 @@ export async function POST(request: NextRequest) {
       parsed = parseCmfWorkbook(buffer)
     } catch (err) {
       if (err instanceof XlsxParseError) {
-        return cmfError('invalid_workbook', {
+        return cmfError(err.message, {
           status: 400,
           extra: {
-            message: err.message,
+            code: 'invalid_workbook',
             requestId,
           },
         })
@@ -367,18 +387,25 @@ export async function POST(request: NextRequest) {
         : null,
     })
   } catch (err) {
-    const reason = err instanceof Error ? err.message : 'unknown error'
+    const reason = sanitiseImportFailureReason(err)
+    const stack = err instanceof Error && err.stack ? err.stack : null
+    // Full stack to server logs only — the response body keeps a
+    // short sanitised reason so users see something concrete instead
+    // of an opaque "import_failed" string.
     console.error('[cmf/import] request failed', {
       requestId,
       importId,
       userId: auth.profile.userId,
       phase,
       reason,
+      stack,
     })
-    return cmfError('import_failed', {
+    return cmfError(formatImportFailureMessage(phase), {
       status: 500,
       extra: {
-        message: formatImportFailureMessage(phase),
+        code: 'import_failed',
+        phase,
+        reason,
         requestId,
       },
     })

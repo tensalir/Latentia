@@ -24,6 +24,8 @@
 import { test, expect } from '@playwright/test'
 import {
   deriveImportErrorMessage,
+  deriveImportErrorPhase,
+  deriveImportErrorReason,
   deriveImportErrorRequestId,
 } from '../src/hooks/useCmf'
 import {
@@ -33,10 +35,24 @@ import {
 
 /* ── deriveImportErrorMessage ───────────────────────────────────────────── */
 
-test('deriveImportErrorMessage extracts the message from Error instances', () => {
-  expect(deriveImportErrorMessage(new Error('cmf_access_required'))).toBe(
-    'cmf_access_required'
+test('deriveImportErrorMessage translates known machine codes into human copy', () => {
+  // Defends against stale clients / missing server `message` field —
+  // a raw code like `cmf_access_required` must never reach the panel
+  // verbatim.
+  expect(deriveImportErrorMessage(new Error('cmf_access_required'))).toContain(
+    'CMF write access is required'
   )
+  expect(deriveImportErrorMessage(new Error('import_failed'))).toContain(
+    'Import failed'
+  )
+})
+
+test('deriveImportErrorMessage passes unknown sentences through verbatim', () => {
+  // Free-form server messages (e.g. parser detail) should reach the
+  // user untouched so we never lose helpful context.
+  expect(
+    deriveImportErrorMessage(new Error('Workbook has no sheets'))
+  ).toBe('Workbook has no sheets')
 })
 
 test('deriveImportErrorMessage passes strings through verbatim', () => {
@@ -63,6 +79,19 @@ test('deriveImportErrorRequestId extracts requestId from mutation errors', () =>
   expect(deriveImportErrorRequestId(err)).toBe('cmfimp_abc123')
   expect(deriveImportErrorRequestId(new Error('Import failed'))).toBeNull()
   expect(deriveImportErrorRequestId({ requestId: 123 })).toBeNull()
+})
+
+test('deriveImportErrorReason / deriveImportErrorPhase extract diagnostics', () => {
+  const err = Object.assign(new Error('Import failed'), {
+    reason: 'Foreign key violation on cmf_renders',
+    phase: 'packet_create',
+  })
+  expect(deriveImportErrorReason(err)).toBe(
+    'Foreign key violation on cmf_renders'
+  )
+  expect(deriveImportErrorPhase(err)).toBe('packet_create')
+  expect(deriveImportErrorReason(new Error('Import failed'))).toBeNull()
+  expect(deriveImportErrorPhase(new Error('Import failed'))).toBeNull()
 })
 
 /* ── LIST_PACKETS_ORDER_BY ──────────────────────────────────────────────── */

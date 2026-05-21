@@ -6,6 +6,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
   deriveImportErrorMessage,
+  deriveImportErrorPhase,
+  deriveImportErrorReason,
   deriveImportErrorRequestId,
   useImportCmfWorkbook,
   type CmfImportDroppedSkuColumn,
@@ -129,6 +131,8 @@ export function CmfImportPanel({ onPacketCreated, onRenderFocus }: CmfImportPane
   const [importError, setImportError] = useState<{
     message: string
     requestId?: string
+    reason?: string
+    phase?: string
   } | null>(null)
   /** Pending auto-close timer. The success panel is the bridge from
    *  "spinner stopped" to "workspace is on the new packet" — but
@@ -294,7 +298,18 @@ export function CmfImportPanel({ onPacketCreated, onRenderFocus }: CmfImportPane
       // designer can read it, copy it, or screenshot it.
       toast({ title: 'Import failed', description: message })
       const requestId = deriveImportErrorRequestId(err) ?? undefined
-      setImportError({ message, requestId })
+      const reason = deriveImportErrorReason(err) ?? undefined
+      const phase = deriveImportErrorPhase(err) ?? undefined
+      if (typeof window !== 'undefined') {
+        console.error('[cmf/import] failed', {
+          message,
+          requestId,
+          reason,
+          phase,
+          raw: err,
+        })
+      }
+      setImportError({ message, requestId, reason, phase })
     }
   }
 
@@ -645,10 +660,31 @@ export function CmfImportPanel({ onPacketCreated, onRenderFocus }: CmfImportPane
               <p className="text-[11px] leading-snug text-foreground/90 break-words">
                 {importError.message}
               </p>
-              {importError.requestId && (
+              {importError.reason && (
+                <p className="text-[10px] leading-snug text-muted-foreground break-words">
+                  <span className="font-semibold text-foreground/80">
+                    Server detail:
+                  </span>{' '}
+                  <span className="font-mono">{importError.reason}</span>
+                </p>
+              )}
+              {(importError.requestId || importError.phase) && (
                 <p className="text-[10px] text-muted-foreground">
-                  Request ID:{' '}
-                  <span className="font-mono">{importError.requestId}</span>
+                  {importError.requestId && (
+                    <>
+                      Request ID:{' '}
+                      <span className="font-mono">{importError.requestId}</span>
+                    </>
+                  )}
+                  {importError.requestId && importError.phase && (
+                    <span className="mx-1 text-muted-foreground/40">·</span>
+                  )}
+                  {importError.phase && (
+                    <>
+                      Stage:{' '}
+                      <span className="font-mono">{importError.phase}</span>
+                    </>
+                  )}
                 </p>
               )}
               <p className="text-[11px] text-muted-foreground">
