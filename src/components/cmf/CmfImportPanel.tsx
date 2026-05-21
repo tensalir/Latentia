@@ -11,6 +11,7 @@ import {
   deriveImportErrorRequestId,
   useImportCmfWorkbook,
   type CmfImportDroppedSkuColumn,
+  type CmfImportFailure,
   type CmfImportUnknownAttributeRow,
   type CmfImportUnrecognisedSheet,
   type CmfMergeSummary,
@@ -117,6 +118,7 @@ export function CmfImportPanel({ onPacketCreated, onRenderFocus }: CmfImportPane
     importId: string
     requestId?: string
     packets: CreatedPacketSummary[]
+    failures: CmfImportFailure[]
   } | null>(null)
   /** True when the most recent import returned `rowCount === 0` —
    *  used to flip the success block off and the empty-result panel on
@@ -246,6 +248,7 @@ export function CmfImportPanel({ onPacketCreated, onRenderFocus }: CmfImportPane
           importId: result.import.id,
           requestId: result.requestId,
           packets: createdPackets,
+          failures: result.failures ?? [],
         })
         const verbBits: string[] = []
         if (aggregate.added > 0) verbBits.push(`${aggregate.added} added`)
@@ -625,6 +628,42 @@ export function CmfImportPanel({ onPacketCreated, onRenderFocus }: CmfImportPane
                 )
               })}
             </ul>
+          )}
+
+          {/* Per-product failures — surface when SOME products
+              succeeded but others didn't, so designers see exactly
+              which ones to retry. Sits inside the success block so
+              it shares the visual identity of the import that just
+              ran (partial success is still a success). */}
+          {lastSuccess.failures.length > 0 && (
+            <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-3">
+              <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-700 dark:text-amber-200">
+                <AlertTriangle className="h-3 w-3" />
+                {lastSuccess.failures.length}{' '}
+                {lastSuccess.failures.length === 1 ? 'product' : 'products'} did not import
+              </p>
+              <ul className="space-y-1.5">
+                {lastSuccess.failures.map((failure) => (
+                  <li key={failure.productSlug} className="text-[11px] leading-snug">
+                    <p>
+                      <span className="font-mono font-semibold text-foreground">
+                        {failure.productSlug}
+                      </span>
+                      <span className="text-amber-800/80 dark:text-amber-200/80">
+                        {' '}
+                        · {failure.rowCount} {failure.rowCount === 1 ? 'row' : 'rows'}
+                      </span>
+                    </p>
+                    <p className="text-[10px] text-muted-foreground break-words font-mono">
+                      {failure.reason} ({failure.code})
+                    </p>
+                  </li>
+                ))}
+              </ul>
+              <p className="text-[10px] italic text-amber-800/70 dark:text-amber-200/70">
+                Re-upload the workbook to retry just the failed products — successful packets are unchanged.
+              </p>
+            </div>
           )}
 
           {/* Footer hint — only relevant when multiple packets were

@@ -232,8 +232,16 @@ export interface CmfImportUnknownAttributeRow {
   componentLabel: string
 }
 
+export interface CmfImportFailure {
+  productSlug: string
+  rowCount: number
+  reason: string
+  code: string
+}
+
 export interface CmfImportResponse {
   requestId?: string
+  failures?: CmfImportFailure[]
   import: {
     id: string
     status: string

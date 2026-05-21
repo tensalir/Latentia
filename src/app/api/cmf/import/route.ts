@@ -291,7 +291,7 @@ export async function POST(request: NextRequest) {
     }
 
     phase = 'packet_create'
-    const { packets } = await createPacketFromRows({
+    const { packets, failures } = await createPacketFromRows({
       ownerId: auth.profile.userId,
       importId: importRecord.id,
       packetName,
@@ -300,6 +300,34 @@ export async function POST(request: NextRequest) {
       rows: normalised.rows,
       replaceExisting,
     })
+    // When EVERY product write failed, surface as a true 500 with the
+    // first failure's reason so the panel can show "your import didn't
+    // land — here's why". Partial successes fall through and report
+    // failures alongside the created packets so the user keeps what
+    // worked.
+    if (packets.length === 0 && failures.length > 0) {
+      const first = failures[0]
+      console.error('[cmf/import] all packet writes failed', {
+        requestId,
+        importId: importRecord.id,
+        userId: auth.profile.userId,
+        failures,
+      })
+      return cmfError(
+        first.reason ||
+          'Workbook parsed but no packets could be written. Please retry.',
+        {
+          status: 500,
+          extra: {
+            code: first.code || 'packet_write_failed',
+            phase: 'packet_create',
+            reason: first.reason,
+            failures,
+            requestId,
+          },
+        }
+      )
+    }
 
   // Log one workbook-import event per packet so the activity timeline on
   // each product packet shows where its SKUs came from. We log on every
@@ -333,6 +361,7 @@ export async function POST(request: NextRequest) {
     phase = 'response'
     return NextResponse.json({
       requestId,
+      failures,
       import: {
         id: importRecord.id,
         status: importRecord.status,

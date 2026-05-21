@@ -938,47 +938,132 @@ function resolvePacketName(
   return collection ?? productName
 }
 
+/**
+ * A per-product write that didn't complete. Surfaced through
+ * `createPacketFromRows` so the import route can tell the user which
+ * product packets actually landed and which ones to retry, instead of
+ * sinking the entire import on one bad transaction.
+ */
+export interface CreatePacketFailure {
+  productSlug: string
+  rowCount: number
+  /** Sanitised one-line reason. Mirrors the format the import route
+   *  shows in the `Server detail` line so support can correlate. */
+  reason: string
+  /** Stable machine code for known Postgres / Prisma failure classes
+   *  (transaction timeout, constraint violation, etc.). Falls back to
+   *  `unknown_error` when we can't classify the cause. */
+  code: string
+}
+
+/**
+ * Bounded per-product transaction timeout. Each product runs in its
+ * own Prisma interactive transaction so a slow merge in one product
+ * (many SKUs, big diff payload, signature merge with deletes) cannot
+ * sink the entire import. The default of 5s was tripping multi-
+ * product workbooks: a single 7-product overwrite chained ~70 DB
+ * round-trips through the pooler which routinely exceeds 5s and the
+ * route surfaced an opaque "import_failed". 25s keeps us well under
+ * the 60s Vercel hobby function limit even when several products
+ * land back-to-back.
+ */
+const PACKET_TRANSACTION_TIMEOUT_MS = 25_000
+
+function classifyPacketWriteError(err: unknown): {
+  reason: string
+  code: string
+} {
+  if (!(err instanceof Error)) {
+    return { reason: 'Unknown server error', code: 'unknown_error' }
+  }
+  // Trim potentially huge Prisma error text down to one short line so
+  // the UI / activity log doesn't carry a 40-row stack trace.
+  const raw = err.message || err.name || 'Unknown server error'
+  const firstLine = raw.split('\n').map((l) => l.trim()).find(Boolean) ?? raw
+  const trimmed =
+    firstLine.length <= 220 ? firstLine : `${firstLine.slice(0, 217)}…`
+  const code = (err as { code?: unknown }).code
+  if (code === 'P2028') {
+    return {
+      reason: 'Database transaction timed out while writing the packet.',
+      code: 'transaction_timeout',
+    }
+  }
+  if (typeof code === 'string' && code.startsWith('P')) {
+    return { reason: trimmed, code }
+  }
+  return { reason: trimmed, code: 'unknown_error' }
+}
+
 export async function createPacketFromRows(
   args: CreatePacketArgs
-): Promise<{ packets: CreatedPacket[] }> {
-  if (args.rows.length === 0) return { packets: [] }
+): Promise<{ packets: CreatedPacket[]; failures: CreatePacketFailure[] }> {
+  if (args.rows.length === 0) return { packets: [], failures: [] }
   const buckets = groupRowsByProductSlug(args.rows)
   const replaceExisting = args.replaceExisting ?? false
 
-  return prisma.$transaction(async (tx) => {
-    const out: CreatedPacket[] = []
-    for (const { productSlug, rows } of buckets) {
-      const inferredCmf =
-        args.cmfCode ??
-        rows
-          .map((r: CmfSkuRow) => r.cmfCode)
-          .find((c: string | undefined) => Boolean(c)) ??
-        null
-      const ctx: PacketWriteContext = {
-        ownerId: args.ownerId,
-        importId: args.importId ?? null,
-        productSlug,
-        inferredCmf,
-        product: getCmfProduct(productSlug),
-      }
-      const existing = await findExistingPacketForMerge(
-        tx,
-        productSlug,
-        inferredCmf,
-        rows,
-        replaceExisting
-      )
-      if (existing) {
-        out.push(await mergeRowsIntoPacket(tx, existing, rows, ctx, replaceExisting))
-      } else {
-        const packetName = resolvePacketName(rows, productSlug, args.packetName)
-        out.push(
-          await createPacketWithRenders(tx, rows, packetName, args.notes ?? null, ctx)
-        )
-      }
+  const out: CreatedPacket[] = []
+  const failures: CreatePacketFailure[] = []
+
+  for (const { productSlug, rows } of buckets) {
+    const inferredCmf =
+      args.cmfCode ??
+      rows
+        .map((r: CmfSkuRow) => r.cmfCode)
+        .find((c: string | undefined) => Boolean(c)) ??
+      null
+    const ctx: PacketWriteContext = {
+      ownerId: args.ownerId,
+      importId: args.importId ?? null,
+      productSlug,
+      inferredCmf,
+      product: getCmfProduct(productSlug),
     }
-    return { packets: out }
-  })
+
+    try {
+      const created = await prisma.$transaction(
+        async (tx) => {
+          const existing = await findExistingPacketForMerge(
+            tx,
+            productSlug,
+            inferredCmf,
+            rows,
+            replaceExisting
+          )
+          if (existing) {
+            return mergeRowsIntoPacket(tx, existing, rows, ctx, replaceExisting)
+          }
+          const packetName = resolvePacketName(rows, productSlug, args.packetName)
+          return createPacketWithRenders(
+            tx,
+            rows,
+            packetName,
+            args.notes ?? null,
+            ctx
+          )
+        },
+        { timeout: PACKET_TRANSACTION_TIMEOUT_MS }
+      )
+      out.push(created)
+    } catch (err) {
+      const { reason, code } = classifyPacketWriteError(err)
+      console.error('[cmf/service] packet write failed', {
+        productSlug,
+        rowCount: rows.length,
+        replaceExisting,
+        code,
+        reason,
+      })
+      failures.push({
+        productSlug,
+        rowCount: rows.length,
+        reason,
+        code,
+      })
+    }
+  }
+
+  return { packets: out, failures }
 }
 
 /**
