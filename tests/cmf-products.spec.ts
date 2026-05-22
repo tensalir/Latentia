@@ -11,6 +11,7 @@ import {
   packetPdfStoragePath,
   renderStoragePath,
   safeFileSlug,
+  versionedPacketPdfFileSlug,
 } from '../src/lib/cmf/storage'
 
 /**
@@ -66,6 +67,15 @@ test('per-user storage paths are owner-scoped and contain no path-traversal char
     expect(p).not.toContain('..')
     expect(p).not.toContain('//')
   }
+})
+
+test('versionedPacketPdfFileSlug creates cache-busting PDF filenames', () => {
+  expect(
+    versionedPacketPdfFileSlug(
+      'CMF-001234revA_Switch2_CMF_Pack_DRAFT',
+      new Date('2026-05-22T15:04:05.000Z')
+    )
+  ).toBe('CMF-001234revA_Switch2_CMF_Pack_DRAFT_20260522150405')
 })
 
 test('clown storage paths are global, keyed on (productSlug, variantSlug)', () => {

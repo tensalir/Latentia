@@ -47,7 +47,15 @@ export function renderStoragePath(
 export function packetPdfStoragePath(ownerId: string, packetId: string, fileSlug: string): string {
   // fileSlug already encodes packet identity (e.g. CMF-001234revA_Switch2_CMF_Sage)
   // so we keep the directory predictable but the filename human-readable.
+  // PDF exports should pass a versioned fileSlug: public storage URLs are
+  // cached as immutable assets, so overwriting the same path can keep serving
+  // an older PDF to designers.
   return `cmf/${ownerId}/packets/${packetId}/${fileSlug}.pdf`
+}
+
+export function versionedPacketPdfFileSlug(fileSlug: string, generatedAt: Date): string {
+  const stamp = generatedAt.toISOString().replace(/\D/g, '').slice(0, 14)
+  return safeFileSlug(`${fileSlug}_${stamp}`)
 }
 
 /**

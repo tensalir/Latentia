@@ -25,6 +25,7 @@ import {
   CMF_STORAGE_BUCKET,
   packetPdfStoragePath,
   safeFileSlug,
+  versionedPacketPdfFileSlug,
 } from '@/lib/cmf/storage'
 import {
   logCmfActivity,
@@ -166,6 +167,7 @@ export async function POST(
       isDraft: document.isDraft,
     })
 
+    const exportedAt = new Date()
     const firstPage = document.pages[0]
     const fileSlug = safeFileSlug(
       buildPacketFileSlug({
@@ -175,7 +177,8 @@ export async function POST(
           document.pages.length === 1 ? firstPage.colorwayLabel : 'Pack',
       })
     )
-    const filename = document.isDraft ? `${fileSlug}_DRAFT` : fileSlug
+    const baseFilename = document.isDraft ? `${fileSlug}_DRAFT` : fileSlug
+    const filename = versionedPacketPdfFileSlug(baseFilename, exportedAt)
     const path = packetPdfStoragePath(packet.ownerId, packet.id, filename)
     const dataUrl = `data:application/pdf;base64,${Buffer.from(pdfBytes).toString('base64')}`
     const publicUrl = await uploadBase64ToStorage(dataUrl, CMF_STORAGE_BUCKET, path)
@@ -189,7 +192,7 @@ export async function POST(
         pdfUrl: publicUrl,
         pdfPath: path,
         pdfError: null,
-        generatedAt: new Date(),
+        generatedAt: exportedAt,
       },
       include: {
         renders: {
