@@ -1,6 +1,11 @@
 import { test, expect } from '@playwright/test'
 import { PDFDocument } from 'pdf-lib'
-import { CMF_LEGEND_COLOURS, resolveLegendHex } from '../src/lib/cmf/clown-legend'
+import {
+  CMF_EXPLORER_PALETTE,
+  CMF_LEGEND_COLOURS,
+  resolveLegendHex,
+  resolveSwatchHex,
+} from '../src/lib/cmf/clown-legend'
 import { buildCmfPacketPdf, CMF_PDF_GEOMETRY } from '../src/lib/cmf/pdf'
 
 /**
@@ -162,6 +167,42 @@ test('resolveLegendHex prefers per-asset clown metadata over canonical map', () 
       [{ region: 'pom_ring', label: 'POM ring', colorHex: '#AABBCC' }],
     ),
   ).toBe('#AABBCC')
+})
+
+test('resolveLegendHex uses explorer palette for Cocoon when clown has no metadata', () => {
+  expect(
+    resolveLegendHex(
+      { region: 'ear_cushion' },
+      [],
+      {
+        productSlug: 'cocoon',
+        catalogRegions: ['ear_cushion', 'foam', 'earcup', 'front_strap', 'velcro_front', 'pouch'],
+      },
+    ),
+  ).toBe(CMF_EXPLORER_PALETTE[0])
+})
+
+test('resolveSwatchHex ignores product Pantone when a clown is attached', () => {
+  expect(
+    resolveSwatchHex(
+      { region: 'ear_cushion', colorHex: '#663399' },
+      {
+        hasClown: true,
+        productSlug: 'cocoon',
+        catalogRegions: ['ear_cushion', 'foam', 'earcup'],
+      },
+    ),
+  ).toBe(CMF_EXPLORER_PALETTE[0])
+  expect(
+    resolveSwatchHex(
+      { region: 'ear_cushion', colorHex: '#663399' },
+      {
+        hasClown: false,
+        productSlug: 'cocoon',
+        catalogRegions: ['ear_cushion', 'foam', 'earcup'],
+      },
+    ),
+  ).toBe('#663399')
 })
 
 /* ── Merged clown + part breakdown page ─────────────────────────────── */

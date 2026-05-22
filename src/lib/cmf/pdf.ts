@@ -41,7 +41,7 @@
 
 import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb } from 'pdf-lib'
 import type { CmfRender } from '@prisma/client'
-import { resolveLegendHex } from './clown-legend'
+import { resolveSwatchHex, type SwatchContext } from './clown-legend'
 import { getCmfProduct } from './products'
 import type { ComponentSpec, PaletteSwatch } from './schema'
 
@@ -82,12 +82,14 @@ function hexToRgb01(hex?: string | null) {
   return rgb(((num >> 16) & 255) / 255, ((num >> 8) & 255) / 255, (num & 255) / 255)
 }
 
-/** Legend-matched swatch hex, then workbook Pantone hex as fallback. */
-function swatchHexForComponent(
-  comp: ComponentSpec,
-  clownComponents?: ClownProjection['components'] | null,
-): string | null {
-  return resolveLegendHex(comp, clownComponents ?? null) ?? comp.colorHex ?? null
+function swatchContextForRender(render: RenderProjection): SwatchContext {
+  const product = getCmfProduct(render.productSlug)
+  return {
+    hasClown: !!render.clown,
+    clownComponents: render.clown?.components ?? null,
+    productSlug: render.productSlug,
+    catalogRegions: product?.components.map((c) => c.region),
+  }
 }
 
 async function fetchImageBytes(url: string): Promise<Uint8Array | null> {
@@ -300,18 +302,18 @@ function drawComponentSpecList(args: {
   page: PDFPage
   fonts: PdfFontPair
   components: ComponentSpec[]
-  clownComponents?: ClownProjection['components'] | null
+  swatchContext: SwatchContext
   x: number
   y: number
   width: number
 }): number {
-  const { page, fonts, components, clownComponents, x, width } = args
+  const { page, fonts, components, swatchContext, x, width } = args
   let cursor = args.y
 
   for (const comp of components) {
     if (cursor < FOOTER_H + 50) break
 
-    const swatch = hexToRgb01(swatchHexForComponent(comp, clownComponents))
+    const swatch = hexToRgb01(resolveSwatchHex(comp, swatchContext))
     if (swatch) {
       page.drawRectangle({
         x,
@@ -517,7 +519,7 @@ async function drawProductRenderPage(args: SkuPageArgs) {
     page,
     fonts,
     components,
-    clownComponents: render.clown?.components ?? null,
+    swatchContext: swatchContextForRender(render),
     x: MARGIN,
     y: imageBoxY - 18,
     width: PAGE_W - MARGIN * 2,
@@ -532,13 +534,13 @@ function drawColourLegend(args: {
   page: PDFPage
   fonts: PdfFontPair
   components: ComponentSpec[]
-  clownComponents?: ClownProjection['components'] | null
+  swatchContext: SwatchContext
   x: number
   y: number
   width: number
   maxHeight: number
 }) {
-  const { page, fonts, components, clownComponents, x, y, width, maxHeight } = args
+  const { page, fonts, components, swatchContext, x, y, width, maxHeight } = args
   page.drawText('Colour legend', {
     x,
     y,
@@ -551,7 +553,7 @@ function drawColourLegend(args: {
     .map((comp) => ({
       region: comp.region,
       label: comp.label,
-      colorHex: swatchHexForComponent(comp, clownComponents),
+      colorHex: resolveSwatchHex(comp, swatchContext),
     }))
     .filter((e) => e.colorHex)
 
@@ -634,6 +636,7 @@ async function drawPartBreakdownPage(args: SkuPageArgs) {
 
   const components = (render.componentSpecs as ComponentSpec[] | undefined) ?? []
   const clown = render.clown ?? null
+  const swatchCtx = swatchContextForRender(render)
   const bodyH = PAGE_H - HEADER_H - FOOTER_H
   let gridY = sectionY - 18
 
@@ -695,7 +698,7 @@ async function drawPartBreakdownPage(args: SkuPageArgs) {
       page,
       fonts,
       components,
-      clownComponents: clown.components,
+      swatchContext: swatchCtx,
       x: legendX,
       y: bandTop,
       width: legendW,
@@ -752,7 +755,7 @@ async function drawPartBreakdownPage(args: SkuPageArgs) {
       maxWidth: cellW - 20,
     })
 
-    const swatch = hexToRgb01(swatchHexForComponent(comp, clown?.components ?? null))
+    const swatch = hexToRgb01(resolveSwatchHex(comp, swatchCtx))
     const swatchSize = 38
     page.drawRectangle({
       x: x + cellW - swatchSize - 10,
@@ -895,9 +898,7 @@ async function drawPackOverviewPage(args: {
     let swatchX = cellX + 10
     const swatchY = cellY - 70
     for (const comp of components.slice(0, 6)) {
-      const colour = hexToRgb01(
-        swatchHexForComponent(comp, render.clown?.components ?? null),
-      )
+      const colour = hexToRgb01(resolveSwatchHex(comp, swatchContextForRender(render)))
       page.drawRectangle({
         x: swatchX,
         y: swatchY,
