@@ -31,7 +31,8 @@
  *   │  …                                                           │
  *   └─────────────────────────────────────────────────────────────┘
  *
- * Page 2 is the part breakdown grid (component label + swatch chip per
+ * Page 2 is the part breakdown: clown reference render + colour legend on
+ * top, then the breakdown grid (component label + legend-matched swatch per
  * cell). For multi-SKU packets a final overview page lists every colourway
  * in the pack so reviewers see the family at a glance.
  *
@@ -40,6 +41,7 @@
 
 import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb } from 'pdf-lib'
 import type { CmfRender } from '@prisma/client'
+import { resolveLegendHex } from './clown-legend'
 import { getCmfProduct } from './products'
 import type { ComponentSpec, PaletteSwatch } from './schema'
 
@@ -78,6 +80,14 @@ function hexToRgb01(hex?: string | null) {
   const num = parseInt(cleaned, 16)
   if (Number.isNaN(num)) return null
   return rgb(((num >> 16) & 255) / 255, ((num >> 8) & 255) / 255, (num & 255) / 255)
+}
+
+/** Legend-matched swatch hex, then workbook Pantone hex as fallback. */
+function swatchHexForComponent(
+  comp: ComponentSpec,
+  clownComponents?: ClownProjection['components'] | null,
+): string | null {
+  return resolveLegendHex(comp, clownComponents ?? null) ?? comp.colorHex ?? null
 }
 
 async function fetchImageBytes(url: string): Promise<Uint8Array | null> {
@@ -290,17 +300,18 @@ function drawComponentSpecList(args: {
   page: PDFPage
   fonts: PdfFontPair
   components: ComponentSpec[]
+  clownComponents?: ClownProjection['components'] | null
   x: number
   y: number
   width: number
 }): number {
-  const { page, fonts, components, x, width } = args
+  const { page, fonts, components, clownComponents, x, width } = args
   let cursor = args.y
 
   for (const comp of components) {
     if (cursor < FOOTER_H + 50) break
 
-    const swatch = hexToRgb01(comp.colorHex ?? null)
+    const swatch = hexToRgb01(swatchHexForComponent(comp, clownComponents))
     if (swatch) {
       page.drawRectangle({
         x,
@@ -419,9 +430,7 @@ interface RenderProjection {
   renderUrl: string | null
   enhancedPrompt: string | null
   status: string
-  /** Resolved clown reference for this SKU, used to render the Clown
-   * reference page. Optional — when null, the clown page is skipped for
-   * that SKU and the rest of the deck still renders. */
+  /** Resolved clown reference for this SKU — image + legend on Page 2. */
   clown?: ClownProjection | null
 }
 
@@ -508,6 +517,7 @@ async function drawProductRenderPage(args: SkuPageArgs) {
     page,
     fonts,
     components,
+    clownComponents: render.clown?.components ?? null,
     x: MARGIN,
     y: imageBoxY - 18,
     width: PAGE_W - MARGIN * 2,
@@ -516,152 +526,91 @@ async function drawProductRenderPage(args: SkuPageArgs) {
   drawFooter({ page, fonts, pageIndex, totalPages, notes: packetNotes })
 }
 
-/* ── Page 2 (Clown reference) ──────────────────────────────────────────── */
+/* ── Colour legend (clown region markers) ───────────────────────────────── */
 
-/**
- * The clown reference is the multi-coloured CMF render used as the model's
- * input. Designers asked for it to stay in the exported deck because the
- * factory uses it to map each painted surface back to a component. We
- * place it between the spec page and the breakdown so the flow reads
- * spec → input → breakdown.
- *
- * When no clown is registered for the SKU (rare, but possible during
- * bootstrap), the page is skipped entirely — see `buildCmfPacketPdf` for
- * the gating.
- */
-async function drawClownReferencePage(args: SkuPageArgs & { clown: ClownProjection }) {
-  const { pdf, fonts, meta, pageIndex, totalPages, packetNotes, isDraft, clown } = args
-  const page = pdf.addPage([PAGE_W, PAGE_H])
-
-  drawSourceHeader({
-    page,
-    fonts,
-    fields: meta,
-    pageLabel: 'Clown reference',
-    showDraftBadge: isDraft,
-  })
-
-  const sectionY = PAGE_H - HEADER_H - 20
-  page.drawText('Clown reference', {
-    x: MARGIN,
-    y: sectionY,
-    size: 11,
-    font: fonts.bold,
-    color: COLOURS.ink,
-  })
-  page.drawText(clown.label, {
-    x: MARGIN,
-    y: sectionY - 14,
-    size: 8,
-    font: fonts.mono,
-    color: COLOURS.muted,
-    maxWidth: PAGE_W - MARGIN * 2,
-  })
-
-  // Clown image plate (same proportions as the product render plate so the
-  // two pages feel like a matched pair).
-  const imageBoxX = MARGIN
-  const imageBoxW = PAGE_W - MARGIN * 2
-  const imageBoxH = (PAGE_H - HEADER_H - FOOTER_H) * 0.5
-  const imageBoxY = sectionY - 28 - imageBoxH
-
-  page.drawRectangle({
-    x: imageBoxX,
-    y: imageBoxY,
-    width: imageBoxW,
-    height: imageBoxH,
-    color: COLOURS.panelBg,
-    borderColor: COLOURS.faint,
-    borderWidth: 0.5,
-  })
-
-  const embedded = await embedRenderImage(pdf, clown.imageUrl)
-  if (embedded) {
-    const aspect = embedded.width / embedded.height
-    let drawW = imageBoxW - 16
-    let drawH = drawW / aspect
-    if (drawH > imageBoxH - 16) {
-      drawH = imageBoxH - 16
-      drawW = drawH * aspect
-    }
-    page.drawImage(embedded, {
-      x: imageBoxX + (imageBoxW - drawW) / 2,
-      y: imageBoxY + (imageBoxH - drawH) / 2,
-      width: drawW,
-      height: drawH,
-    })
-  } else {
-    const placeholder = 'Clown reference image not available'
-    const w = fonts.regular.widthOfTextAtSize(placeholder, 10)
-    page.drawText(placeholder, {
-      x: imageBoxX + (imageBoxW - w) / 2,
-      y: imageBoxY + imageBoxH / 2,
-      size: 10,
-      font: fonts.regular,
-      color: COLOURS.muted,
-    })
-  }
-
-  // Colour legend below the image: chips with the clown colour next to the
-  // component label. This is what links the painted region back to the
-  // spec line on Page 1.
-  const legendY = imageBoxY - 18
+function drawColourLegend(args: {
+  page: PDFPage
+  fonts: PdfFontPair
+  components: ComponentSpec[]
+  clownComponents?: ClownProjection['components'] | null
+  x: number
+  y: number
+  width: number
+  maxHeight: number
+}) {
+  const { page, fonts, components, clownComponents, x, y, width, maxHeight } = args
   page.drawText('Colour legend', {
-    x: MARGIN,
-    y: legendY,
+    x,
+    y,
     size: 8,
     font: fonts.bold,
     color: COLOURS.muted,
   })
 
-  const entries = clown.components.filter((c) => c.colorHex)
+  const entries = components
+    .map((comp) => ({
+      region: comp.region,
+      label: comp.label,
+      colorHex: swatchHexForComponent(comp, clownComponents),
+    }))
+    .filter((e) => e.colorHex)
+
   if (entries.length === 0) {
-    page.drawText('No per-region colour metadata on this clown — match by visual reference.', {
-      x: MARGIN,
-      y: legendY - 14,
+    page.drawText('No legend colours resolved for this SKU.', {
+      x,
+      y: y - 14,
       size: 9,
       font: fonts.regular,
       color: COLOURS.muted,
+      maxWidth: width,
     })
-  } else {
-    // 2-column legend so even a 6-region clown fits in one footer-clear band.
-    const cols = 2
-    const colW = (PAGE_W - MARGIN * 2 - 16 * (cols - 1)) / cols
-    const rowH = 16
-    for (let i = 0; i < entries.length; i++) {
-      const entry = entries[i]
-      const col = i % cols
-      const row = Math.floor(i / cols)
-      const x = MARGIN + col * (colW + 16)
-      const y = legendY - 14 - row * rowH
-      if (y - rowH < FOOTER_H + 8) break
-
-      const swatch = hexToRgb01(entry.colorHex ?? null)
-      page.drawRectangle({
-        x,
-        y: y - 9,
-        width: 12,
-        height: 12,
-        color: swatch ?? rgb(0.92, 0.92, 0.94),
-        borderColor: COLOURS.swatchBorder,
-        borderWidth: 0.5,
-      })
-      page.drawText(entry.label, {
-        x: x + 18,
-        y,
-        size: 9,
-        font: fonts.regular,
-        color: COLOURS.ink,
-        maxWidth: colW - 24,
-      })
-    }
+    return
   }
 
-  drawFooter({ page, fonts, pageIndex, totalPages, notes: packetNotes })
+  const cols = 2
+  const colW = (width - 12 * (cols - 1)) / cols
+  const rowH = 16
+  let legendBottom = y - 14
+
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i]
+    const col = i % cols
+    const row = Math.floor(i / cols)
+    const lx = x + col * (colW + 12)
+    const ly = y - 14 - row * rowH
+    if (ly - rowH < y - maxHeight) break
+
+    const swatch = hexToRgb01(entry.colorHex ?? null)
+    page.drawRectangle({
+      x: lx,
+      y: ly - 9,
+      width: 12,
+      height: 12,
+      color: swatch ?? rgb(0.92, 0.92, 0.94),
+      borderColor: COLOURS.swatchBorder,
+      borderWidth: 0.5,
+    })
+    page.drawText(entry.label, {
+      x: lx + 18,
+      y: ly,
+      size: 9,
+      font: fonts.regular,
+      color: COLOURS.ink,
+      maxWidth: colW - 24,
+    })
+    legendBottom = ly - rowH
+  }
+  return legendBottom
 }
 
-/* ── Page 3 (Part break down grid) ──────────────────────────────────────── */
+/* ── Page 2 (Clown reference + part break down) ─────────────────────────── */
 
+/**
+ * Damien's reference deck keeps the clown render, colour legend, and part
+ * breakdown on one page so reviewers can map painted regions to components
+ * without flipping back. The clown image sits top-left; legend top-right;
+ * the 2-column breakdown grid fills the lower band.
+ */
 async function drawPartBreakdownPage(args: SkuPageArgs) {
   const { pdf, fonts, render, meta, pageIndex, totalPages, packetNotes, isDraft } = args
   const page = pdf.addPage([PAGE_W, PAGE_H])
@@ -684,10 +633,82 @@ async function drawPartBreakdownPage(args: SkuPageArgs) {
   })
 
   const components = (render.componentSpecs as ComponentSpec[] | undefined) ?? []
+  const clown = render.clown ?? null
+  const bodyH = PAGE_H - HEADER_H - FOOTER_H
+  let gridY = sectionY - 18
+
+  if (clown) {
+    page.drawText(clown.label, {
+      x: MARGIN,
+      y: sectionY - 14,
+      size: 8,
+      font: fonts.mono,
+      color: COLOURS.muted,
+      maxWidth: PAGE_W - MARGIN * 2,
+    })
+
+    const clownBandH = bodyH * 0.32
+    const bandTop = sectionY - 28
+    const bandBottom = bandTop - clownBandH
+    const imageW = (PAGE_W - MARGIN * 2) * 0.55
+    const legendX = MARGIN + imageW + 16
+    const legendW = PAGE_W - MARGIN - legendX
+
+    page.drawRectangle({
+      x: MARGIN,
+      y: bandBottom,
+      width: imageW,
+      height: clownBandH,
+      color: COLOURS.panelBg,
+      borderColor: COLOURS.faint,
+      borderWidth: 0.5,
+    })
+
+    const embedded = await embedRenderImage(pdf, clown.imageUrl)
+    if (embedded) {
+      const aspect = embedded.width / embedded.height
+      let drawW = imageW - 12
+      let drawH = drawW / aspect
+      if (drawH > clownBandH - 12) {
+        drawH = clownBandH - 12
+        drawW = drawH * aspect
+      }
+      page.drawImage(embedded, {
+        x: MARGIN + (imageW - drawW) / 2,
+        y: bandBottom + (clownBandH - drawH) / 2,
+        width: drawW,
+        height: drawH,
+      })
+    } else {
+      const placeholder = 'Clown reference image not available'
+      const w = fonts.regular.widthOfTextAtSize(placeholder, 9)
+      page.drawText(placeholder, {
+        x: MARGIN + (imageW - w) / 2,
+        y: bandBottom + clownBandH / 2,
+        size: 9,
+        font: fonts.regular,
+        color: COLOURS.muted,
+      })
+    }
+
+    drawColourLegend({
+      page,
+      fonts,
+      components,
+      clownComponents: clown.components,
+      x: legendX,
+      y: bandTop,
+      width: legendW,
+      maxHeight: clownBandH,
+    })
+
+    gridY = bandBottom - 14
+  }
+
   if (components.length === 0) {
     page.drawText('No components recorded for this SKU.', {
       x: MARGIN,
-      y: sectionY - 24,
+      y: gridY - 24,
       size: 10,
       font: fonts.regular,
       color: COLOURS.muted,
@@ -696,15 +717,11 @@ async function drawPartBreakdownPage(args: SkuPageArgs) {
     return
   }
 
-  // 2-column grid; each cell shows component name, swatch, Pantone, material
-  // and finish. Two columns keep cells big enough for printing without
-  // requiring a designer to squint.
   const gridX = MARGIN
-  const gridY = sectionY - 18
   const cols = 2
   const gridW = PAGE_W - MARGIN * 2
   const cellW = (gridW - 16 * (cols - 1)) / cols
-  const cellH = 130
+  const cellH = 95
 
   for (let i = 0; i < components.length; i++) {
     const comp = components[i]
@@ -726,7 +743,6 @@ async function drawPartBreakdownPage(args: SkuPageArgs) {
       borderWidth: 0.5,
     })
 
-    // Component name banner
     page.drawText(comp.label.toUpperCase(), {
       x: x + 10,
       y: y - 16,
@@ -736,8 +752,7 @@ async function drawPartBreakdownPage(args: SkuPageArgs) {
       maxWidth: cellW - 20,
     })
 
-    // Swatch block on the right side
-    const swatch = hexToRgb01(comp.colorHex ?? null)
+    const swatch = hexToRgb01(swatchHexForComponent(comp, clown?.components ?? null))
     const swatchSize = 38
     page.drawRectangle({
       x: x + cellW - swatchSize - 10,
@@ -749,7 +764,6 @@ async function drawPartBreakdownPage(args: SkuPageArgs) {
       borderWidth: 0.5,
     })
 
-    // Key/value lines on the left
     let textY = y - 32
     const rows: Array<[string, string]> = [
       ['Pantone', comp.pantone ?? comp.colorHex ?? '—'],
@@ -877,11 +891,13 @@ async function drawPackOverviewPage(args: {
       })
     }
 
-    // Mini swatch row
+    // Mini swatch row (legend colours, not product Pantones)
     let swatchX = cellX + 10
     const swatchY = cellY - 70
     for (const comp of components.slice(0, 6)) {
-      const colour = hexToRgb01(comp.colorHex ?? null)
+      const colour = hexToRgb01(
+        swatchHexForComponent(comp, render.clown?.components ?? null),
+      )
       page.drawRectangle({
         x: swatchX,
         y: swatchY,
@@ -933,9 +949,7 @@ interface BuildPdfArgs {
       | 'enhancedPrompt'
       | 'status'
     > & {
-      /** Optional clown reference. When provided, a dedicated Clown
-       * reference page is appended between the CMF spec page and the part
-       * breakdown page for this SKU. */
+      /** Optional clown reference — image + legend render on Page 2. */
       clown?: ClownProjection | null
     }
   >
@@ -955,12 +969,9 @@ export async function buildCmfPacketPdf(args: BuildPdfArgs): Promise<Uint8Array>
   const fonts: PdfFontPair = { regular: helvetica, bold: helveticaBold, mono: courier }
 
   const includesOverview = args.renders.length > 1
-  // 2 base pages per SKU (CMF spec + Part breakdown) plus an optional
-  // clown reference page when the SKU has one resolved, plus an optional
-  // pack overview at the end for multi-SKU packets.
-  const totalPages =
-    args.renders.reduce((sum, r) => sum + (r.clown ? 3 : 2), 0) +
-    (includesOverview ? 1 : 0)
+  // 2 pages per SKU (CMF spec + Part breakdown with clown/legend) plus an
+  // optional pack overview at the end for multi-SKU packets.
+  const totalPages = args.renders.length * 2 + (includesOverview ? 1 : 0)
 
   let pageIndex = 1
   const baseMetaFor = (render: BuildPdfArgs['renders'][number]): MetaField[] => {
@@ -1007,21 +1018,6 @@ export async function buildCmfPacketPdf(args: BuildPdfArgs): Promise<Uint8Array>
       isDraft: !!args.isDraft,
     })
     pageIndex += 1
-
-    if (render.clown) {
-      await drawClownReferencePage({
-        pdf,
-        fonts,
-        render: projection,
-        meta,
-        pageIndex,
-        totalPages,
-        packetNotes: args.notes,
-        isDraft: !!args.isDraft,
-        clown: render.clown,
-      })
-      pageIndex += 1
-    }
 
     await drawPartBreakdownPage({
       pdf,

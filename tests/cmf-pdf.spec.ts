@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { PDFDocument } from 'pdf-lib'
+import { CMF_LEGEND_COLOURS, resolveLegendHex } from '../src/lib/cmf/clown-legend'
 import { buildCmfPacketPdf, CMF_PDF_GEOMETRY } from '../src/lib/cmf/pdf'
 
 /**
@@ -144,15 +145,33 @@ test('buildCmfPacketPdf stays portrait for every page even with many SKUs', asyn
   }
 })
 
-/* ── Clown reference page (Damien's follow-up ask) ──────────────────── */
+/* ── Clown legend colours (Damien's region markers) ─────────────────── */
+
+test('resolveLegendHex returns canonical Switch 2 legend colours', () => {
+  expect(resolveLegendHex({ region: 'pom_ring' })).toBe(CMF_LEGEND_COLOURS.pom_ring)
+  expect(resolveLegendHex({ region: 'cosmetic_cap' })).toBe(CMF_LEGEND_COLOURS.cosmetic_cap)
+  expect(resolveLegendHex({ region: 'nozzle_piece' })).toBe(CMF_LEGEND_COLOURS.nozzle_piece)
+  expect(resolveLegendHex({ region: 'eartip' })).toBe(CMF_LEGEND_COLOURS.eartip)
+  expect(resolveLegendHex({ region: 'artwork' })).toBeNull()
+})
+
+test('resolveLegendHex prefers per-asset clown metadata over canonical map', () => {
+  expect(
+    resolveLegendHex(
+      { region: 'pom_ring' },
+      [{ region: 'pom_ring', label: 'POM ring', colorHex: '#AABBCC' }],
+    ),
+  ).toBe('#AABBCC')
+})
+
+/* ── Merged clown + part breakdown page ─────────────────────────────── */
 
 // A minimal valid 1×1 PNG so the PDF builder can embed something without
-// touching the network. The bytes below are the standard png magic + a
-// single transparent pixel, base64-encoded for legibility.
+// touching the network.
 const TINY_PNG_DATA_URL =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
 
-test('buildCmfPacketPdf inserts a Clown reference page when a clown is provided', async () => {
+test('buildCmfPacketPdf keeps two pages per SKU when a clown is provided (merged layout)', async () => {
   const pdf = await buildCmfPacketPdf({
     packetName: 'Switch 2 Emerald',
     cmfCode: 'CMF-001234revA',
@@ -172,11 +191,11 @@ test('buildCmfPacketPdf inserts a Clown reference page when a clown is provided'
     ],
   })
   const doc = await PDFDocument.load(pdf)
-  // CMF spec + Clown reference + Part breakdown = 3 pages.
-  expect(doc.getPageCount()).toBe(3)
+  // CMF spec + Part breakdown (clown + legend merged) = 2 pages.
+  expect(doc.getPageCount()).toBe(2)
 })
 
-test('buildCmfPacketPdf omits the Clown reference page when no clown is provided', async () => {
+test('buildCmfPacketPdf omits clown band on breakdown when no clown is provided', async () => {
   const pdf = await buildCmfPacketPdf({
     packetName: 'Switch 2 Emerald',
     cmfCode: 'CMF-001234revA',
@@ -184,11 +203,10 @@ test('buildCmfPacketPdf omits the Clown reference page when no clown is provided
     renders: [SINGLE_RENDER as any],
   })
   const doc = await PDFDocument.load(pdf)
-  // No clown ⇒ still just the 2 base pages.
   expect(doc.getPageCount()).toBe(2)
 })
 
-test('buildCmfPacketPdf supports per-SKU clown opt-in for multi-SKU packets', async () => {
+test('buildCmfPacketPdf uses two pages per SKU for multi-SKU packets with clown', async () => {
   const pdf = await buildCmfPacketPdf({
     packetName: 'Switch 2 Spring 2026',
     cmfCode: 'CMF-001234revA',
@@ -209,13 +227,33 @@ test('buildCmfPacketPdf supports per-SKU clown opt-in for multi-SKU packets', as
         id: '00000000-0000-0000-0000-000000000002',
         label: 'Switch 2 Gold',
         colorwayName: 'Gold',
-        // No clown registered for this SKU — the deck should still build.
       },
     ] as any,
   })
   const doc = await PDFDocument.load(pdf)
-  // SKU 1: spec + clown + breakdown = 3
-  // SKU 2: spec + breakdown = 2 (no clown)
-  // Pack overview = 1
-  expect(doc.getPageCount()).toBe(6)
+  // 2 SKUs × 2 pages + 1 pack overview = 5 (no standalone clown pages).
+  expect(doc.getPageCount()).toBe(5)
+})
+
+test('buildCmfPacketPdf three-SKU pack is 7 pages (2 per SKU + overview)', async () => {
+  const clown = {
+    imageUrl: TINY_PNG_DATA_URL,
+    label: 'Switch 2 default clown',
+    components: [{ region: 'pom_ring', label: 'POM ring', colorHex: '#2BA34D' }],
+  }
+  const renders = Array.from({ length: 3 }).map((_, i) => ({
+    ...SINGLE_RENDER,
+    id: `00000000-0000-0000-0000-00000000000${i + 1}`,
+    label: `Switch 2 #${i + 1}`,
+    colorwayName: `Way ${i + 1}`,
+    clown,
+  }))
+  const pdf = await buildCmfPacketPdf({
+    packetName: 'Switch 2 Trio',
+    cmfCode: 'CMF-DRAFT',
+    notes: null,
+    renders: renders as any,
+  })
+  const doc = await PDFDocument.load(pdf)
+  expect(doc.getPageCount()).toBe(7)
 })
