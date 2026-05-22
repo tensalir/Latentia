@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { ArrowRight, Palette, Sparkles } from 'lucide-react'
+import { ArrowRight, Package, Palette, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 /**
@@ -26,6 +26,16 @@ interface ProductTool {
 }
 
 const TOOLS: ProductTool[] = [
+  {
+    slug: 'packaging',
+    name: 'Packaging Studio',
+    description:
+      'Workbook + editable Illustrator → plate validation → supplier PDFs + Creative Intent brief. One source of truth for Loop packaging handover.',
+    href: '/product/packaging',
+    status: 'live',
+    icon: Package,
+    pipeline: ['Workbook', 'Artwork', 'Plates', 'Review', 'Export'],
+  },
   {
     slug: 'cmf',
     name: 'CMF Studio',

@@ -13,7 +13,9 @@
     "prisma:studio": "prisma studio",
     "export:headless": "tsx scripts/export-headless.ts",
     "updates:generate": "tsx scripts/generate-updates.ts",
-    "updates:backfill": "tsx scripts/generate-updates.ts -- --backfill --since=60d"
+    "updates:backfill": "tsx scripts/generate-updates.ts -- --backfill --since=60d",
+    "packaging:seed-nyx": "tsx scripts/seed-packaging-nyx.ts",
+    "packaging:smoke-plates": "tsx scripts/smoke-packaging-plates.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.7",

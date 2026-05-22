@@ -33,6 +33,11 @@ model Profile {
   // render library acts as a single ground-truth visible to all
   // teammates. Admins always have implicit write access regardless.
   cmfAccess      Boolean   @default(false) @map("cmf_access")
+  // Per-user toggle that grants WRITE access to Packaging Studio
+  // (uploading workbooks, artwork, generating supplier/Creative Intent PDFs).
+  packagingAccess Boolean  @default(false) @map("packaging_access")
+  // Per-user toggle that grants CRUD on the Approved Materials library.
+  packagingEngineerRole Boolean @default(false) @map("packaging_engineer_role")
   pausedAt       DateTime? @map("paused_at")
   deletedAt      DateTime? @map("deleted_at")
   createdAt      DateTime  @default(now()) @map("created_at")
@@ -62,6 +67,16 @@ model Profile {
   cmfComments         CmfComment[]      @relation("CmfComment_user")
   cmfCommentResolutions CmfComment[]    @relation("CmfComment_resolvedBy")
   cmfActivities       CmfActivity[]
+  packagingImports    PackagingImport[]
+  packagingProjects   PackagingProject[]
+  packagingPackets    PackagingPacket[]
+  packagingMaterialsCreated PackagingMaterial[] @relation("PackagingMaterial_createdBy")
+  packagingMaterialsUpdated PackagingMaterial[] @relation("PackagingMaterial_updatedBy")
+  packagingMaterialsApproved PackagingMaterial[] @relation("PackagingMaterial_approvedBy")
+  packagingArtworksUploaded PackagingArtwork[]
+  packagingComments   PackagingComment[] @relation("PackagingComment_user")
+  packagingCommentResolutions PackagingComment[] @relation("PackagingComment_resolvedBy")
+  packagingActivities PackagingActivity[]
   productUpdateViews  UserProductUpdateView[]
 
   @@map("profiles")
@@ -1170,4 +1185,187 @@ model CmfActivity {
   @@index([packetId, createdAt(sort: Desc)])
   @@index([userId, createdAt(sort: Desc)])
   @@map("cmf_activity")
+}
+
+// ── Packaging Studio ───────────────────────────────────────────────────────
+//
+// Anna's Loop packaging workflow: Excel workbook + editable Illustrator files
+// → plate extraction → supplier PDFs + Creative Intent brief.
+// Mirrors CMF Studio access model (global read, packagingAccess write).
+
+model PackagingProject {
+  id            String   @id @default(uuid()) @db.Uuid
+  productSlug   String   @map("product_slug")
+  displayName   String   @map("display_name")
+  productType   String?  @map("product_type")
+  productFamily String?  @map("product_family")
+  ownerId       String   @map("owner_id") @db.Uuid
+  notes         String?  @db.Text
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  owner   Profile           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  packets PackagingPacket[]
+
+  @@unique([productSlug])
+  @@index([ownerId])
+  @@map("packaging_projects")
+}
+
+model PackagingImport {
+  id           String   @id @default(uuid()) @db.Uuid
+  ownerId      String   @map("owner_id") @db.Uuid
+  fileName     String   @map("file_name")
+  storagePath  String?  @map("storage_path")
+  status       String   @default("pending") // pending | parsed | validated | failed
+  rowCount     Int      @default(0) @map("row_count")
+  diagnostics  Json?
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  owner   Profile           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  packets PackagingPacket[]
+
+  @@index([ownerId, createdAt(sort: Desc)])
+  @@map("packaging_imports")
+}
+
+model PackagingPacket {
+  id                    String   @id @default(uuid()) @db.Uuid
+  projectId             String   @map("project_id") @db.Uuid
+  importId              String?  @map("import_id") @db.Uuid
+  ownerId               String   @map("owner_id") @db.Uuid
+  name                  String
+  stage                 String   @default("MP") // EVT | DVT | PVT | MP
+  variant               String?  // e.g. Black, Blue
+  status                String   @default("draft") // draft | parsing | review | ready | failed
+  projectInfo           Json?    @map("project_info")
+  artworkFolder         String?  @map("artwork_folder") @db.Text
+  overviewImageName     String?  @map("overview_image_name")
+  creativeIntentPdfUrl  String?  @map("creative_intent_pdf_url")
+  creativeIntentPdfPath String?  @map("creative_intent_pdf_path")
+  pdfError              String?  @map("pdf_error") @db.Text
+  documentDraft         Json?    @map("document_draft")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  project    PackagingProject    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  import     PackagingImport?    @relation(fields: [importId], references: [id], onDelete: SetNull)
+  owner      Profile             @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  components PackagingComponent[]
+  comments   PackagingComment[]
+  activities PackagingActivity[]
+
+  @@unique([projectId, stage, variant])
+  @@index([ownerId])
+  @@index([projectId])
+  @@index([status])
+  @@map("packaging_packets")
+}
+
+model PackagingComponent {
+  id                   String    @id @default(uuid()) @db.Uuid
+  packetId             String    @map("packet_id") @db.Uuid
+  slug                 String
+  displayName          String    @map("display_name")
+  style                String    @default("single_face") // two_face | single_face
+  pageOrder            Int       @default(0) @map("page_order")
+  included             Boolean   @default(true)
+  specs                Json      @default("{}")
+  packingSteps         Json      @default("[]") @map("packing_steps")
+  dimensions           Json      @default("{}")
+  supplierPdfUrl       String?   @map("supplier_pdf_url")
+  supplierPdfPath      String?   @map("supplier_pdf_path")
+  supplierPdfGeneratedAt DateTime? @map("supplier_pdf_generated_at")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  packet   PackagingPacket   @relation(fields: [packetId], references: [id], onDelete: Cascade)
+  artworks PackagingArtwork[]
+
+  @@unique([packetId, slug])
+  @@index([packetId])
+  @@map("packaging_components")
+}
+
+model PackagingArtwork {
+  id                    String    @id @default(uuid()) @db.Uuid
+  componentId           String    @map("component_id") @db.Uuid
+  kind                  String    // Mockup | Artwork_Front | Artwork_Back | Artwork | Overview
+  caption               String?
+  fileName              String    @map("file_name")
+  storagePath           String    @map("storage_path")
+  mimeType              String?   @map("mime_type")
+  byteSize              Int?      @map("byte_size")
+  extractedPlates       Json?     @map("extracted_plates")
+  extractedAt           DateTime? @map("extracted_at")
+  mismatchedMaterialIds Json      @default("[]") @map("mismatched_material_ids")
+  uploadedBy            String    @map("uploaded_by") @db.Uuid
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  component PackagingComponent @relation(fields: [componentId], references: [id], onDelete: Cascade)
+  uploader  Profile            @relation(fields: [uploadedBy], references: [id], onDelete: Cascade)
+
+  @@index([componentId])
+  @@map("packaging_artworks")
+}
+
+model PackagingMaterial {
+  id              String    @id @default(uuid()) @db.Uuid
+  kind            String    // paper | coating | ink | finish | adhesive | substrate
+  code            String
+  name            String
+  description     String?   @db.Text
+  attributes      Json      @default("{}")
+  approvalStatus  String    @default("approved") @map("approval_status") // approved | deprecated | restricted
+  approvedBy      String?   @map("approved_by") @db.Uuid
+  approvedAt      DateTime? @map("approved_at")
+  notes           String?   @db.Text
+  createdBy       String    @map("created_by") @db.Uuid
+  updatedBy       String?   @map("updated_by") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  createdByUser  Profile  @relation("PackagingMaterial_createdBy", fields: [createdBy], references: [id], onDelete: Cascade)
+  updatedByUser  Profile? @relation("PackagingMaterial_updatedBy", fields: [updatedBy], references: [id], onDelete: SetNull)
+  approvedByUser Profile? @relation("PackagingMaterial_approvedBy", fields: [approvedBy], references: [id], onDelete: SetNull)
+
+  @@unique([kind, code])
+  @@index([kind, approvalStatus])
+  @@map("packaging_materials")
+}
+
+model PackagingComment {
+  id         String    @id @default(uuid()) @db.Uuid
+  packetId   String    @map("packet_id") @db.Uuid
+  componentId String?  @map("component_id") @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  body       String    @db.Text
+  resolvedAt DateTime? @map("resolved_at")
+  resolvedBy String?   @map("resolved_by") @db.Uuid
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  packet     PackagingPacket @relation(fields: [packetId], references: [id], onDelete: Cascade)
+  user       Profile         @relation("PackagingComment_user", fields: [userId], references: [id], onDelete: Cascade)
+  resolvedByUser Profile?    @relation("PackagingComment_resolvedBy", fields: [resolvedBy], references: [id], onDelete: SetNull)
+
+  @@index([packetId, createdAt(sort: Desc)])
+  @@map("packaging_comments")
+}
+
+model PackagingActivity {
+  id        String   @id @default(uuid()) @db.Uuid
+  packetId  String   @map("packet_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  action    String
+  targetId  String?  @map("target_id") @db.Uuid
+  metadata  Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  packet PackagingPacket @relation(fields: [packetId], references: [id], onDelete: Cascade)
+  user   Profile         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([packetId, createdAt(sort: Desc)])
+  @@map("packaging_activity")
 }

@@ -12,6 +12,8 @@ export interface Profile {
    *  generating renders, approving attempts). Reads stay open to
    *  every authenticated profile. */
   cmfAccess?: boolean
+  packagingAccess?: boolean
+  packagingEngineerRole?: boolean
 }
 
 async function fetchProfile(): Promise<Profile> {
