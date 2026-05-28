@@ -1370,7 +1370,16 @@ export class GeminiAdapter extends BaseModelAdapter {
         cleanInstance.image = buildImageObject(base64Image, startFrame.contentType, schema)
         console.log(`[Veo 3.1] Added starting frame image (${base64Image.length} chars, ${startFrame.contentType}, schema: ${schema})`)
       }
-      
+
+      // Add end frame (lastFrame) for frame interpolation if provided.
+      // lastFrame lives in the instance alongside prompt/image — NOT in parameters.
+      // Putting it in parameters makes the API reject it as an unsupported field.
+      if (endFrame) {
+        const base64EndImage = endFrame.bytes.toString('base64')
+        cleanInstance.lastFrame = buildImageObject(base64EndImage, endFrame.contentType, schema)
+        console.log(`[Veo 3.1] Added ending frame (lastFrame) for interpolation (${base64EndImage.length} chars, ${endFrame.contentType}, schema: ${schema})`)
+      }
+
       // Build payload with separate 'parameters' object (per REST API docs)
       const payload: any = {
         instances: [cleanInstance],
@@ -1383,16 +1392,7 @@ export class GeminiAdapter extends BaseModelAdapter {
           durationSeconds: duration,
         },
       }
-      
-      // Add end frame (lastFrame) for frame interpolation if provided
-      // Per docs: "The ending frame is passed as a generation constraint in the config"
-      // https://ai.google.dev/gemini-api/docs/video#using-first-and-last-video-frames
-      if (endFrame) {
-        const base64EndImage = endFrame.bytes.toString('base64')
-        payload.parameters.lastFrame = buildImageObject(base64EndImage, endFrame.contentType, schema)
-        console.log(`[Veo 3.1] Added ending frame (lastFrame) for interpolation (${base64EndImage.length} chars, ${endFrame.contentType}, schema: ${schema})`)
-      }
-      
+
       return payload
     }
     
