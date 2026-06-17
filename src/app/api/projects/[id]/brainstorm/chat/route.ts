@@ -184,7 +184,7 @@ export async function POST(
           { isShared: true }, // Public project
         ],
       },
-      select: { id: true, name: true, briefing: true },
+      select: { id: true, name: true },
     })
     if (!project) {
       return new Response('Project not found', { status: 404 })
@@ -248,11 +248,6 @@ export async function POST(
 
     // Add project context
     systemPrompt += `\n\n---\n**Current Project:** ${project.name}\n---`
-    
-    // Add project briefing if it exists
-    if (project.briefing && project.briefing.trim()) {
-      systemPrompt += `\n\n---\n**Project Briefing/Context:**\n${project.briefing}\n---`
-    }
 
     // Get the model from env or use default
     const modelId = process.env.ANTHROPIC_BRAINSTORM_MODEL || DEFAULT_MODEL

@@ -10,10 +10,17 @@ export async function fetchGenerationsPage({
   sessionId,
   cursor,
   limit = 10,
+  bookmarkedOnly = false,
 }: {
   sessionId: string
   cursor?: string
   limit?: number
+  /**
+   * When true, only generations with at least one bookmarked output (for the
+   * current user) are returned, and each generation's `outputs` array is
+   * narrowed to just those bookmarked items.
+   */
+  bookmarkedOnly?: boolean
 }): Promise<PaginatedGenerationsResponse> {
   const params = new URLSearchParams({
     sessionId,
@@ -22,6 +29,10 @@ export async function fetchGenerationsPage({
 
   if (cursor) {
     params.append('cursor', cursor)
+  }
+
+  if (bookmarkedOnly) {
+    params.append('bookmarkedOnly', 'true')
   }
 
   // Use no-store to prevent stale cached responses during polling/refetch

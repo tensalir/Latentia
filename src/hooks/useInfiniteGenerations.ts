@@ -163,10 +163,12 @@ async function fetchGenerations({
   sessionId,
   cursor,
   limit = 10,
+  bookmarkedOnly = false,
 }: {
   sessionId: string
   cursor?: string
   limit?: number
+  bookmarkedOnly?: boolean
 }): Promise<PaginatedGenerationsResponse> {
   const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now()
 
@@ -175,6 +177,7 @@ async function fetchGenerations({
       sessionId,
       cursor,
       limit,
+      bookmarkedOnly,
     })
 
     logMetric({
@@ -185,6 +188,7 @@ async function fetchGenerations({
         sessionId,
         limit,
         cursor,
+        bookmarkedOnly,
         resultCount: normalized.data.length,
         hasMore: normalized.hasMore,
       },
@@ -196,7 +200,7 @@ async function fetchGenerations({
       name: 'hook_fetch_generations_infinite',
       status: 'error',
       durationMs: (typeof performance !== 'undefined' ? performance.now() : Date.now()) - startedAt,
-      meta: { sessionId, limit, cursor, error: error?.message },
+      meta: { sessionId, limit, cursor, bookmarkedOnly, error: error?.message },
     })
     throw error
   }
@@ -214,16 +218,25 @@ async function fetchGenerations({
  * - Reduced to 5s when there are processing generations (was 2s)
  * - This is a fallback; realtime subscriptions should handle most updates
  */
-export function useInfiniteGenerations(sessionId: string | null, limit: number = 10) {
+export function useInfiniteGenerations(
+  sessionId: string | null,
+  limit: number = 10,
+  bookmarkedOnly: boolean = false,
+) {
   const isTempSession = !!sessionId && sessionId.startsWith('temp-')
 
   return useInfiniteQuery({
-    queryKey: ['generations', 'infinite', sessionId],
+    // Distinct cache key when filtering by bookmarks so the normal feed cache
+    // (and its optimistic/monotonic merge logic) is left untouched.
+    queryKey: bookmarkedOnly
+      ? ['generations', 'infinite', sessionId, 'bookmarked']
+      : ['generations', 'infinite', sessionId],
     queryFn: ({ pageParam }) =>
       fetchGenerations({
         sessionId: sessionId!,
         cursor: pageParam as string | undefined,
         limit,
+        bookmarkedOnly,
       }),
     // Avoid fetching for optimistic "temp-*" session IDs (not valid UUIDs; server will 500 otherwise)
     enabled: !!sessionId && !isTempSession,

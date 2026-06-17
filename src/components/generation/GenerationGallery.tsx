@@ -1,12 +1,12 @@
 import { useState, useRef, useCallback, useEffect, forwardRef, useMemo, memo } from 'react'
 import Image from 'next/image'
-import { Download, RotateCcw, Info, Copy, Bookmark, Check, Video, Wand2, X, Trash2, Pin, ArrowDownRight, Camera, Paintbrush, Film } from 'lucide-react'
+import { Download, RotateCcw, Info, Copy, Bookmark, Check, Video, Wand2, X, Trash2, ArrowDownRight, Camera, Paintbrush, Film } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { GenerationWithOutputs } from '@/types/generation'
 import type { Session } from '@/types/project'
 import { useUpdateOutputMutation } from '@/hooks/useOutputMutations'
-import { usePinnedImages } from '@/hooks/usePinnedImages'
 import { useModels } from '@/hooks/useModels'
+import { useDownloadFlight } from '@/components/downloads/DownloadHistoryProvider'
 import { useToast } from '@/components/ui/use-toast'
 import { useQueryClient } from '@tanstack/react-query'
 import { markGenerationDismissed } from '@/hooks/useGenerationsRealtime'
@@ -30,11 +30,9 @@ import {
 
 interface ReferenceImageThumbnailProps {
   generation: GenerationWithOutputs
-  onPinImage?: (url: string) => void
 }
 
-const ReferenceImageThumbnail = memo(function ReferenceImageThumbnail({ generation, onPinImage }: ReferenceImageThumbnailProps) {
-  const [hoveredKey, setHoveredKey] = useState<string | null>(null)
+const ReferenceImageThumbnail = memo(function ReferenceImageThumbnail({ generation }: ReferenceImageThumbnailProps) {
   const urls = getReferenceImageUrls(generation)
   const params = (generation.parameters || {}) as Record<string, unknown>
   const endFrameUrl =
@@ -60,40 +58,14 @@ const ReferenceImageThumbnail = memo(function ReferenceImageThumbnail({ generati
         <div className="flex items-start gap-2">
           <div className="flex flex-col gap-1">
             <span className="text-[10px] text-muted-foreground/70">Start</span>
-            <div
-              className="relative w-16 h-16 rounded-lg overflow-hidden border border-border/50 group/refimg"
-              onMouseEnter={() => setHoveredKey('start')}
-              onMouseLeave={() => setHoveredKey(null)}
-            >
+            <div className="relative w-16 h-16 rounded-lg overflow-hidden border border-border/50">
               <img src={startFrameUrl} alt="Start frame" className="w-full h-full object-cover" loading="lazy" />
-              {onPinImage && hoveredKey === 'start' && (
-                <button
-                  onClick={(e) => handlePinClick(e, startFrameUrl)}
-                  className="absolute top-1 right-1 w-4 h-4 rounded-full bg-primary/90 text-primary-foreground flex items-center justify-center hover:bg-primary transition-colors shadow-sm"
-                  title="Pin start frame"
-                >
-                  <Pin className="h-2 w-2" />
-                </button>
-              )}
             </div>
           </div>
           <div className="flex flex-col gap-1">
             <span className="text-[10px] text-muted-foreground/70">End</span>
-            <div
-              className="relative w-16 h-16 rounded-lg overflow-hidden border border-border/50 group/refimg"
-              onMouseEnter={() => setHoveredKey('end')}
-              onMouseLeave={() => setHoveredKey(null)}
-            >
+            <div className="relative w-16 h-16 rounded-lg overflow-hidden border border-border/50">
               <img src={endFrameUrl} alt="End frame" className="w-full h-full object-cover" loading="lazy" />
-              {onPinImage && hoveredKey === 'end' && (
-                <button
-                  onClick={(e) => handlePinClick(e, endFrameUrl)}
-                  className="absolute top-1 right-1 w-4 h-4 rounded-full bg-primary/90 text-primary-foreground flex items-center justify-center hover:bg-primary transition-colors shadow-sm"
-                  title="Pin end frame"
-                >
-                  <Pin className="h-2 w-2" />
-                </button>
-              )}
             </div>
           </div>
         </div>
@@ -105,58 +77,26 @@ const ReferenceImageThumbnail = memo(function ReferenceImageThumbnail({ generati
   const visibleUrls = urls.slice(0, 4)
   const remaining = urls.length - visibleUrls.length
 
-  const handlePinClick = (e: React.MouseEvent, url: string) => {
-    e.stopPropagation()
-    onPinImage?.(url)
-  }
-
   return (
     <div className="mt-3 pt-3 border-t border-border/50">
       <div className="text-xs text-muted-foreground/70 mb-1.5">{label}</div>
 
       {urls.length === 1 ? (
-        <div 
-          className="relative w-20 h-20 rounded-lg overflow-hidden border border-border/50 group/refimg"
-          onMouseEnter={() => setHoveredKey('ref-0')}
-          onMouseLeave={() => setHoveredKey(null)}
-        >
+        <div className="relative w-20 h-20 rounded-lg overflow-hidden border border-border/50">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={urls[0]} alt="Reference" className="w-full h-full object-cover" loading="lazy" />
-          {onPinImage && hoveredKey === 'ref-0' && (
-            <button
-              onClick={(e) => handlePinClick(e, urls[0])}
-              className="absolute top-1 right-1 w-5 h-5 rounded-full bg-primary/90 text-primary-foreground flex items-center justify-center hover:bg-primary transition-colors shadow-sm"
-              title="Pin to project"
-            >
-              <Pin className="h-2.5 w-2.5" />
-            </button>
-          )}
         </div>
       ) : (
         <div className="relative w-20 h-20 rounded-lg overflow-hidden border border-border/50 bg-muted/10 p-0.5">
           <div className="grid grid-cols-2 grid-rows-2 gap-0.5 w-full h-full">
             {visibleUrls.map((url, index) => (
-              <div
-                key={`${generation.id}-ref-${index}`}
-                className="relative group/refimg"
-                onMouseEnter={() => setHoveredKey(`ref-${index}`)}
-                onMouseLeave={() => setHoveredKey(null)}
-              >
+              <div key={`${generation.id}-ref-${index}`} className="relative">
                 <img
                   src={url}
                   alt={`Reference ${index + 1}`}
                   className="w-full h-full object-cover rounded-[4px]"
                   loading="lazy"
                 />
-                {onPinImage && hoveredKey === `ref-${index}` && (
-                  <button
-                    onClick={(e) => handlePinClick(e, url)}
-                    className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-primary/90 text-primary-foreground flex items-center justify-center hover:bg-primary transition-colors shadow-sm"
-                    title="Pin to project"
-                  >
-                    <Pin className="h-2 w-2" />
-                  </button>
-                )}
               </div>
             ))}
           </div>
@@ -181,7 +121,12 @@ interface VideoCardWithOverlayProps {
   generation: GenerationWithOutputs
   fallbackAspectRatio: string
   isHighlighted: boolean
-  onDownload: (fileUrl: string, outputId: string, fileType: string) => void
+  onDownload: (
+    fileUrl: string,
+    outputId: string,
+    fileType: string,
+    sourceRect?: DOMRect | null,
+  ) => void
   onReuseParameters: (generation: GenerationWithOutputs) => void
   onToggleBookmark: (outputId: string, isBookmarked: boolean) => void
   onToggleApproval: (outputId: string, isApproved: boolean) => void
@@ -264,7 +209,8 @@ const VideoCardWithOverlay = memo(function VideoCardWithOverlay({
           <button
             onClick={(e) => {
               e.stopPropagation()
-              onDownload(output.fileUrl, output.id, output.fileType)
+              const rect = videoRef.current?.getBoundingClientRect() ?? null
+              onDownload(output.fileUrl, output.id, output.fileType, rect)
             }}
             className="p-1.5 bg-white/20 backdrop-blur-sm rounded-lg hover:bg-white/30 transition-colors"
             title="Download"
@@ -414,17 +360,9 @@ export function GenerationGallery({
   const { toast } = useToast()
   const queryClient = useQueryClient()
   const updateOutputMutation = useUpdateOutputMutation()
-  const { pinImage, isPinning } = usePinnedImages(projectId)
+  const { triggerDownloadFlight } = useDownloadFlight()
   // Use cached models data from React Query (prefetched on server)
   const { data: allModels = [] } = useModels()
-  
-  const handlePinImage = useCallback((imageUrl: string) => {
-    pinImage({ imageUrl })
-    toast({
-      title: 'Image pinned',
-      description: 'Reference image added to project pins',
-    })
-  }, [pinImage, toast])
 
   const handleVideoSnapshot = useCallback(async (videoOutputId: string, blob: Blob, timecodeMs: number) => {
     try {
@@ -661,7 +599,12 @@ export function GenerationGallery({
     }
   }
 
-  const handleDownload = async (fileUrl: string, outputId: string, fileType: string = 'image') => {
+  const handleDownload = async (
+    fileUrl: string,
+    outputId: string,
+    fileType: string = 'image',
+    sourceRect?: DOMRect | null,
+  ) => {
     try {
       const response = await fetch(fileUrl)
       const blob = await response.blob()
@@ -674,8 +617,25 @@ export function GenerationGallery({
       link.click()
       document.body.removeChild(link)
       window.URL.revokeObjectURL(url)
-      
-      // Log download event for semantic analysis (fire-and-forget)
+
+      // Fly the thumbnail to the top-right history button so the user sees
+      // exactly where the file is now archived. The provider falls back to a
+      // simple badge pulse when reduced-motion is set or no target is mounted.
+      if (sourceRect) {
+        triggerDownloadFlight({
+          imageUrl: fileUrl,
+          fileType,
+          sourceRect: {
+            top: sourceRect.top,
+            left: sourceRect.left,
+            width: sourceRect.width,
+            height: sourceRect.height,
+          },
+        })
+      }
+
+      // Log download event for semantic analysis (fire-and-forget).
+      // This is also the source of truth for the Download History view.
       fetch(`/api/outputs/${outputId}/events`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -683,10 +643,15 @@ export function GenerationGallery({
           eventType: 'download',
           metadata: { fileType },
         }),
-      }).catch((err) => {
-        // Silent fail - don't interrupt the download experience
-        console.debug('Failed to log download event:', err)
       })
+        .then(() => {
+          // Refresh the per-user download history so the badge/grid catch up.
+          queryClient.invalidateQueries({ queryKey: ['downloads'] })
+        })
+        .catch((err) => {
+          // Silent fail - don't interrupt the download experience
+          console.debug('Failed to log download event:', err)
+        })
     } catch (error) {
       console.error('Download failed:', error)
       toast({
@@ -807,6 +772,12 @@ export function GenerationGallery({
 
       // Invalidate generations query to refetch with updated bookmark status
       queryClient.invalidateQueries({ queryKey: ['generations', sessionId] })
+      // Also invalidate the bookmarked-only feed so removing a bookmark from
+      // inside the filtered view drops the tile (and adding one in the normal
+      // view surfaces it next time the filter is on).
+      queryClient.invalidateQueries({
+        queryKey: ['generations', 'infinite', sessionId, 'bookmarked'],
+      })
     } catch (error) {
       console.error('Error toggling bookmark:', error)
       // Revert optimistic update on error
@@ -1192,7 +1163,7 @@ export function GenerationGallery({
                         </div>
                         
                         {/* Reference Image Thumbnail - shown during processing too */}
-                        <ReferenceImageThumbnail generation={generation} onPinImage={handlePinImage} />
+                        <ReferenceImageThumbnail generation={generation} />
                       </div>
                     </div>
                     
@@ -1323,7 +1294,7 @@ export function GenerationGallery({
                         </div>
                         
                         {/* Reference Image Thumbnail */}
-                        <ReferenceImageThumbnail generation={generation} onPinImage={handlePinImage} />
+                        <ReferenceImageThumbnail generation={generation} />
                       </div>
                     </div>
                     
@@ -1441,7 +1412,7 @@ export function GenerationGallery({
                         </div>
                         
                         {/* Reference Image Thumbnail */}
-                        <ReferenceImageThumbnail generation={generation} onPinImage={handlePinImage} />
+                        <ReferenceImageThumbnail generation={generation} />
                       </div>
                     </div>
                     
@@ -1573,7 +1544,7 @@ export function GenerationGallery({
                       </div>
 
                       {/* Reference Image Thumbnail */}
-                      <ReferenceImageThumbnail generation={generation} onPinImage={handlePinImage} />
+                      <ReferenceImageThumbnail generation={generation} />
                     </div>
                   </div>
                   
@@ -1684,7 +1655,11 @@ export function GenerationGallery({
                     <button
                       onClick={(e) => {
                         e.stopPropagation()
-                        handleDownload(output.fileUrl, output.id, output.fileType)
+                        const tile = (e.currentTarget as HTMLElement).closest(
+                          `[data-edit-anchor-id="${output.id}"]`,
+                        ) as HTMLElement | null
+                        const rect = tile?.getBoundingClientRect() ?? null
+                        handleDownload(output.fileUrl, output.id, output.fileType, rect)
                       }}
                       className="p-1.5 bg-white/20 backdrop-blur-sm rounded-lg hover:bg-white/30 transition-colors"
                       title="Download"
@@ -1829,10 +1804,6 @@ export function GenerationGallery({
           }
         }}
         onDownload={handleDownload}
-        onPin={(imageUrl) => {
-          handlePinImage(imageUrl)
-          setLightboxData(null)
-        }}
         onUseAsReference={onUseAsReference ? (ctx) => {
           onUseAsReference(ctx)
           setLightboxData(null)

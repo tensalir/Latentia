@@ -7,16 +7,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
-import { Settings, Sun, Moon, Lock, Globe, Loader2, FileText } from 'lucide-react'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import { Textarea } from '@/components/ui/textarea'
+import { Settings, Sun, Moon, Lock, Globe, Bookmark } from 'lucide-react'
 import { FloatingSessionBar } from '@/components/sessions/FloatingSessionBar'
 import { useSessions } from '@/hooks/useSessions'
 import { Navbar } from '@/components/navbar/Navbar'
@@ -24,6 +15,8 @@ import { useToast } from '@/components/ui/use-toast'
 import { cn } from '@/lib/utils'
 import { logMetric } from '@/lib/metrics'
 import { fetchGenerationsPage } from '@/lib/api/generations'
+import { DownloadHistoryProvider } from '@/components/downloads/DownloadHistoryProvider'
+import { DownloadHistoryButton } from '@/components/downloads/DownloadHistoryButton'
 import type { Session, Project } from '@/types/project'
 
 /**
@@ -78,10 +71,6 @@ function SessionBarSkeleton() {
 // Defer non-critical UI components to reduce initial bundle and improve first paint
 const BrainstormChatWidget = dynamic(
   () => import('@/components/brainstorm/BrainstormChatWidget').then(mod => ({ default: mod.BrainstormChatWidget })),
-  { ssr: false }
-)
-const PinnedImagesRail = dynamic(
-  () => import('@/components/projects/PinnedImagesRail').then(mod => ({ default: mod.PinnedImagesRail })),
   { ssr: false }
 )
 const SpendingTracker = dynamic(
@@ -161,11 +150,10 @@ export function ProjectClientShell({
     }
     return ''
   })
-  const [pendingPinnedImageUrl, setPendingPinnedImageUrl] = useState<string | null>(null)
-  const [showBriefingModal, setShowBriefingModal] = useState(false)
-  const [briefing, setBriefing] = useState('')
-  const [isSavingBriefing, setIsSavingBriefing] = useState(false)
-  const [briefingLoaded, setBriefingLoaded] = useState(false)
+  // Bookmarked-only filter for the current session feed. Persists for the
+  // lifetime of the project page; resets when navigating to a different
+  // project (the shell unmounts).
+  const [showBookmarkedOnly, setShowBookmarkedOnly] = useState(false)
   // Deep-link support: outputId from URL for scroll-to-output
   const [deepLinkOutputId, setDeepLinkOutputId] = useState<string | null>(() => {
     if (typeof window !== 'undefined') {
@@ -463,60 +451,6 @@ export function ProjectClientShell({
     }
   }
 
-  // Fetch briefing when modal opens
-  const fetchBriefing = async () => {
-    if (!projectId || briefingLoaded) return
-    try {
-      const response = await fetch(`/api/projects/${projectId}/briefing`)
-      if (response.ok) {
-        const data = await response.json()
-        setBriefing(data.briefing || '')
-        setBriefingLoaded(true)
-      }
-    } catch (error) {
-      console.error('Error fetching briefing:', error)
-    }
-  }
-
-  // Save briefing
-  const saveBriefing = async () => {
-    if (!projectId) return
-    setIsSavingBriefing(true)
-    try {
-      const response = await fetch(`/api/projects/${projectId}/briefing`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ briefing }),
-      })
-      if (response.ok) {
-        toast({
-          title: 'Briefing saved',
-          description: 'Your project briefing has been updated.',
-        })
-        setShowBriefingModal(false)
-      } else {
-        throw new Error('Failed to save briefing')
-      }
-    } catch (error) {
-      console.error('Error saving briefing:', error)
-      toast({
-        title: 'Save failed',
-        description: 'Failed to save project briefing',
-        variant: 'destructive',
-      })
-    } finally {
-      setIsSavingBriefing(false)
-    }
-  }
-
-  // Handle opening briefing modal
-  const handleOpenBriefing = () => {
-    setShowBriefingModal(true)
-    if (!briefingLoaded) {
-      fetchBriefing()
-    }
-  }
-
   const handleSessionCreate = async (
     type: 'image' | 'video', 
     name?: string,
@@ -717,6 +651,7 @@ export function ProjectClientShell({
   }
 
   return (
+    <DownloadHistoryProvider>
     <div className="h-screen flex flex-col bg-background">
       {/* Compact Centered Navbar */}
       <Navbar
@@ -728,6 +663,7 @@ export function ProjectClientShell({
       <div className="fixed top-4 right-4 z-50 flex items-center gap-1">
         <GeminiRateLimitTracker isAdmin={isAdmin} />
         <SpendingTracker isAdmin={isAdmin} />
+        <DownloadHistoryButton />
         <Button
           variant="ghost"
           size="icon"
@@ -801,30 +737,30 @@ export function ProjectClientShell({
               </button>
             )}
           </div>
-          
-          {/* Row 2: Briefing action pill */}
+
+          {/* Row 2: Bookmarked-only filter pill */}
           <div className="flex items-center gap-1.5">
             <button
-              onClick={handleOpenBriefing}
-              className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-muted/30 hover:bg-muted/50 border border-border/40 text-[10px] font-semibold text-muted-foreground/80 hover:text-foreground transition-all w-fit uppercase tracking-wider"
-              title="Project briefing"
+              onClick={() => setShowBookmarkedOnly((v) => !v)}
+              aria-pressed={showBookmarkedOnly}
+              className={cn(
+                'flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-[10px] font-semibold uppercase tracking-wider transition-all w-fit',
+                showBookmarkedOnly
+                  ? 'bg-primary/15 border-primary/40 text-primary'
+                  : 'bg-muted/30 hover:bg-muted/50 border-border/40 text-muted-foreground/80 hover:text-foreground',
+              )}
+              title={
+                showBookmarkedOnly
+                  ? 'Showing only bookmarked images. Click to show all.'
+                  : 'Show only bookmarked images in this session.'
+              }
             >
-              <FileText className="h-3 w-3" />
-              <span>Briefing</span>
+              <Bookmark
+                className={cn('h-3 w-3', showBookmarkedOnly && 'fill-current')}
+              />
+              <span>Bookmarked</span>
             </button>
           </div>
-          
-          {/* Row 3: Pinned Images with subtle label */}
-          {projectId && (
-            <div className="flex flex-col gap-1 mt-2 pt-2 border-t border-border/20">
-              <span className="text-[10px] uppercase tracking-[0.1em] text-muted-foreground/40 font-bold">Pinned</span>
-              <PinnedImagesRail
-                projectId={projectId}
-                onSelectImage={(url) => setPendingPinnedImageUrl(url)}
-                className="max-w-[240px]"
-              />
-            </div>
-          )}
         </div>
         
         {/* Floating Session Thumbnails - Vertically centered on left */}
@@ -871,10 +807,9 @@ export function ProjectClientShell({
           isChatOpen={isChatOpen}
           externalPrompt={externalPrompt}
           onExternalPromptConsumed={() => setExternalPrompt('')}
-          externalReferenceImageUrl={pendingPinnedImageUrl}
-          onExternalReferenceImageConsumed={() => setPendingPinnedImageUrl(null)}
           deepLinkOutputId={deepLinkOutputId}
           onDeepLinkOutputConsumed={() => setDeepLinkOutputId(null)}
+          showBookmarkedOnly={showBookmarkedOnly}
         />
         
         {/* Right Dock Column (Desktop Only, lg+) */}
@@ -908,49 +843,7 @@ export function ProjectClientShell({
         />
       </div>
 
-      {/* Briefing Modal */}
-      <Dialog open={showBriefingModal} onOpenChange={setShowBriefingModal}>
-        <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader>
-            <DialogTitle>Project Briefing</DialogTitle>
-            <DialogDescription>
-              Add high-level instructions or context that will apply to all AI chats in this project.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <Textarea
-              value={briefing}
-              onChange={(e) => setBriefing(e.target.value)}
-              placeholder="e.g., 'This project focuses on Loop Earplugs marketing campaigns. Generate visuals that emphasize comfort, noise reduction, and modern lifestyle aesthetics.'"
-              rows={8}
-              className="resize-none"
-              disabled={isSavingBriefing}
-            />
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setShowBriefingModal(false)}
-              disabled={isSavingBriefing}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={saveBriefing}
-              disabled={isSavingBriefing}
-            >
-              {isSavingBriefing ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Saving...
-                </>
-              ) : (
-                'Save briefing'
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
+    </DownloadHistoryProvider>
   )
 }

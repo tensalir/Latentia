@@ -5,13 +5,12 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { Image as ImageIcon, ImagePlus, Ratio, ChevronDown, Upload, FolderOpen, X, Circle, GripHorizontal, Pin, ZoomIn, Loader2 } from 'lucide-react'
+import { Image as ImageIcon, ImagePlus, Ratio, ChevronDown, Upload, FolderOpen, X, Circle, GripHorizontal, ZoomIn, Loader2 } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
 } from '@/components/ui/dialog'
 import { useModelCapabilities } from '@/hooks/useModelCapabilities'
-import { usePinnedImages } from '@/hooks/usePinnedImages'
 import { useToast } from '@/components/ui/use-toast'
 import { AspectRatioSelector } from './AspectRatioSelector'
 import { ModelPicker } from './ModelPicker'
@@ -77,7 +76,6 @@ export function ChatInput({
   const params = useParams()
   const { toast } = useToast()
   const projectId = params.id as string | undefined
-  const { pinImage } = usePinnedImages(projectId)
   const [referenceImage, setReferenceImage] = useState<File | null>(null) // Single image (backward compatibility)
   const [referenceImages, setReferenceImages] = useState<File[]>([]) // Multiple images
   const [imagePreviewUrls, setImagePreviewUrls] = useState<string[]>([])
@@ -735,23 +733,6 @@ export function ChatInput({
                   >
                     <X className="h-2.5 w-2.5" />
                   </button>
-                  {/* Pin button - only show if we have a proper URL (not blob) */}
-                  {projectId && previewUrl.startsWith('http') && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        pinImage({ imageUrl: previewUrl })
-                        toast({
-                          title: 'Image pinned',
-                          description: 'Reference image added to project pins',
-                        })
-                      }}
-                      className="absolute -top-1 -left-1 bg-primary text-primary-foreground rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm hover:bg-primary/90 z-10"
-                      title="Pin to project"
-                    >
-                      <Pin className="h-2.5 w-2.5" />
-                    </button>
-                  )}
                 </div>
               ))}
               

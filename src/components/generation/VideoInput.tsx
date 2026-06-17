@@ -9,9 +9,8 @@ import {
   Dialog,
   DialogContent,
 } from '@/components/ui/dialog'
-import { Video as VideoIcon, ImagePlus, Ratio, ChevronDown, X, Upload, FolderOpen, Clock, Loader2, GripHorizontal, Pin, Plus, ArrowLeftRight, Sparkles } from 'lucide-react'
+import { Video as VideoIcon, ImagePlus, Ratio, ChevronDown, X, Upload, FolderOpen, Clock, Loader2, GripHorizontal, Plus, ArrowLeftRight, Sparkles } from 'lucide-react'
 import { useModelCapabilities } from '@/hooks/useModelCapabilities'
-import { usePinnedImages } from '@/hooks/usePinnedImages'
 import { useToast } from '@/components/ui/use-toast'
 import { useImageUpload } from '@/hooks/useImageUpload'
 import { AspectRatioSelector } from './AspectRatioSelector'
@@ -107,7 +106,6 @@ export function VideoInput({
   const params = useParams()
   const { toast } = useToast()
   const projectId = params.id as string | undefined
-  const { pinImage } = usePinnedImages(projectId)
   
   // Image upload hooks - upload to storage immediately to bypass 4.5MB limit
   // Best practice: do NOT downscale/resize user images implicitly.

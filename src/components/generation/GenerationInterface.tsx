@@ -99,14 +99,14 @@ interface GenerationInterfaceProps {
   externalPrompt?: string
   /** Callback when external prompt is consumed */
   onExternalPromptConsumed?: () => void
-  /** External reference image URL to set (from pinned images rail) */
-  externalReferenceImageUrl?: string | null
-  /** Callback when external reference image is consumed */
-  onExternalReferenceImageConsumed?: () => void
   /** Deep-link: outputId to scroll to and highlight */
   deepLinkOutputId?: string | null
   /** Callback when deep-link output has been scrolled to */
   onDeepLinkOutputConsumed?: () => void
+  /** When true, restrict the feed to generations whose outputs include at
+   * least one bookmarked item (the API also narrows each generation's
+   * outputs array to the bookmarked ones). */
+  showBookmarkedOnly?: boolean
 }
 
 export function GenerationInterface({
@@ -123,10 +123,9 @@ export function GenerationInterface({
   isChatOpen = false,
   externalPrompt,
   onExternalPromptConsumed,
-  externalReferenceImageUrl,
-  onExternalReferenceImageConsumed,
   deepLinkOutputId,
   onDeepLinkOutputConsumed,
+  showBookmarkedOnly = false,
 }: GenerationInterfaceProps) {
   const { toast } = useToast()
   const queryClient = useQueryClient()
@@ -236,22 +235,6 @@ export function GenerationInterface({
     }
   }, [pendingReferenceLineage, referenceImageUrls, referenceImageUrl])
   
-  // Handle external reference image from pinned images rail
-  useEffect(() => {
-    if (externalReferenceImageUrl) {
-      if (generationType === 'video') {
-        // Video mode: single reference image (replace)
-        setReferenceImageUrl(externalReferenceImageUrl)
-      } else {
-        // Image mode: add only the clicked pinned image (allow multiple reference images)
-        setReferenceImageUrls((prev) => {
-          if (prev.includes(externalReferenceImageUrl)) return prev
-          return [...prev, externalReferenceImageUrl]
-        })
-      }
-      onExternalReferenceImageConsumed?.()
-    }
-  }, [externalReferenceImageUrl, generationType, onExternalReferenceImageConsumed])
   
   /**
    * Dismiss/remove a stuck generation from the UI cache and database.
@@ -355,7 +338,7 @@ export function GenerationInterface({
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
-  } = useInfiniteGenerations(session?.id || null, 5)
+  } = useInfiniteGenerations(session?.id || null, 5, showBookmarkedOnly)
   
   // Flatten all pages into a single array, filtering out dismissed generations
   // This ensures dismissed generations never reappear after refetch
@@ -2152,7 +2135,21 @@ export function GenerationInterface({
                   <span className="text-xs text-muted-foreground">↑ Scroll up to load older generations</span>
                 </div>
               )}
-              
+
+              {/* Empty state for the bookmarked-only filter */}
+              {showBookmarkedOnly && !isFetchingNextPage && displayGenerations.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-24 gap-3 text-center">
+                  <p className="text-sm font-medium text-foreground/80">
+                    {generationType === 'video'
+                      ? 'No bookmarked videos in this session yet'
+                      : 'No bookmarked images in this session yet'}
+                  </p>
+                  <p className="text-xs text-muted-foreground max-w-sm">
+                    Tap the bookmark icon on any generated item to save it. Bookmarks appear here when this filter is on.
+                  </p>
+                </div>
+              )}
+
               <GenerationGallery
                 generations={displayGenerations}
                 sessionId={session?.id || null}

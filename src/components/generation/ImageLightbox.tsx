@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect } from 'react'
-import { X, Download, Bookmark, RotateCcw, Check, Video, Pin, ArrowDownRight } from 'lucide-react'
+import { useEffect, useRef } from 'react'
+import { X, Download, Bookmark, RotateCcw, Check, Video, ArrowDownRight } from 'lucide-react'
 import type { Output } from '@/types/generation'
 
 interface ImageLightboxProps {
@@ -12,11 +12,14 @@ interface ImageLightboxProps {
   onBookmark: (outputId: string, isBookmarked: boolean) => void
   onApprove: (outputId: string, isApproved: boolean) => void
   onReuse: () => void
-  onDownload: (imageUrl: string, outputId: string, fileType: string) => void
+  onDownload: (
+    imageUrl: string,
+    outputId: string,
+    fileType: string,
+    sourceRect?: DOMRect | null,
+  ) => void
   /** Optional: open the Animate Still flow for this image */
   onConvertToVideo?: () => void
-  /** Optional: pin image to project for reuse as reference */
-  onPin?: (imageUrl: string) => void
   /**
    * Optional: use image as reference in the prompt bar. Receives the source
    * output id alongside the URL so the parent can tag the next generation
@@ -35,9 +38,9 @@ export function ImageLightbox({
   onReuse,
   onDownload,
   onConvertToVideo,
-  onPin,
   onUseAsReference,
 }: ImageLightboxProps) {
+  const imageRef = useRef<HTMLImageElement | null>(null)
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
@@ -76,6 +79,7 @@ export function ImageLightbox({
       >
         {/* Image */}
         <img
+          ref={imageRef}
           src={imageUrl}
           alt="Full size preview"
           className="max-w-full max-h-[calc(90vh-80px)] object-contain rounded-lg shadow-2xl"
@@ -84,7 +88,10 @@ export function ImageLightbox({
         {/* Action Bar */}
         <div className="flex items-center gap-3 bg-white/10 backdrop-blur-md rounded-full px-6 py-3 border border-white/20">
           <button
-            onClick={() => onDownload(imageUrl, output.id, output.fileType)}
+            onClick={() => {
+              const rect = imageRef.current?.getBoundingClientRect() ?? null
+              onDownload(imageUrl, output.id, output.fileType, rect)
+            }}
             className="p-2 rounded-lg bg-white/20 hover:bg-white/30 transition-colors"
             title="Download"
           >
@@ -97,15 +104,6 @@ export function ImageLightbox({
           >
             <RotateCcw className="h-5 w-5 text-white" />
           </button>
-          {onPin && (
-            <button
-              onClick={() => onPin(imageUrl)}
-              className="p-2 rounded-lg bg-white/20 hover:bg-white/30 transition-colors"
-              title="Pin to project"
-            >
-              <Pin className="h-5 w-5 text-white" />
-            </button>
-          )}
           {onUseAsReference && (
             <button
               onClick={() => onUseAsReference({ imageUrl, outputId: output.id })}

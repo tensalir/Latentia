@@ -136,6 +136,9 @@ export async function GET(request: NextRequest) {
     const includeParameters = searchParams.get('includeParameters') === 'true'
     // Light mode: omit outputs for faster initial load (load outputs lazily)
     const lightMode = searchParams.get('light') === 'true'
+    // Bookmarked-only mode: restrict to generations with at least one output the
+    // current user has bookmarked, and only return those bookmarked outputs.
+    const bookmarkedOnly = searchParams.get('bookmarkedOnly') === 'true'
 
     if (!sessionId) {
       return NextResponse.json(
@@ -207,6 +210,13 @@ export async function GET(request: NextRequest) {
       sessionId,
       status: { not: 'dismissed' },
       ...(showAllGenerations ? {} : { userId: user.id }),
+      // When filtering by bookmarks, only return generations whose outputs
+      // contain at least one item the current user has bookmarked. The output
+      // select below additionally narrows the returned outputs to bookmarked
+      // ones only, so the UI shows just those tiles.
+      ...(bookmarkedOnly
+        ? { outputs: { some: { bookmarks: { some: { userId: user.id } } } } }
+        : {}),
     }
 
     // Add keyset cursor for pagination (newest-first: createdAt DESC, id DESC)
@@ -257,6 +267,12 @@ export async function GET(request: NextRequest) {
         // Only include outputs in full mode (not light mode)
         ...(lightMode ? {} : {
           outputs: {
+            // In bookmarked-only mode, narrow the returned outputs to those
+            // the current user has bookmarked. This keeps each generation
+            // tile showing only the bookmarked image(s).
+            ...(bookmarkedOnly
+              ? { where: { bookmarks: { some: { userId: user.id } } } }
+              : {}),
             select: {
               id: true,
               generationId: true,
