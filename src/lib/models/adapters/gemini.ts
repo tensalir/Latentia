@@ -155,6 +155,54 @@ const parseGeminiContentBlock = (data: any): string | null => {
   return null // No content block detected
 }
 
+/**
+ * Select the FINAL rendered image from a Gemini image-generation response.
+ *
+ * Gemini 3 image models are *thinking* image models. Nano Banana Pro
+ * (gemini-3-pro-image-preview) always thinks and cannot be disabled; Nano
+ * Banana 2 (gemini-3.1-flash-image-preview) thinks by default. While thinking,
+ * the model emits up to two interim "thought images" — low-fidelity composition
+ * drafts that look like a hazy/foggy version of the result — BEFORE the final,
+ * fully-rendered image. Every draft and the final arrive as inlineData image
+ * parts inside candidates[0].content.parts.
+ *
+ * Picking the FIRST image part (Array.find) returns a hazy draft. We follow
+ * Google's documented extraction priority and return the final render:
+ *   1. last image part with `thought !== true`     (highest reliability)
+ *   2. last image part carrying a `thoughtSignature` (only the final image has one)
+ *   3. last image part overall                       (safety net)
+ *
+ * Docs: https://ai.google.dev/gemini-api/docs/image-generation (Thinking process)
+ */
+const selectFinalImagePart = (parts: any[] | undefined | null): any | null => {
+  if (!Array.isArray(parts)) return null
+
+  const imageParts = parts.filter(
+    (part: any) =>
+      part?.inlineData?.mimeType?.startsWith('image/') && part?.inlineData?.data
+  )
+  if (imageParts.length === 0) return null
+
+  if (imageParts.length > 1) {
+    console.log(
+      `[Gemini] Response contains ${imageParts.length} image parts (interim "thought" drafts + final render). Selecting the final render to avoid the hazy-draft bug.`
+    )
+  }
+
+  // 1. Final render is the last image not flagged as a thinking draft.
+  const nonThought = imageParts.filter((part: any) => part?.thought !== true)
+  if (nonThought.length > 0) return nonThought[nonThought.length - 1]
+
+  // 2. Only the final image carries a thought signature.
+  const signed = imageParts.filter(
+    (part: any) => part?.thoughtSignature || part?.thought_signature
+  )
+  if (signed.length > 0) return signed[signed.length - 1]
+
+  // 3. Safety net: the last image in the array is the final one.
+  return imageParts[imageParts.length - 1]
+}
+
 const VEO_SUPPORT_CODE_CATEGORIES: Record<string, string> = {
   '58061214': 'child safety',
   '17301594': 'child safety',
@@ -706,9 +754,9 @@ export class GeminiAdapter extends BaseModelAdapter {
         throw new Error('No content parts in Vertex AI response. Try a different prompt.')
       }
       
-      const imagePart = content.parts.find(
-        (part: any) => part.inlineData?.mimeType?.startsWith('image/')
-      )
+      // Gemini 3 image models stream interim "thought" drafts before the final
+      // render. Select the final image, not the first (hazy) draft.
+      const imagePart = selectFinalImagePart(content.parts)
 
       if (!imagePart?.inlineData?.data) {
         console.error('Vertex AI response missing image data:', JSON.stringify(redactLargeStrings(result), null, 2))
@@ -896,10 +944,10 @@ export class GeminiAdapter extends BaseModelAdapter {
       throw new Error(contentBlock)
     }
 
-    // Extract image from response
-    const imagePart = data.candidates?.[0]?.content?.parts?.find(
-      (part: any) => part.inlineData?.mimeType?.startsWith('image/')
-    )
+    // Extract image from response.
+    // Gemini 3 image models stream interim "thought" drafts before the final
+    // render. Select the final image, not the first (hazy) draft.
+    const imagePart = selectFinalImagePart(data.candidates?.[0]?.content?.parts)
 
     if (!imagePart?.inlineData?.data) {
       console.error('Gemini response missing image data:', JSON.stringify(redactLargeStrings(data), null, 2))
