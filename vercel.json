@@ -9,6 +9,12 @@
     },
     "app/api/timeline/render/process/route.ts": {
       "maxDuration": 300
+    },
+    "app/api/mcp/route.ts": {
+      "maxDuration": 300
+    },
+    "app/api/mcp/[token]/route.ts": {
+      "maxDuration": 300
     }
   }
 }

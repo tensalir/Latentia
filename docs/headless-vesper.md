@@ -244,14 +244,20 @@ In Cursor's Settings → MCP → Add server:
     "url": "https://<vesper-host>/api/mcp",
     "headers": {
       "Authorization": "Bearer vsp_live_..."
-    }
+    },
+    "timeout": 120000
   }
 }
 ```
 
-Cursor will call `initialize` and `tools/list` on first connect, then
-expose `enhance_prompt`, `iterate_prompt`, and `list_models` as native
-tools.
+**Client timeout:** MCP clients (Claude Code, Cursor) default to ~60s per
+tool call. Image generation under load can exceed that. Set `"timeout":
+120000` (or higher) on the server entry in `mcp.json` / `.cursor/mcp.json`.
+For claude.ai web connectors with a fixed wall, pass `async: true` on
+`generate_asset` or use `generate_video` + `get_generation_status`.
+
+Cursor will call `initialize`, `tools/list`, `prompts/list`, and
+`resources/list` on first connect, then expose Vesper tools natively.
 
 ### Configuring a generic MCP client
 
@@ -286,8 +292,10 @@ radius small:
 | No provider keys are exposed to callers. | A leak of a Vesper token cannot leak Loop's Gemini / OpenAI / Replicate credentials. |
 | Empty `allowedModels` blocks every model call. | Default deny — admin must explicitly opt a model in. |
 | `allowedTools` enforced on every REST and MCP call. | A leak cannot pivot from `list_models` to `iterate_prompt`. |
-| Reference images capped at 6 MB. | Bounds memory + Anthropic token spend per request. |
-| `generate_asset` is intentionally not implemented. | Generation requires session/project membership; we'll add it once those scopes are encoded on the credential. |
+| Reference images capped at 6 MB (data URLs) or fetched https URLs. | Bounds memory; https chaining reuses prior Vesper Storage outputs. |
+| `generate_asset` supports sync image models + async job queue. | Video uses `generate_video` + `get_generation_status`. |
+| `allowFallback: false` disables silent Replicate routing on Gemini models. | Surfaces provider/isFallback in every generation response. |
+| Inline images default on (`inlineBase64: true`). | Claude renders images in chat; set false for Cowork artifact bridge. |
 | Plaintext token shown exactly once. | Lost tokens cannot be recovered — they must be re-issued. |
 
 ---

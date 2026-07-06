@@ -178,12 +178,37 @@ export const HeadlessGenerateAssetSchema = z.object({
     .optional(),
   numOutputs: z.number().int().min(1).max(4).optional().default(1),
   seed: z.number().int().optional(),
-  // Default response is a small JSON body with text + resource_link blocks
-  // referencing the persisted Storage URL. Set true to also receive the
-  // legacy inline `image` content block (~500 KB base64) — useful for
-  // direct Anthropic API callers without an artifact bridge, but rejected
-  // by Cowork's CoworkArtifactBridge IPC validation.
-  inlineBase64: z.boolean().optional().default(false),
+  // Default true: inline image blocks for Claude chat rendering. Set false for
+  // Cowork artifact bridge or large payloads.
+  inlineBase64: z.boolean().optional().default(true),
+  // When false, Gemini adapter will not silently fall back to Replicate.
+  allowFallback: z.boolean().optional().default(true),
+  // Queue a durable job and return jobId — poll get_generation_status.
+  async: z.boolean().optional().default(false),
+})
+
+export const HeadlessGenerateVideoSchema = z.object({
+  prompt: z.string().min(1, 'prompt is required').max(HEADLESS_PROMPT_MAX),
+  modelId: z.string().min(1, 'modelId is required').max(128),
+  aspectRatio: z.string().max(16).optional(),
+  duration: z.number().int().min(4).max(15).optional(),
+  resolution: z.number().int().optional(),
+  referenceImage: z
+    .string()
+    .max(HEADLESS_REFERENCE_IMAGE_MAX, 'referenceImage exceeds 6 MB cap')
+    .optional(),
+  allowFallback: z.boolean().optional().default(true),
+  async: z.boolean().optional().default(true),
+})
+
+export const HeadlessGetGenerationStatusSchema = z.object({
+  jobId: z.string().uuid('jobId must be a UUID'),
+})
+
+export const HeadlessEstimateCostSchema = z.object({
+  modelId: z.string().min(1).max(128),
+  numOutputs: z.number().int().min(1).max(4).optional().default(1),
+  durationSeconds: z.number().int().min(1).max(60).optional(),
 })
 
 // Discovery for the `list_product_renders` MCP tool. All filters are

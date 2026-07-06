@@ -51,3 +51,6 @@ next-env.d.ts
 # supabase CLI local state
 supabase/.temp/
 
+
+# session scratch / intake material (designer files, zips) — not repo content
+tmp/

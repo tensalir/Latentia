@@ -20,6 +20,7 @@ import { handleMcpPost } from '../route'
  * Cursor and direct API clients.
  */
 export const dynamic = 'force-dynamic'
+export const maxDuration = 300
 
 export async function POST(
   request: NextRequest,

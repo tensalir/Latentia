@@ -30,6 +30,9 @@ export type HeadlessTool =
   | 'list_models'
   | 'generate_asset'
   | 'list_product_renders'
+  | 'get_generation_status'
+  | 'generate_video'
+  | 'estimate_generation_cost'
 
 export interface HeadlessPrincipal {
   credential: HeadlessCredential

@@ -4,6 +4,7 @@ import { verifyHeadlessRequest, recordHeadlessUsage } from '@/lib/headless/auth'
 import type { HeadlessTool } from '@/lib/headless/auth'
 import { MCP_TOOLS, findMcpTool } from '@/lib/headless/mcp-tools'
 import { generateAssetTool, type McpContent } from '@/lib/headless/generate-asset'
+import { generateVideoTool } from '@/lib/headless/generate-video'
 import { listProductRenders } from '@/lib/headless/list-product-renders'
 import { enhancePrompt } from '@/lib/prompts/enhance'
 import { iteratePrompt } from '@/lib/prompts/iterate'
@@ -12,8 +13,22 @@ import {
   HeadlessEnhanceSchema,
   HeadlessIterateSchema,
   HeadlessListProductRendersSchema,
+  HeadlessGetGenerationStatusSchema,
+  HeadlessEstimateCostSchema,
+  HeadlessGenerateVideoSchema,
 } from '@/lib/api/validation'
 import { classifyError } from '@/lib/errors/classification'
+import { McpProgressReporter } from '@/lib/headless/mcp-progress'
+import { MCP_PROMPTS, findMcpPrompt, getMcpPromptMessages } from '@/lib/headless/mcp-prompts'
+import { MCP_RESOURCE_CATALOG, readMcpResource } from '@/lib/headless/mcp-resources'
+import {
+  createHeadlessMcpJob,
+  getHeadlessMcpJob,
+  processHeadlessMcpJobIfQueued,
+  jobToMcpResult,
+} from '@/lib/headless/mcp-jobs'
+import { estimateGenerationCostUsd } from '@/lib/headless/estimate-cost'
+import { buildProtectedResourceMetadata } from '@/lib/headless/mcp-oauth'
 
 /**
  * POST /api/mcp
@@ -33,6 +48,7 @@ import { classifyError } from '@/lib/errors/classification'
  */
 
 export const dynamic = 'force-dynamic'
+export const maxDuration = 300
 
 // Latest stable MCP protocol revision Anthropic's connector accepts.
 const SUPPORTED_PROTOCOL_VERSIONS = [
@@ -44,9 +60,9 @@ const PREFERRED_PROTOCOL_VERSION = '2025-11-25'
 
 const SERVER_INFO = {
   name: 'vesper-headless',
-  version: '1.0.0',
+  version: '1.1.0',
   description:
-    'Vesper headless surface: enhance prompts, build Andromeda-aware iteration slates, and discover models — all backed by the Loop Gen-AI prompting skill.',
+    'Vesper headless surface: Gen-AI prompting, Loop product renders, image and video generation — backed by the Loop Gen-AI prompting skill.',
 }
 
 // JSON-RPC 2.0 wire format
@@ -113,6 +129,16 @@ const InitializeParamsSchema = z.object({
 const CallToolParamsSchema = z.object({
   name: z.string(),
   arguments: z.record(z.unknown()).optional().default({}),
+  _meta: z.record(z.unknown()).optional(),
+})
+
+const GetPromptParamsSchema = z.object({
+  name: z.string(),
+  arguments: z.record(z.string()).optional().default({}),
+})
+
+const ReadResourceParamsSchema = z.object({
+  uri: z.string(),
 })
 
 interface AuthedPrincipal {
@@ -146,13 +172,13 @@ async function dispatch(
       return rpcSuccess(id, {
         protocolVersion: negotiatedVersion,
         capabilities: {
-          // We expose tools only — no resources, prompts, sampling, or logging
-          // from this server. Adding them later is opt-in.
           tools: { listChanged: false },
+          prompts: { listChanged: false },
+          resources: { subscribe: false, listChanged: false },
         },
         serverInfo: SERVER_INFO,
         instructions:
-          'Use list_models to discover allowed Vesper models, then call enhance_prompt or iterate_prompt for the Gen-AI prompting craft. All credentials are scoped — only the tools and models on the calling token are available.',
+          'Use list_models or vesper://models resource to discover models. enhance_prompt / iterate_prompt for prompt craft. generate_asset returns inline images by default. For slow runs pass async: true and poll get_generation_status. Set allowFallback: false to forbid Replicate routing. Raise MCP client timeout in mcp.json (e.g. 120000 ms) for sync generation.',
       })
     }
 
@@ -165,7 +191,6 @@ async function dispatch(
       return rpcSuccess(id, {})
 
     case 'tools/list': {
-      // Only expose tools the credential is allowed to call.
       const tools = MCP_TOOLS.filter((t) =>
         principal.allowedTools.includes(t.name)
       ).map((t) => ({
@@ -173,8 +198,68 @@ async function dispatch(
         title: t.title,
         description: t.description,
         inputSchema: t.inputSchema,
+        ...(t.outputSchema ? { outputSchema: t.outputSchema } : {}),
+        ...(t.annotations ? { annotations: t.annotations } : {}),
       }))
       return rpcSuccess(id, { tools })
+    }
+
+    case 'prompts/list': {
+      const prompts = MCP_PROMPTS.map((p) => ({
+        name: p.name,
+        title: p.title,
+        description: p.description,
+        ...(p.arguments ? { arguments: p.arguments } : {}),
+      }))
+      return rpcSuccess(id, { prompts })
+    }
+
+    case 'prompts/get': {
+      const parsed = GetPromptParamsSchema.safeParse(params ?? {})
+      if (!parsed.success) {
+        return rpcError(id, ERROR_CODES.invalidParams, 'Invalid prompts/get params')
+      }
+      const promptDef = findMcpPrompt(parsed.data.name)
+      if (!promptDef) {
+        return rpcError(id, ERROR_CODES.methodNotFound, `Unknown prompt: ${parsed.data.name}`)
+      }
+      const rendered = getMcpPromptMessages(parsed.data.name, parsed.data.arguments)
+      if (!rendered) {
+        return rpcError(id, ERROR_CODES.internalError, 'Failed to render prompt')
+      }
+      return rpcSuccess(id, {
+        description: rendered.description,
+        messages: rendered.messages,
+      })
+    }
+
+    case 'resources/list': {
+      const resources = MCP_RESOURCE_CATALOG.map((r) => ({
+        uri: r.uri,
+        name: r.name,
+        description: r.description,
+        mimeType: r.mimeType,
+      }))
+      return rpcSuccess(id, { resources })
+    }
+
+    case 'resources/read': {
+      const parsed = ReadResourceParamsSchema.safeParse(params ?? {})
+      if (!parsed.success) {
+        return rpcError(id, ERROR_CODES.invalidParams, 'Invalid resources/read params')
+      }
+      try {
+        const contents = await readMcpResource(parsed.data.uri, {
+          allowedModels: principal.allowedModels,
+        })
+        return rpcSuccess(id, contents)
+      } catch (err) {
+        return rpcError(
+          id,
+          ERROR_CODES.methodNotFound,
+          (err as Error)?.message || 'Resource read failed'
+        )
+      }
     }
 
     case 'tools/call': {
@@ -195,8 +280,10 @@ async function dispatch(
         )
       }
       const startedAt = Date.now()
+      const progress = new McpProgressReporter()
+      progress.step('Tool accepted')
       try {
-        const result = await runTool(tool.name, args, principal)
+        const result = await runTool(tool.name, args, principal, progress)
         // The cost field, if present, is extracted before sending the
         // response so the client never sees a stray Vesper-internal key
         // alongside the standard MCP `content` / `structuredContent`.
@@ -263,7 +350,8 @@ async function dispatch(
 async function runTool(
   name: HeadlessTool,
   args: Record<string, unknown>,
-  principal: AuthedPrincipal
+  principal: AuthedPrincipal,
+  progress: McpProgressReporter
 ): Promise<{
   content: McpContent[]
   structuredContent?: unknown
@@ -283,6 +371,9 @@ async function runTool(
       supportedAspectRatios: config.supportedAspectRatios ?? [],
       defaultAspectRatio: config.defaultAspectRatio,
       maxResolution: config.maxResolution,
+      parameters: config.parameters ?? [],
+      pricing: config.pricing ?? null,
+      estimatedCostUsdPerImage: config.pricing?.perImage ?? null,
     }))
     const wildcard = principal.allowedModels.includes('*')
     const visible = wildcard
@@ -378,13 +469,110 @@ async function runTool(
   }
 
   if (name === 'generate_asset') {
-    // Phase 1: synchronous, fast image models only. Allowlist + per-credential
-    // model check + 25s hard timeout all live inside generateAssetTool.
-    // credentialId is passed through so storage paths are namespaced per token.
     return generateAssetTool(args, {
       allowedModels: principal.allowedModels,
       credentialId: principal.credentialId,
+      ownerId: principal.ownerId,
+      progress,
     })
+  }
+
+  if (name === 'generate_video') {
+    const parsed = HeadlessGenerateVideoSchema.safeParse(args)
+    if (!parsed.success) {
+      throw new Error(
+        `Invalid arguments: ${parsed.error.issues.map((i) => i.message).join('; ')}`
+      )
+    }
+    if (parsed.data.async) {
+      progress.step('Queueing video job')
+      const job = await createHeadlessMcpJob({
+        credentialId: principal.credentialId,
+        ownerId: principal.ownerId,
+        toolName: 'generate_video',
+        modelId: parsed.data.modelId,
+        request: args,
+      })
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Video job ${job.id} queued. Poll get_generation_status until completed.`,
+          },
+        ],
+        structuredContent: {
+          jobId: job.id,
+          status: 'queued',
+          modelId: parsed.data.modelId,
+        },
+      }
+    }
+    return generateVideoTool(args, {
+      allowedModels: principal.allowedModels,
+      credentialId: principal.credentialId,
+      ownerId: principal.ownerId,
+      progress,
+    })
+  }
+
+  if (name === 'get_generation_status') {
+    const parsed = HeadlessGetGenerationStatusSchema.safeParse(args)
+    if (!parsed.success) {
+      throw new Error(
+        `Invalid arguments: ${parsed.error.issues.map((i) => i.message).join('; ')}`
+      )
+    }
+    let job = await getHeadlessMcpJob(parsed.data.jobId, principal.credentialId)
+    if (!job) throw new Error(`Unknown job '${parsed.data.jobId}'.`)
+    if (job.status === 'queued') {
+      job = await processHeadlessMcpJobIfQueued(
+        job,
+        {
+          allowedModels: principal.allowedModels,
+          credentialId: principal.credentialId,
+          ownerId: principal.ownerId,
+        },
+        progress
+      )
+    }
+    const wire = jobToMcpResult(job)
+    if (wire.isError) {
+      const msg =
+        wire.content.find((c): c is { type: 'text'; text: string } => c.type === 'text')
+          ?.text || 'Job failed'
+      throw new Error(msg)
+    }
+    return {
+      content: wire.content as McpContent[],
+      structuredContent: wire.structuredContent,
+      costUsd:
+        job.status === 'completed' && job.result ? job.result.costUsd ?? null : null,
+    }
+  }
+
+  if (name === 'estimate_generation_cost') {
+    const parsed = HeadlessEstimateCostSchema.safeParse(args)
+    if (!parsed.success) {
+      throw new Error(
+        `Invalid arguments: ${parsed.error.issues.map((i) => i.message).join('; ')}`
+      )
+    }
+    const estimatedCostUsd = estimateGenerationCostUsd(parsed.data)
+    return {
+      content: [
+        {
+          type: 'text',
+          text:
+            estimatedCostUsd != null
+              ? `Estimated cost for ${parsed.data.modelId}: $${estimatedCostUsd.toFixed(4)} USD`
+              : `No published pricing for ${parsed.data.modelId}.`,
+        },
+      ],
+      structuredContent: {
+        modelId: parsed.data.modelId,
+        estimatedCostUsd,
+      },
+    }
   }
 
   if (name === 'list_product_renders') {
@@ -502,7 +690,8 @@ export async function POST(request: NextRequest) {
 
 // Public capability probe — no auth required. Used by some MCP discovery
 // flows to confirm a server is reachable before trying authentication.
-export async function GET(_request: NextRequest) {
+export async function GET(request: NextRequest) {
+  const origin = new URL(request.url).origin
   return NextResponse.json(
     {
       service: SERVER_INFO.name,
@@ -513,7 +702,8 @@ export async function GET(_request: NextRequest) {
         scheme: 'Bearer',
         header: 'Authorization',
         description:
-          'Send `Authorization: Bearer vsp_live_...` on every POST request.',
+          'Send `Authorization: Bearer vsp_live_...` on every POST request, or use `/api/mcp/<token>` for Claude custom connectors.',
+        oauth: buildProtectedResourceMetadata(origin),
       },
       methods: [
         'initialize',
@@ -521,11 +711,17 @@ export async function GET(_request: NextRequest) {
         'ping',
         'tools/list',
         'tools/call',
+        'prompts/list',
+        'prompts/get',
+        'resources/list',
+        'resources/read',
       ],
       tools: MCP_TOOLS.map((t) => ({
         name: t.name,
         title: t.title,
       })),
+      prompts: MCP_PROMPTS.map((p) => p.name),
+      resources: MCP_RESOURCE_CATALOG.map((r) => r.uri),
     },
     {
       headers: {

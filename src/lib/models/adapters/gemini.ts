@@ -552,8 +552,10 @@ export class GeminiAdapter extends BaseModelAdapter {
     // Check if any output came from Replicate
     const usedReplicate = outputs.some(output => output._metrics?.provider === 'replicate')
     
-    // Clean up internal _metrics field from outputs
-    const cleanOutputs = outputs.map(({ _metrics, ...output }) => output)
+    // Clean up internal _metrics / _routeMeta fields from outputs
+    const cleanOutputs = outputs.map(({ _metrics, _routeMeta, ...output }) => output)
+
+    const routeMeta = outputs.find((output) => output._routeMeta)?._routeMeta
 
     return {
       id: `gen-${Date.now()}`,
@@ -562,6 +564,10 @@ export class GeminiAdapter extends BaseModelAdapter {
       metadata: {
         model: this.config.id,
         prompt: request.prompt,
+        backend: routeMeta?.backend ?? (this.useGenAI ? 'vertex' : 'gemini-api'),
+        isFallback: routeMeta?.isFallback ?? false,
+        routeReason: routeMeta?.routeReason ?? null,
+        effectiveModelId: this.config.id,
       },
       // Include metrics for accurate cost calculation when Replicate fallback was used
       ...(usedReplicate && totalPredictTime > 0 && {
@@ -580,6 +586,7 @@ export class GeminiAdapter extends BaseModelAdapter {
   ): Promise<any> {
     const label = this.modelLabel
     let lastError: any = null
+    const allowFallback = request.allowFallback !== false
     
     for (let attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
       try {
@@ -590,10 +597,16 @@ export class GeminiAdapter extends BaseModelAdapter {
         if (isQuotaExhaustedError(error)) {
           console.error(`${label}: Quota exhausted (limit: 0 or daily quota).`)
           
+          if (!allowFallback) {
+            throw new Error(
+              'Primary Google provider quota exhausted. Retry later or pass allowFallback: true to permit Replicate routing.'
+            )
+          }
+
           if (REPLICATE_API_KEY) {
             console.log(`${label}: Attempting Replicate fallback (google/nano-banana-pro)...`)
             try {
-              return await this.generateImageReplicate(request)
+              return await this.generateImageReplicate(request, 'quota_exhausted')
             } catch (replicateError: any) {
             console.error(`${label}: Replicate fallback also failed:`, replicateError.message)
                 throw new Error('All APIs exhausted (Vertex AI, Gemini API, Replicate). Please try again later.')
@@ -621,9 +634,12 @@ export class GeminiAdapter extends BaseModelAdapter {
         }
         
         if (isTransientError(error) && REPLICATE_API_KEY) {
+          if (!allowFallback) {
+            throw error
+          }
           console.log(`${label}: Google API persistently unavailable after ${attempt} attempts. Falling back to Replicate...`)
           try {
-            return await this.generateImageReplicate(request)
+            return await this.generateImageReplicate(request, 'transient_upstream')
           } catch (replicateError: any) {
             console.error(`${label}: Replicate fallback also failed:`, replicateError.message)
             throw new Error(
@@ -982,7 +998,10 @@ export class GeminiAdapter extends BaseModelAdapter {
    * Used when both Vertex AI and Gemini API fail with quota/availability issues
    * Docs: https://replicate.com/google/nano-banana-pro
    */
-  private async generateImageReplicate(request: GenerationRequest): Promise<any> {
+  private async generateImageReplicate(
+    request: GenerationRequest,
+    routeReason = 'replicate_fallback'
+  ): Promise<any> {
     if (!REPLICATE_API_KEY) {
       throw new Error('Replicate API key not configured. Cannot use Replicate fallback.')
     }
@@ -1204,10 +1223,14 @@ export class GeminiAdapter extends BaseModelAdapter {
             url: outputUrl,
             width: dimensions.width,
             height: dimensions.height,
-            // Include metrics for cost calculation (will be aggregated in main generate)
             _metrics: {
               predictTime: predictTime,
               provider: 'replicate',
+            },
+            _routeMeta: {
+              backend: 'replicate',
+              isFallback: true,
+              routeReason,
             },
           }
         } else if (statusData.status === 'failed' || statusData.status === 'canceled') {

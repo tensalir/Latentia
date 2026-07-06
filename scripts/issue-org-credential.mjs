@@ -62,6 +62,9 @@ const ALLOWED_TOOLS = [
   'list_models',
   'generate_asset',
   'list_product_renders',
+  'get_generation_status',
+  'generate_video',
+  'estimate_generation_cost',
 ]
 const ALLOWED_MODELS = ['*']
 const RATE_LIMIT_PER_MINUTE = 200

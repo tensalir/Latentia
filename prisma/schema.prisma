@@ -783,6 +783,7 @@ model HeadlessCredential {
   owner   Profile              @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   usage   HeadlessUsageLog[]
   buckets HeadlessRateBucket[]
+  mcpJobs  HeadlessMcpJob[]
 
   @@index([ownerId])
   @@index([tokenPrefix])
@@ -841,6 +842,30 @@ model HeadlessRateBucket {
   @@index([credentialId, window])
   @@index([bucket])
   @@map("headless_rate_buckets")
+}
+
+// Async MCP generation jobs (video + long-running image). Polled via
+// get_generation_status so clients can escape ~60s MCP tool-call walls.
+
+model HeadlessMcpJob {
+  id           String    @id @default(uuid()) @db.Uuid
+  credentialId String    @map("credential_id") @db.Uuid
+  ownerId      String    @map("owner_id") @db.Uuid
+  toolName     String    @map("tool_name")
+  modelId      String    @map("model_id")
+  status       String // queued | processing | completed | failed
+  request      Json
+  result       Json?
+  error        String?   @db.Text
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  completedAt  DateTime? @map("completed_at")
+
+  credential HeadlessCredential @relation(fields: [credentialId], references: [id], onDelete: Cascade)
+
+  @@index([credentialId, createdAt(sort: Desc)])
+  @@index([status])
+  @@map("headless_mcp_jobs")
 }
 
 // ── CMF (Color, Material, Finishing) Product Designer Workflow ──

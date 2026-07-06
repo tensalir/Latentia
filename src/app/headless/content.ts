@@ -34,6 +34,7 @@ export const hero = {
   meta: [
     { k: 'Recommended way in', v: 'Cursor connector (works today)' },
     { k: 'Also live', v: 'API for systems · Web app for Studio' },
+    { k: 'MCP timeout', v: 'Set 120000 ms in mcp.json for sync generation' },
     { k: 'Status', v: 'Private preview, by invite' },
   ] as { k: string; v: string }[],
 }

@@ -2,12 +2,7 @@ import type { NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'
 
 /**
- * GET /api/headless/v1
- *
- * Public discovery endpoint — no auth required. Returns the surface
- * version, supported tools, and pointers to authenticated routes. Lets
- * external clients (and Damien's MCP runtime) confirm they're hitting
- * a Vesper-compatible server before negotiating credentials.
+ * GET /api/headless/v1 — public discovery (no auth).
  */
 export async function GET(_request: NextRequest) {
   return NextResponse.json(
@@ -17,7 +12,8 @@ export async function GET(_request: NextRequest) {
       authentication: {
         scheme: 'Bearer',
         description:
-          'Issue a credential via the admin UI. Send `Authorization: Bearer vsp_live_...` on every request.',
+          'Issue a credential via /headless or admin UI. Send `Authorization: Bearer vsp_live_...` on every request.',
+        oauthProtectedResource: '/.well-known/oauth-protected-resource',
       },
       surfaces: {
         rest: '/api/headless/v1',
@@ -26,28 +22,47 @@ export async function GET(_request: NextRequest) {
       tools: [
         {
           name: 'enhance_prompt',
-          description:
-            'Enhance a single image or video prompt using the Vesper Gen-AI prompting skill.',
           rest: 'POST /api/headless/v1/prompts/enhance',
         },
         {
           name: 'iterate_prompt',
-          description:
-            'Produce an Andromeda-aware diversified prompt slate from a baseline concept.',
           rest: 'POST /api/headless/v1/prompts/iterate',
         },
         {
           name: 'list_models',
-          description:
-            'List the image and video models the calling credential is permitted to use.',
           rest: 'GET /api/headless/v1/models',
         },
+        {
+          name: 'generate_asset',
+          mcpOnly: true,
+        },
+        {
+          name: 'generate_video',
+          mcpOnly: true,
+        },
+        {
+          name: 'get_generation_status',
+          mcpOnly: true,
+        },
+        {
+          name: 'estimate_generation_cost',
+          mcpOnly: true,
+        },
+        {
+          name: 'list_product_renders',
+          mcpOnly: true,
+        },
+      ],
+      mcpPrompts: ['vesper:generate', 'vesper:enhance', 'vesper:iterate'],
+      mcpResources: [
+        'vesper://product-renders',
+        'vesper://models',
+        'vesper://skill/genai-prompting',
       ],
       docs: '/docs/headless-vesper.md',
     },
     {
       headers: {
-        // Cache discovery for a minute at the edge — the surface shape is stable.
         'Cache-Control': 'public, max-age=60, s-maxage=60',
       },
     }

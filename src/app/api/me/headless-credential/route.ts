@@ -33,6 +33,9 @@ const SELF_ISSUED_TOOLS: HeadlessTool[] = [
   'list_models',
   'generate_asset',
   'list_product_renders',
+  'get_generation_status',
+  'generate_video',
+  'estimate_generation_cost',
 ]
 // `*` = wildcard access to every model the registry exposes. Self-service
 // users get the full set; admins can issue narrower credentials via the
