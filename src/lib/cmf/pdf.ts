@@ -2,7 +2,8 @@
  * CMF packet PDF builder (server-side, pdf-lib, no Node-only deps).
  *
  * The layout mirrors Damien's source template (Loop CMF deck). Each SKU
- * produces two pages so the exported PDF drops straight into the existing
+ * produces one render/spec page, and the packet closes with a single shared
+ * part-breakdown page, so the exported PDF drops straight into the existing
  * approval / spec workflow without the team having to re-author it.
  *
  * Geometry: A4 portrait (595 × 842 pt). The previous landscape 16:9 layout
@@ -31,10 +32,11 @@
  *   │  …                                                           │
  *   └─────────────────────────────────────────────────────────────┘
  *
- * Page 2 is the part breakdown: clown reference render + colour legend on
- * top, then the breakdown grid (component label + legend-matched swatch per
- * cell). For multi-SKU packets a final overview page lists every colourway
- * in the pack so reviewers see the family at a glance.
+ * The final page is the part breakdown: clown reference render + colour
+ * legend on top, then the breakdown grid (component label + legend-matched
+ * swatch per cell). It applies to every SKU of the product, so it appears
+ * exactly once at the end of the packet (Damien, 2026-07-06: no per-SKU
+ * repeats, no pack-overview page, no Pantone on the breakdown).
  *
  * Why pdf-lib: pure JS, no Node addons, safe in Vercel Edge/Node runtimes.
  */
@@ -166,6 +168,33 @@ function drawWrappedText({
   return cursor
 }
 
+/**
+ * Meta-header cells sit on a fixed ~25pt row grid, so a value must never
+ * wrap — pdf-lib's `maxWidth` wrapping is what let long "Product name ·
+ * colourway" strings spill onto the Edit date row below them. Fit on a
+ * single line instead: shrink from 9pt down to 6.5pt, then ellipsis-truncate
+ * as a last resort. Exported for tests.
+ */
+export function fitHeaderValue(
+  text: string,
+  font: PDFFont,
+  maxWidth: number
+): { text: string; size: number } {
+  const MAX_SIZE = 9
+  const MIN_SIZE = 6.5
+  for (let size = MAX_SIZE; size >= MIN_SIZE; size -= 0.5) {
+    if (font.widthOfTextAtSize(text, size) <= maxWidth) return { text, size }
+  }
+  let truncated = text
+  while (
+    truncated.length > 1 &&
+    font.widthOfTextAtSize(`${truncated.trimEnd()}…`, MIN_SIZE) > maxWidth
+  ) {
+    truncated = truncated.slice(0, -1)
+  }
+  return { text: `${truncated.trimEnd()}…`, size: MIN_SIZE }
+}
+
 /* ── Source-template meta header (3×3 grid) ─────────────────────────────── */
 
 interface MetaField {
@@ -231,19 +260,19 @@ function drawSourceHeader({ page, fonts, fields, pageLabel, showDraftBadge }: Dr
       })
     }
     if (cell.label || cell.value) {
-      page.drawText(cell.value || '—', {
+      const fitted = fitHeaderValue(cell.value || '—', fonts.regular, cellW - 8)
+      page.drawText(fitted.text, {
         x,
         y: y - 10,
-        size: 9,
+        size: fitted.size,
         font: fonts.regular,
         color: COLOURS.ink,
-        maxWidth: cellW - 8,
       })
     }
   }
 
   // Page label (right-aligned, primary colour — "CMF Page 1" / "Part Break
-  // Down Page 2" / "Pack Overview" in Damien's deck).
+  // Down" in Damien's deck).
   const labelWidth = fonts.bold.widthOfTextAtSize(pageLabel, 11)
   page.drawText(pageLabel, {
     x: PAGE_W - MARGIN - labelWidth,
@@ -432,7 +461,8 @@ interface RenderProjection {
   renderUrl: string | null
   enhancedPrompt: string | null
   status: string
-  /** Resolved clown reference for this SKU — image + legend on Page 2. */
+  /** Resolved clown reference for this SKU — image + legend on the final
+   * part-breakdown page. */
   clown?: ClownProjection | null
 }
 
@@ -605,13 +635,17 @@ function drawColourLegend(args: {
   return legendBottom
 }
 
-/* ── Page 2 (Clown reference + part break down) ─────────────────────────── */
+/* ── Final page (Clown reference + part break down, once per product) ───── */
 
 /**
  * Damien's reference deck keeps the clown render, colour legend, and part
  * breakdown on one page so reviewers can map painted regions to components
  * without flipping back. The clown image sits top-left; legend top-right;
  * the 2-column breakdown grid fills the lower band.
+ *
+ * The page describes the product's parts — not a colourway — so it is drawn
+ * once at the end of the packet and carries no per-SKU colour data: no
+ * Pantone rows, and region swatches only when a clown legend anchors them.
  */
 async function drawPartBreakdownPage(args: SkuPageArgs) {
   const { pdf, fonts, render, meta, pageIndex, totalPages, packetNotes, isDraft } = args
@@ -621,7 +655,7 @@ async function drawPartBreakdownPage(args: SkuPageArgs) {
     page,
     fonts,
     fields: meta,
-    pageLabel: 'Part Break Down Page 2',
+    pageLabel: 'Part Break Down',
     showDraftBadge: isDraft,
   })
 
@@ -724,7 +758,8 @@ async function drawPartBreakdownPage(args: SkuPageArgs) {
   const cols = 2
   const gridW = PAGE_W - MARGIN * 2
   const cellW = (gridW - 16 * (cols - 1)) / cols
-  const cellH = 95
+  // Label band (32pt) + three 25pt key/value rows + bottom padding.
+  const cellH = 112
 
   for (let i = 0; i < components.length; i++) {
     const comp = components[i]
@@ -755,26 +790,32 @@ async function drawPartBreakdownPage(args: SkuPageArgs) {
       maxWidth: cellW - 20,
     })
 
-    const swatch = hexToRgb01(resolveSwatchHex(comp, swatchCtx))
+    // Region swatch only when a clown legend anchors it — without a clown,
+    // resolveSwatchHex falls back to the SKU's workbook colour, which would
+    // smuggle per-colourway data onto this shared page.
     const swatchSize = 38
-    page.drawRectangle({
-      x: x + cellW - swatchSize - 10,
-      y: y - swatchSize - 14,
-      width: swatchSize,
-      height: swatchSize,
-      color: swatch ?? rgb(0.92, 0.92, 0.94),
-      borderColor: COLOURS.swatchBorder,
-      borderWidth: 0.5,
-    })
+    if (clown) {
+      const swatch = hexToRgb01(resolveSwatchHex(comp, swatchCtx))
+      page.drawRectangle({
+        x: x + cellW - swatchSize - 10,
+        y: y - swatchSize - 14,
+        width: swatchSize,
+        height: swatchSize,
+        color: swatch ?? rgb(0.92, 0.92, 0.94),
+        borderColor: COLOURS.swatchBorder,
+        borderWidth: 0.5,
+      })
+    }
 
     let textY = y - 32
+    // Material and finishing references only — the breakdown applies to all
+    // SKUs, so per-colourway Pantone values stay off this page.
     const rows: Array<[string, string]> = [
-      ['Pantone', comp.pantone ?? comp.colorHex ?? '—'],
       ['Material', comp.material ?? '—'],
       ['Finish', comp.finish ?? '—'],
       ['Technique', comp.technique ?? '—'],
     ]
-    const textW = cellW - swatchSize - 30
+    const textW = clown ? cellW - swatchSize - 30 : cellW - 20
     for (const [k, v] of rows) {
       page.drawText(k.toUpperCase(), {
         x: x + 10,
@@ -801,129 +842,42 @@ async function drawPartBreakdownPage(args: SkuPageArgs) {
   drawFooter({ page, fonts, pageIndex, totalPages, notes: packetNotes })
 }
 
-/* ── Optional pack-overview page (multi-SKU only) ───────────────────────── */
+/* ── Public ─────────────────────────────────────────────────────────────── */
 
-async function drawPackOverviewPage(args: {
-  pdf: PDFDocument
-  fonts: PdfFontPair
-  renders: RenderProjection[]
-  baseMeta: MetaField[]
-  pageIndex: number
-  totalPages: number
-  packetName: string
-  packetNotes: string | null
-  cmfCode: string
-  generatedAt: Date
-}) {
-  const {
-    pdf,
-    fonts,
-    renders,
-    baseMeta,
-    pageIndex,
-    totalPages,
-    packetName,
-    packetNotes,
-    cmfCode,
-    generatedAt,
-  } = args
-  const page = pdf.addPage([PAGE_W, PAGE_H])
-
-  drawSourceHeader({
-    page,
-    fonts,
-    fields: [
-      { label: 'CMF number', value: cmfCode },
-      { label: 'Collection', value: packetName },
-      { label: 'Pack size', value: `${renders.length} SKUs` },
-      ...baseMeta.slice(3, 9),
-    ],
-    pageLabel: 'Pack overview',
-  })
-
-  page.drawText('Pack breakdown', {
-    x: MARGIN,
-    y: PAGE_H - HEADER_H - 20,
-    size: 11,
-    font: fonts.bold,
-    color: COLOURS.ink,
-  })
-
-  // SKU cards: colourway title, product slug, mini swatch row.
-  const colCount = Math.min(renders.length, 2)
-  const gridW = PAGE_W - MARGIN * 2
-  const cellW = (gridW - 16 * (colCount - 1)) / colCount
-  const cellH = 110
-  let cellX = MARGIN
-  let cellY = PAGE_H - HEADER_H - 40
-
-  renders.forEach((render, idx) => {
-    const components = (render.componentSpecs as ComponentSpec[] | undefined) ?? []
-    page.drawRectangle({
-      x: cellX,
-      y: cellY - cellH,
-      width: cellW,
-      height: cellH,
-      color: COLOURS.panelBg,
-      borderColor: COLOURS.faint,
-      borderWidth: 0.5,
-    })
-
-    page.drawText((render.colorwayName ?? render.label).toUpperCase(), {
-      x: cellX + 10,
-      y: cellY - 16,
-      size: 11,
-      font: fonts.bold,
-      color: COLOURS.primary,
-      maxWidth: cellW - 20,
-    })
-    page.drawText(render.productSlug, {
-      x: cellX + 10,
-      y: cellY - 30,
-      size: 8,
-      font: fonts.mono,
-      color: COLOURS.muted,
-    })
-    if (render.productCode) {
-      page.drawText(render.productCode, {
-        x: cellX + 10,
-        y: cellY - 42,
-        size: 7,
-        font: fonts.mono,
-        color: COLOURS.muted,
-      })
-    }
-
-    // Mini swatch row (legend colours, not product Pantones)
-    let swatchX = cellX + 10
-    const swatchY = cellY - 70
-    for (const comp of components.slice(0, 6)) {
-      const colour = hexToRgb01(resolveSwatchHex(comp, swatchContextForRender(render)))
-      page.drawRectangle({
-        x: swatchX,
-        y: swatchY,
-        width: 18,
-        height: 18,
-        color: colour ?? rgb(0.92, 0.92, 0.94),
-        borderColor: COLOURS.swatchBorder,
-        borderWidth: 0.5,
-      })
-      swatchX += 24
-    }
-
-    // Advance grid cursor
-    if ((idx + 1) % colCount === 0) {
-      cellX = MARGIN
-      cellY -= cellH + 16
-    } else {
-      cellX += cellW + 16
-    }
-  })
-
-  drawFooter({ page, fonts, pageIndex, totalPages, notes: packetNotes })
+export interface CmfPagePlanEntry {
+  type: 'render' | 'breakdown'
+  /** Index into the packet's renders array that feeds this page. */
+  renderIndex: number
 }
 
-/* ── Public ─────────────────────────────────────────────────────────────── */
+/**
+ * Page plan for a packet: one render/spec page per SKU (packet order), then
+ * a single shared part-breakdown page per distinct product — normally
+ * exactly one. The breakdown is sourced from the product's first render
+ * that carries a clown reference (falling back to its first render) so the
+ * clown band shows whenever one exists.
+ *
+ * Pure and exported: pdf-lib cannot read text back out of generated bytes,
+ * so tests assert page order on the plan instead.
+ */
+export function planCmfPages(
+  renders: Array<{ productSlug: string; clown?: ClownProjection | null }>
+): CmfPagePlanEntry[] {
+  const plan: CmfPagePlanEntry[] = renders.map((_, i) => ({
+    type: 'render',
+    renderIndex: i,
+  }))
+  const seenProducts: string[] = []
+  for (const render of renders) {
+    if (!seenProducts.includes(render.productSlug)) seenProducts.push(render.productSlug)
+  }
+  for (const slug of seenProducts) {
+    const withClown = renders.findIndex((r) => r.productSlug === slug && r.clown)
+    const first = renders.findIndex((r) => r.productSlug === slug)
+    plan.push({ type: 'breakdown', renderIndex: withClown >= 0 ? withClown : first })
+  }
+  return plan
+}
 
 interface BuildPdfArgs {
   packetName: string
@@ -950,7 +904,8 @@ interface BuildPdfArgs {
       | 'enhancedPrompt'
       | 'status'
     > & {
-      /** Optional clown reference — image + legend render on Page 2. */
+      /** Optional clown reference — image + legend on the final
+       * part-breakdown page. */
       clown?: ClownProjection | null
     }
   >
@@ -969,13 +924,12 @@ export async function buildCmfPacketPdf(args: BuildPdfArgs): Promise<Uint8Array>
   const courier = await pdf.embedFont(StandardFonts.Courier)
   const fonts: PdfFontPair = { regular: helvetica, bold: helveticaBold, mono: courier }
 
-  const includesOverview = args.renders.length > 1
-  // 2 pages per SKU (CMF spec + Part breakdown with clown/legend) plus an
-  // optional pack overview at the end for multi-SKU packets.
-  const totalPages = args.renders.length * 2 + (includesOverview ? 1 : 0)
+  // One render page per SKU, then one shared part-breakdown page per
+  // distinct product (normally exactly one) at the end of the packet.
+  const plan = planCmfPages(args.renders)
+  const totalPages = plan.length
 
-  let pageIndex = 1
-  const baseMetaFor = (render: BuildPdfArgs['renders'][number]): MetaField[] => {
+  const renderMetaFor = (render: BuildPdfArgs['renders'][number]): MetaField[] => {
     const product = getCmfProduct(render.productSlug)
     const productLabel = render.colorwayName
       ? `${product?.name ?? render.productSlug} · ${render.colorwayName}`
@@ -991,74 +945,69 @@ export async function buildCmfPacketPdf(args: BuildPdfArgs): Promise<Uint8Array>
     })
   }
 
-  for (const render of args.renders) {
-    const meta = baseMetaFor(render)
-    const projection: RenderProjection = {
-      id: render.id,
-      label: render.label,
-      colorwayName: render.colorwayName,
-      productSlug: render.productSlug,
-      productCode: render.productCode,
-      ean: render.ean,
-      componentSpecs: render.componentSpecs,
-      paletteSwatches: render.paletteSwatches,
-      renderUrl: render.renderUrl,
-      enhancedPrompt: render.enhancedPrompt,
-      status: render.status,
-      clown: render.clown ?? null,
+  // The shared breakdown page applies to every SKU of the product, so its
+  // header drops the colourway and keeps code/EAN only when the whole group
+  // agrees on a single value.
+  const breakdownMetaFor = (render: BuildPdfArgs['renders'][number]): MetaField[] => {
+    const product = getCmfProduct(render.productSlug)
+    const group = args.renders.filter((r) => r.productSlug === render.productSlug)
+    const shared = (pick: (r: BuildPdfArgs['renders'][number]) => string | null) => {
+      const values = new Set(group.map(pick))
+      return values.size === 1 ? pick(group[0]) : null
     }
-
-    await drawProductRenderPage({
-      pdf,
-      fonts,
-      render: projection,
-      meta,
-      pageIndex,
-      totalPages,
-      packetNotes: args.notes,
-      isDraft: !!args.isDraft,
+    return metaFieldsForRender({
+      cmfCode,
+      packetName: args.packetName,
+      productLabel: product?.name ?? render.productSlug,
+      productCode: shared((r) => r.productCode),
+      ean: shared((r) => r.ean),
+      generatedAt,
+      drawn: args.drawnBy ?? null,
     })
-    pageIndex += 1
-
-    await drawPartBreakdownPage({
-      pdf,
-      fonts,
-      render: projection,
-      meta,
-      pageIndex,
-      totalPages,
-      packetNotes: args.notes,
-      isDraft: !!args.isDraft,
-    })
-    pageIndex += 1
   }
 
-  if (includesOverview) {
-    await drawPackOverviewPage({
-      pdf,
-      fonts,
-      renders: args.renders.map((render) => ({
-        id: render.id,
-        label: render.label,
-        colorwayName: render.colorwayName,
-        productSlug: render.productSlug,
-        productCode: render.productCode,
-        ean: render.ean,
-        componentSpecs: render.componentSpecs,
-        paletteSwatches: render.paletteSwatches,
-        renderUrl: render.renderUrl,
-        enhancedPrompt: render.enhancedPrompt,
-        status: render.status,
-        clown: render.clown ?? null,
-      })),
-      baseMeta: baseMetaFor(args.renders[0]),
-      pageIndex,
-      totalPages,
-      packetName: args.packetName,
-      packetNotes: args.notes,
-      cmfCode,
-      generatedAt,
-    })
+  const projectionFor = (render: BuildPdfArgs['renders'][number]): RenderProjection => ({
+    id: render.id,
+    label: render.label,
+    colorwayName: render.colorwayName,
+    productSlug: render.productSlug,
+    productCode: render.productCode,
+    ean: render.ean,
+    componentSpecs: render.componentSpecs,
+    paletteSwatches: render.paletteSwatches,
+    renderUrl: render.renderUrl,
+    enhancedPrompt: render.enhancedPrompt,
+    status: render.status,
+    clown: render.clown ?? null,
+  })
+
+  let pageIndex = 1
+  for (const entry of plan) {
+    const render = args.renders[entry.renderIndex]
+    if (entry.type === 'render') {
+      await drawProductRenderPage({
+        pdf,
+        fonts,
+        render: projectionFor(render),
+        meta: renderMetaFor(render),
+        pageIndex,
+        totalPages,
+        packetNotes: args.notes,
+        isDraft: !!args.isDraft,
+      })
+    } else {
+      await drawPartBreakdownPage({
+        pdf,
+        fonts,
+        render: projectionFor(render),
+        meta: breakdownMetaFor(render),
+        pageIndex,
+        totalPages,
+        packetNotes: args.notes,
+        isDraft: !!args.isDraft,
+      })
+    }
+    pageIndex += 1
   }
 
   return pdf.save()

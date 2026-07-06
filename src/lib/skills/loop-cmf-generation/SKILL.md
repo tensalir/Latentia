@@ -145,7 +145,7 @@ Page layout per SKU (16:9, 1280×720):
 - Spec table: components × Pantone / Material / Finish / Technique on the right half.
 - Footer: palette swatches + product code / EAN / notes.
 
-Multi-SKU packets get an extra shared breakdown page summarising every SKU.
+The exported PDF orders pages as: one render/spec page per SKU, then a single shared part-breakdown page at the end (clown reference + colour legend + material/finish/technique per component — no per-colourway Pantone, since the breakdown applies to every SKU). There is no pack-overview page (removed on designer feedback, 2026-07-06).
 
 The HTML preview is editable: label, order, notes, and palette overrides can be tweaked here. The workbook is the source of truth for components, so they cannot be edited in preview — adjust those upstream in the workbook.
 

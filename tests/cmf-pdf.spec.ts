@@ -1,12 +1,17 @@
 import { test, expect } from '@playwright/test'
-import { PDFDocument } from 'pdf-lib'
+import { PDFDocument, StandardFonts } from 'pdf-lib'
 import {
   CMF_EXPLORER_PALETTE,
   CMF_LEGEND_COLOURS,
   resolveLegendHex,
   resolveSwatchHex,
 } from '../src/lib/cmf/clown-legend'
-import { buildCmfPacketPdf, CMF_PDF_GEOMETRY } from '../src/lib/cmf/pdf'
+import {
+  buildCmfPacketPdf,
+  CMF_PDF_GEOMETRY,
+  fitHeaderValue,
+  planCmfPages,
+} from '../src/lib/cmf/pdf'
 
 /**
  * Smoke test for the CMF PDF builder. We don't try to compare visual output —
@@ -54,7 +59,7 @@ test('buildCmfPacketPdf returns valid PDF bytes for a single SKU', async () => {
   expect(pdfHeader(pdf)).toBe('%PDF-')
 })
 
-test('buildCmfPacketPdf adds a breakdown page for multi-SKU packets', async () => {
+test('buildCmfPacketPdf returns valid PDF bytes for multi-SKU packets', async () => {
   const renders = [
     SINGLE_RENDER,
     {
@@ -98,7 +103,7 @@ test('buildCmfPacketPdf renders A4 portrait pages, matching the source CMF deck'
   expect(size.height).toBeGreaterThan(size.width)
 })
 
-test('buildCmfPacketPdf produces two pages per SKU (render + part breakdown)', async () => {
+test('buildCmfPacketPdf single-SKU packet is 2 pages (render + shared part breakdown)', async () => {
   const pdf = await buildCmfPacketPdf({
     packetName: 'Switch 2 Emerald',
     cmfCode: 'CMF-001234revA',
@@ -109,7 +114,7 @@ test('buildCmfPacketPdf produces two pages per SKU (render + part breakdown)', a
   expect(doc.getPageCount()).toBe(2)
 })
 
-test('buildCmfPacketPdf appends a pack overview page for multi-SKU packets', async () => {
+test('buildCmfPacketPdf multi-SKU packet is one render page per SKU + a single breakdown, no pack overview', async () => {
   const renders = [
     SINGLE_RENDER,
     {
@@ -126,8 +131,10 @@ test('buildCmfPacketPdf appends a pack overview page for multi-SKU packets', asy
     renders: renders as any,
   })
   const doc = await PDFDocument.load(pdf)
-  // 2 SKUs × 2 template pages + 1 pack overview = 5
-  expect(doc.getPageCount()).toBe(5)
+  // 2 render pages + 1 shared part breakdown = 3. The per-SKU breakdown
+  // repeats and the trailing pack-overview page were removed on Damien's
+  // feedback (2026-07-06).
+  expect(doc.getPageCount()).toBe(3)
 })
 
 test('buildCmfPacketPdf stays portrait for every page even with many SKUs', async () => {
@@ -148,6 +155,78 @@ test('buildCmfPacketPdf stays portrait for every page even with many SKUs', asyn
     const { width, height } = doc.getPage(i).getSize()
     expect(height).toBeGreaterThan(width)
   }
+})
+
+/* ── Page plan (render pages first, one shared breakdown last) ──────── */
+
+test('planCmfPages puts a single shared breakdown last for same-product packs', () => {
+  const plan = planCmfPages([
+    { productSlug: 'switch2' },
+    { productSlug: 'switch2' },
+    { productSlug: 'switch2' },
+  ])
+  expect(plan.map((p) => p.type)).toEqual(['render', 'render', 'render', 'breakdown'])
+  expect(plan[3].renderIndex).toBe(0)
+})
+
+test('planCmfPages sources the breakdown from the first render with a clown', () => {
+  const clown = { imageUrl: 'https://example.com/clown.png', label: 'clown', components: [] }
+  const plan = planCmfPages([
+    { productSlug: 'switch2' },
+    { productSlug: 'switch2', clown },
+    { productSlug: 'switch2' },
+  ])
+  expect(plan[plan.length - 1]).toEqual({ type: 'breakdown', renderIndex: 1 })
+})
+
+test('planCmfPages emits one breakdown per distinct product, after all render pages', () => {
+  const plan = planCmfPages([
+    { productSlug: 'switch2' },
+    { productSlug: 'case-switch2' },
+    { productSlug: 'switch2' },
+  ])
+  expect(plan.map((p) => p.type)).toEqual([
+    'render',
+    'render',
+    'render',
+    'breakdown',
+    'breakdown',
+  ])
+  expect(plan[3].renderIndex).toBe(0) // switch2 breakdown ← its first render
+  expect(plan[4].renderIndex).toBe(1) // case-switch2 breakdown ← its first render
+})
+
+/* ── Meta header fitting (edit date × SKU name overlap) ─────────────── */
+
+test('fitHeaderValue keeps short values at 9pt untouched', async () => {
+  const doc = await PDFDocument.create()
+  const font = await doc.embedFont(StandardFonts.Helvetica)
+  const fitted = fitHeaderValue('2026-06-30', font, 166)
+  expect(fitted).toEqual({ text: '2026-06-30', size: 9 })
+})
+
+test('fitHeaderValue never lets a long product·colourway value exceed the cell', async () => {
+  const doc = await PDFDocument.create()
+  const font = await doc.embedFont(StandardFonts.Helvetica)
+  // Actual header cell width from the 3×3 grid geometry.
+  const cellW = (CMF_PDF_GEOMETRY.PAGE_W - CMF_PDF_GEOMETRY.MARGIN * 2) / 3 - 8
+  // The exact value that used to wrap onto the Edit date row below it.
+  const value = 'Loop Experience 2 Carry Case · Coachella desert sun'
+  const fitted = fitHeaderValue(value, font, cellW)
+  expect(font.widthOfTextAtSize(fitted.text, fitted.size)).toBeLessThanOrEqual(cellW)
+  expect(fitted.size).toBeLessThanOrEqual(9)
+  expect(fitted.size).toBeGreaterThanOrEqual(6.5)
+})
+
+test('fitHeaderValue ellipsis-truncates values that cannot shrink to fit', async () => {
+  const doc = await PDFDocument.create()
+  const font = await doc.embedFont(StandardFonts.Helvetica)
+  const value =
+    'An unreasonably long product name that no header cell could ever hold on one line'
+  const fitted = fitHeaderValue(value, font, 120)
+  expect(fitted.text.endsWith('…')).toBe(true)
+  expect(fitted.size).toBe(6.5)
+  expect(font.widthOfTextAtSize(fitted.text, fitted.size)).toBeLessThanOrEqual(120)
 })
 
 /* ── Clown legend colours (Damien's region markers) ─────────────────── */
@@ -212,7 +291,7 @@ test('resolveSwatchHex ignores product Pantone when a clown is attached', () => 
 const TINY_PNG_DATA_URL =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
 
-test('buildCmfPacketPdf keeps two pages per SKU when a clown is provided (merged layout)', async () => {
+test('buildCmfPacketPdf keeps 2 pages for a single SKU with a clown (merged layout)', async () => {
   const pdf = await buildCmfPacketPdf({
     packetName: 'Switch 2 Emerald',
     cmfCode: 'CMF-001234revA',
@@ -247,7 +326,7 @@ test('buildCmfPacketPdf omits clown band on breakdown when no clown is provided'
   expect(doc.getPageCount()).toBe(2)
 })
 
-test('buildCmfPacketPdf uses two pages per SKU for multi-SKU packets with clown', async () => {
+test('buildCmfPacketPdf multi-SKU packet with clown shares a single breakdown page', async () => {
   const pdf = await buildCmfPacketPdf({
     packetName: 'Switch 2 Spring 2026',
     cmfCode: 'CMF-001234revA',
@@ -272,11 +351,12 @@ test('buildCmfPacketPdf uses two pages per SKU for multi-SKU packets with clown'
     ] as any,
   })
   const doc = await PDFDocument.load(pdf)
-  // 2 SKUs × 2 pages + 1 pack overview = 5 (no standalone clown pages).
-  expect(doc.getPageCount()).toBe(5)
+  // 2 render pages + 1 shared breakdown = 3 (no per-SKU breakdown repeats,
+  // no pack overview).
+  expect(doc.getPageCount()).toBe(3)
 })
 
-test('buildCmfPacketPdf three-SKU pack is 7 pages (2 per SKU + overview)', async () => {
+test('buildCmfPacketPdf three-SKU pack is 4 pages (3 renders + 1 shared breakdown)', async () => {
   const clown = {
     imageUrl: TINY_PNG_DATA_URL,
     label: 'Switch 2 default clown',
@@ -296,5 +376,5 @@ test('buildCmfPacketPdf three-SKU pack is 7 pages (2 per SKU + overview)', async
     renders: renders as any,
   })
   const doc = await PDFDocument.load(pdf)
-  expect(doc.getPageCount()).toBe(7)
+  expect(doc.getPageCount()).toBe(4)
 })
