@@ -16,7 +16,7 @@ plate into one of three buckets:
 |---|---|---|
 | **Inks** | Anything not matched by the other two buckets | `Cyan`, `Magenta`, `Yellow`, `Black`, `PANTONE Black C`, `PANTONE 7652 C`, `PANTONE 651 C` |
 | **Special finishes** | `EMBOSS`, `DEBOSS`, `UV`, `FOIL`, `SPOT`, `VARNISH`, `LAMINATE`, `GLOSS`, `MATT`, `MATTE` | `UV GLOSS`, `3D EMBOSS`, `SPOT VARNISH`, `HOT FOIL` |
-| **Structural plates** (dielines) | `CUT LINE`, `BEND LINE`, `DIELINE`, `PERF`, `FOLD LINE`, `CREASE` | `CUT LINE`, `BEND LINE` |
+| **Structural plates** (dielines) | `CUT LINE`, `BEND LINE`, `DIELINE`, `DIE CUT`, `PERF`, `FOLD LINE`, `CREASE`, `GLUE AREA`, `GLUE ZONE` | `DIE CUT`, `CREASE`, `GLUE AREA` |
 
 ### How to set plate names in Illustrator
 
@@ -149,7 +149,7 @@ brief page).
 - [ ] All process inks (CMYK) used by the file appear in PlateNames
 - [ ] All spot inks (Pantones) are named exactly as you want them on the brief
 - [ ] All special finishes are named with the right keyword (`UV GLOSS`, `3D EMBOSS`, etc.)
-- [ ] All structural plates are named with `CUT LINE` / `BEND LINE` / etc.
+- [ ] All structural plates are named with `DIE CUT` / `CREASE` / `GLUE AREA` / `CUT LINE` / `BEND LINE` etc.
 - [ ] The top-right 210 × 110 mm of the sheet is clear of artwork
 - [ ] File saved with PDF compatibility (`Create PDF Compatible File` ticked)
 - [ ] File named per the convention and placed in `Print_Files/`

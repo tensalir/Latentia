@@ -14,8 +14,9 @@
     "export:headless": "tsx scripts/export-headless.ts",
     "updates:generate": "tsx scripts/generate-updates.ts",
     "updates:backfill": "tsx scripts/generate-updates.ts -- --backfill --since=60d",
-    "packaging:seed-nyx": "tsx scripts/seed-packaging-nyx.ts",
-    "packaging:smoke-plates": "tsx scripts/smoke-packaging-plates.ts"
+    "packaging:seed-catalogue": "tsx scripts/seed-packaging-catalogue.ts",
+    "packaging:seed-aphrodite": "tsx scripts/seed-packaging-aphrodite.ts",
+    "packaging:smoke": "tsx scripts/smoke-packaging-generation.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.7",

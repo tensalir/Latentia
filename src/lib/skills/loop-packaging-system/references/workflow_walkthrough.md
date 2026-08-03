@@ -1,192 +1,116 @@
-# End-to-end walkthrough — Nyx Sleep Mask, Black SKU, MP stage
+# End-to-end walkthrough — Aphrodite EVT, Black SKU
 
-A worked example showing every script in sequence. Substitute your product
-and stage as needed.
+A worked example of the six-step workflow. Product: Aphrodite Sleep Mask,
+stage EVT, colourway Black, nine components (eight with artwork, one — the
+Closure Sticker — planned but files not ready yet).
 
-## What you start with
+## Starting state
 
-- Editable Illustrator files, one per component, named per the convention:
-  ```
-  Nyx_MP_Outer_Sleeve_Black_editable.ai
-  Nyx_MP_Inner_Tray_editable.ai
-  Nyx_MP_Tissue_Paper_editable.ai
-  Nyx_MP_Tissue_Sticker_editable.ai
-  Nyx_MP_Closure_Sticker_editable.ai
-  ```
-- Engineering drawings (`510-XXXXXX` series), packing instructions, palletization
-  docs — anything you already have.
-
-## What you end up with
+The designer hands over a stage folder:
 
 ```
-Nyx Sleep Mask/02_Production/MP/
+EVT/
 ├── Creative_Intent/
-│   ├── Nyx_MP_Creative_Intent_Black.xlsx      ← source of truth
-│   └── Nyx_MP_Creative_Intent_Black.pdf       ← wrap-around supplier brief
+│   ├── BLACK/
+│   │   └── Aphrodite_EVT_Creative_Intent_Black.xlsx   ← human fields filled
+│   └── Reference_Images/
+│       ├── Rigid_Box_Lid_Mockup.png
+│       ├── Pulp_Tray_Mockup.png
+│       └── … one per component
 ├── Print_Files/
-│   ├── Nyx_MP_Outer_Sleeve_Black_editable.ai  ← unchanged
-│   ├── Nyx_MP_Outer_Sleeve_Black_supplier.pdf ← generated
-│   ├── ... (10 files: 5 editable + 5 supplier)
+│   └── BLACK/
+│       ├── Rigid_Box_Lid__Black_A120_Aphrodite_EVT_160726_ED.ai
+│       ├── Pulp_Tray_Black_A120_Aphrodite_EVT_160726_ED.ai
+│       ├── Hangtag_Black_A120_Aphrodite_EVT_160726_ED.ai
+│       └── … eight editable AIs
 ├── Artwork_Assets/
-│   ├── Nyx_MP_overview.png
-│   ├── Nyx_MP_Outer_Sleeve_Black_mockup.png
-│   ├── Nyx_MP_Outer_Sleeve_Black_front.png
-│   └── ...
+│   └── Aphrodite_Overview.psd          ← Photoshop; sync converts it
 ├── Drawings/
-│   ├── Inner_Tray/Nyx_Inner_510-000003.pdf
-│   └── ...
-├── Reference/
-│   ├── Nyx_MP_Packing_Instructions.pdf
-│   └── Nyx_MP_Palletization.pdf
+│   └── Rigid_Box_Lid_Cutter_Guide_A120_Aphrodite_EVT_160726.ai …
+├── Production Documents/
 └── Archive/
 ```
 
-## Step 0 — Folder skeleton
+In the workbook, Product Setup includes all nine components with page order
+1–9. The Rigid Box Lid tab has Material `450gr Simwhite Paper`, Method
+`Offset`, MSDS `Water Based Coating` — but Inks, Finishes and Print Part
+Number are empty. That is correct: they come from the `.ai`.
+
+## Step 3 — Sync
 
 ```bash
-ROOT="/Users/ana/Loop Packaging/Nyx Sleep Mask/02_Production/MP"
-mkdir -p "$ROOT"/{Creative_Intent,Print_Files,Artwork_Assets,Drawings,Reference,Archive}
+python scripts/sync_workbook.py \
+  "EVT/Creative_Intent/BLACK/Aphrodite_EVT_Creative_Intent_Black.xlsx" \
+  --stage-root "EVT"
 ```
 
-Drop your editable AI files into `Print_Files/`.
+Output tells the story:
 
-## Step 1 — Build the workbook
+```
+converted PSD -> Aphrodite_Overview.png
+rebuilt missing tab: Hangtag (single_face)        ← lost in a Sheets round-trip
+  Rigid_Box_Lid                inks=6 finishes=1 dielines=2
+  Hangtag                      inks=0 finishes=0 dielines=3
+  …
+no artwork yet (will render as [no artwork]): Closure_Sticker
+```
+
+Note the Hangtag: its plates are `DIE CUT`, `GLUE AREA`, `CREASE` — all
+structural, zero inks. If those showed up under inks, the plate vocabulary is
+out of date. The Rigid Box Lid picked up six inks (CMYK + Warm Black 2 +
+PANTONE 10101 C), one finish (`holographic foil`), two dielines, and
+`Print Part Number = Rigid_Box_Lid__Black_A120_Aphrodite_EVT_160726_ED`.
+
+## Step 4 — Supplier PDFs
+
+Once per component that has an `.ai`:
 
 ```bash
-python scripts/build_template.py \
-  "$ROOT/Creative_Intent/Nyx_MP_Creative_Intent_Black.xlsx"
+python scripts/generate_supplier_pdf.py \
+  --workbook "EVT/Creative_Intent/BLACK/Aphrodite_EVT_Creative_Intent_Black.xlsx" \
+  --ai-file  "EVT/Print_Files/BLACK/Rigid_Box_Lid__Black_A120_Aphrodite_EVT_160726_ED.ai" \
+  --component-tab Rigid_Box_Lid \
+  --out-dir  "EVT/Print_Files/BLACK/supplier_out/"
 ```
 
-Open the workbook. Three tabs need attention before anything else:
+One PDF out: `…_OPTION_A_overlay.pdf`, same page count as the source, the
+200×100 mm box top-right on **every** page. Check the box: Material/Method/
+MSDS/SKU from the workbook on the left; ink, finish and structural-plate chips
+from the `.ai` on the right; header shows the three designers and the date as
+`19-06-2026`.
 
-**Project Info**
-
-| Field | Value |
-|---|---|
-| Project Name | Nyx Packaging |
-| Product Type | Sleep Mask |
-| Product Family | Sleep |
-| SKU / Colourway | Black |
-| Packaging Designer | Ana Cuesta |
-| Packaging Engineer | Carys Manson |
-| Date | 12/05/2026 |
-| Project Stage | MP |
-| Artwork Folder | `/Users/ana/Loop Packaging/Nyx Sleep Mask/02_Production/MP` |
-| Packaging Overview Image | `Nyx_MP_overview` |
-
-**Product Setup** — tick Yes for Outer_Sleeve, Inner_Tray, Tissue_Paper,
-Tissue_Sticker, Closure_Sticker. Page order 1–5.
-
-**Each component tab** — fill the Specifications block, then the Artwork
-file names (just the names, not paths), then the Packing Instructions where
-they apply.
-
-## Step 2 — Generate supplier PDFs (5 components)
-
-```bash
-for COMP in Outer_Sleeve Inner_Tray Tissue_Paper Tissue_Sticker Closure_Sticker; do
-  # Compose AI filename (Outer_Sleeve and Closure_Sticker have the Black variant)
-  if [[ "$COMP" == "Outer_Sleeve" || "$COMP" == "Closure_Sticker" ]]; then
-    AI="$ROOT/Print_Files/Nyx_MP_${COMP}_Black_editable.ai"
-  else
-    AI="$ROOT/Print_Files/Nyx_MP_${COMP}_editable.ai"
-  fi
-  python scripts/generate_supplier_pdf.py \
-    --workbook "$ROOT/Creative_Intent/Nyx_MP_Creative_Intent_Black.xlsx" \
-    --ai-file "$AI" \
-    --component-tab $COMP \
-    --out-dir "$ROOT/Print_Files/"
-done
-```
-
-Each component produces three PDFs in `Print_Files/`:
-
-```
-Nyx_MP_Outer_Sleeve_Black_OPTION_A_overlay.pdf            ← keep this one
-Nyx_MP_Outer_Sleeve_Black_OPTION_B_outlined_with_brief.pdf
-Nyx_MP_Outer_Sleeve_Black_OPTION_C_untouched_with_brief.pdf
-```
-
-Rename the Option A file to drop the `_OPTION_A_overlay` suffix:
-
-```bash
-cd "$ROOT/Print_Files/"
-for f in *_OPTION_A_overlay.pdf; do
-  mv "$f" "${f%_OPTION_A_overlay.pdf}_supplier.pdf"
-done
-rm *_OPTION_B_*.pdf *_OPTION_C_*.pdf
-```
-
-## Step 3 — Render mockup PNGs
-
-If you don't yet have product mockups in `Artwork_Assets/`, you can render
-each AI's first page as a temporary placeholder:
-
-```bash
-for AI in "$ROOT/Print_Files/"*_editable.ai; do
-  base=$(basename "$AI" _editable.ai)
-  pdftoppm -r 120 -png -f 1 -l 1 -singlefile \
-    "$AI" "$ROOT/Artwork_Assets/${base}_mockup"
-done
-```
-
-For the overview image, ideally you'd have a 3D exploded render of the
-full packaging. For an early draft, copy the sleeve mockup as a stand-in:
-
-```bash
-cp "$ROOT/Artwork_Assets/Nyx_MP_Outer_Sleeve_Black_mockup.png" \
-   "$ROOT/Artwork_Assets/Nyx_MP_overview.png"
-```
-
-## Step 4 — Refresh previews in the workbook
+## Step 5 — Previews
 
 ```bash
 python scripts/refresh_artwork_previews.py \
-  "$ROOT/Creative_Intent/Nyx_MP_Creative_Intent_Black.xlsx"
+  "EVT/Creative_Intent/BLACK/Aphrodite_EVT_Creative_Intent_Black.xlsx"
 ```
 
-Output looks like:
-
 ```
-Refreshing previews in: .../Nyx_MP_Creative_Intent_Black.xlsx
-Artwork folder: .../02_Production/MP
-Embedded: 11  Skipped: 0  Missing: 0
+Embedded: 17  Skipped: 2  Missing: 2
+  [missing] Closure_Sticker: Closure_Sticker_Mockup
+  [missing] Closure_Sticker: Closure_Sticker*_ED*
 ```
 
-Open the workbook to verify thumbnails appear in the Preview cells.
+Only the fileless component is missing — expected. The artwork panels resolve
+to the clean `.ai` files, never to anything in `supplier_out/`.
 
-## Step 5 — Generate the Creative Intent PDF
+## Step 6 — Creative Intent
 
 ```bash
 python scripts/generate_creative_intent_pdf.py \
-  "$ROOT/Creative_Intent/Nyx_MP_Creative_Intent_Black.xlsx" \
-  "$ROOT/Creative_Intent/Nyx_MP_Creative_Intent_Black.pdf"
+  "EVT/Creative_Intent/BLACK/Aphrodite_EVT_Creative_Intent_Black.xlsx" \
+  "EVT/Creative_Intent/BLACK/Aphrodite_EVT_Creative_Intent_Black.pdf"
 ```
 
-You now have:
+Ten pages: overview (exploded render + nine-component key in page order) then
+one spec page per component. Rigid Box Lid's page shows the synced inks and
+finish; Closure Sticker's shows `[no artwork]` placeholders. No print box
+anywhere in this document.
 
-- 5 supplier PDFs in `Print_Files/` (one per component, with info box overlay)
-- 1 Creative Intent PDF in `Creative_Intent/` (6 pages: cover + 5 components)
-- The Excel workbook with embedded thumbnails alongside the PDF
+## Repeat per SKU
 
-## Repeat for the Blue SKU
-
-```bash
-cp "$ROOT/Creative_Intent/Nyx_MP_Creative_Intent_Black.xlsx" \
-   "$ROOT/Creative_Intent/Nyx_MP_Creative_Intent_Blue.xlsx"
-```
-
-Open the Blue workbook, change `SKU / Colourway` from Black to Blue. The
-closure sticker artwork file name changes to `Nyx_MP_Closure_Sticker_Blue_*`
-(if the Blue SKU has its own closure design). Everything else stays the
-same. Re-run steps 4 and 5 for the Blue workbook.
-
-## What changes between stages
-
-When promoting MP → next project's EVT, or DVT → PVT for the current
-product: duplicate the entire stage folder, rename `MP/` to the new stage,
-change every `_MP_` token in filenames to the new stage code, update the
-`Project Stage` field in the workbook, re-run steps 4 and 5.
-
-A renaming helper script can do the tokens in bulk — ask for it if you're
-doing this often.
+Blue and Holographic are the same six steps with their own workbook and their
+own `Print_Files/{COLOUR}/` folder. Only SKU-specific components (here, files
+carrying `__Blue` / `__Holographic`) differ; shared files are duplicated into
+each colour folder.

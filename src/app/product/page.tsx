@@ -30,11 +30,11 @@ const TOOLS: ProductTool[] = [
     slug: 'packaging',
     name: 'Packaging Studio',
     description:
-      'Workbook + editable Illustrator → plate validation → supplier PDFs + Creative Intent brief. One source of truth for Loop packaging handover.',
+      'Pick a project, select its components, fill specs together, upload artwork — inks and plates read straight from the .ai — then generate supplier PDFs + the Creative Intent brief. One source of truth for Loop packaging handover.',
     href: '/product/packaging',
     status: 'live',
     icon: Package,
-    pipeline: ['Workbook', 'Artwork', 'Plates', 'Review', 'Export'],
+    pipeline: ['Project', 'Components', 'Specs', 'Artwork', 'Generate'],
   },
   {
     slug: 'cmf',

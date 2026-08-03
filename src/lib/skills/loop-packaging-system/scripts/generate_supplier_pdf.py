@@ -53,7 +53,8 @@ FONT_MONO = "Courier"
 FONT_ITALIC = "Helvetica-Oblique"
 
 # Fields we extract from PlateNames.
-DIELINE_KEYWORDS = ("CUT LINE", "BEND LINE", "DIELINE", "PERF", "FOLD LINE", "CREASE")
+DIELINE_KEYWORDS = ("CUT LINE", "BEND LINE", "DIELINE", "DIE CUT", "DIE-CUT",
+                    "PERF", "FOLD LINE", "CREASE", "GLUE AREA", "GLUE ZONE", "GLUE")
 FINISH_KEYWORDS = ("EMBOSS", "DEBOSS", "UV", "FOIL", "SPOT", "VARNISH", "LAMINATE", "GLOSS", "MATT", "MATTE")
 
 
@@ -84,6 +85,23 @@ def _v(c):
     return "" if c.value is None else str(c.value).strip()
 
 
+def _format_date_eu(raw) -> str:
+    """DD-MM-YYYY, no time. Accepts datetime/date/string; falls back gracefully."""
+    import datetime as _dt
+    if raw is None or raw == "":
+        return ""
+    if isinstance(raw, (_dt.datetime, _dt.date)):
+        return raw.strftime("%d-%m-%Y")
+    s = str(raw).strip()
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y",
+                "%m/%d/%Y", "%Y/%m/%d", "%d.%m.%Y"):
+        try:
+            return _dt.datetime.strptime(s, fmt).strftime("%d-%m-%Y")
+        except ValueError:
+            continue
+    return s.split(" ")[0]
+
+
 def read_workbook_for_component(workbook_path: Path, component_tab: str) -> dict:
     wb = load_workbook(workbook_path, data_only=True)
     pi = wb["Project Info"] if "Project Info" in wb.sheetnames else None
@@ -94,6 +112,8 @@ def read_workbook_for_component(workbook_path: Path, component_tab: str) -> dict
             v = _v(pi.cell(row=r, column=3))
             if k:
                 info[k] = v
+    if "Date" in info:
+        info["Date"] = _format_date_eu(info["Date"])
 
     comp = {}
     if component_tab in wb.sheetnames:
@@ -295,24 +315,34 @@ def render_info_overlay_stamp(out_path: Path, page_size, *, project, component,
     c.setFillColor(INK); c.setFont(FONT_BOLD, 22)
     c.drawString(inner_left, top_y - 16, "loop")
 
-    def kv(x, y, label, value, *, label_w=92, size=9):
+    def kv(x, y, label, value, *, label_w=70, size=8, max_val_w=None):
         c.setFont(FONT_BOLD, size); c.setFillColor(INK)
         c.drawString(x, y, label)
         c.setFont(FONT_REG, size); c.setFillColor(HexColor("#262626"))
-        c.drawString(x + label_w, y, value or "")
+        val = value or ""
+        if max_val_w:
+            while val and c.stringWidth(val, FONT_REG, size) > max_val_w:
+                val = val[:-1]
+            if val != (value or ""):
+                val = val.rstrip() + "…"
+        c.drawString(x + label_w, y, val)
 
     h_y = top_y - 4
-    x_col_a = inner_left + 70
-    x_col_b = inner_left + (box_w - 2 * pad_x) * 0.42
-    x_col_c = inner_left + (box_w - 2 * pad_x) * 0.72
+    inner_w = box_w - 2 * pad_x
+    x_col_a = inner_left + 62
+    x_col_b = inner_left + inner_w * 0.45
+    RLBL = 106  # width for the longer right-column labels
+    # value width budgets so columns never collide (keep clear of the stage badge)
+    col_a_val_w = (x_col_b - x_col_a) - 70 - 8
+    col_b_val_w = (inner_right - 56 - 8) - (x_col_b + RLBL)
 
-    kv(x_col_a, h_y - 2,  "PROJECT NAME:", project.get("Project Name", ""))
-    kv(x_col_a, h_y - 16, "PART NAME:",    component_display)
-    kv(x_col_a, h_y - 30, "DATE:",         project.get("Date", ""))
+    kv(x_col_a, h_y - 2,  "PROJECT NAME:", project.get("Project Name", ""), max_val_w=col_a_val_w)
+    kv(x_col_a, h_y - 16, "PART NAME:",    component_display, max_val_w=col_a_val_w)
+    kv(x_col_a, h_y - 30, "DATE:",         project.get("Date", ""), max_val_w=col_a_val_w)
 
-    kv(x_col_b, h_y - 2,  "DESIGNER:", project.get("Packaging Designer", ""))
-    kv(x_col_b, h_y - 16, "ENGINEER:", project.get("Packaging Engineer", ""))
-    kv(x_col_b, h_y - 30, "APPROVAL:", component.get("Approval Status", ""))
+    kv(x_col_b, h_y - 2,  "PACKAGING DESIGNER:", project.get("Packaging Designer", ""), label_w=RLBL, max_val_w=col_b_val_w)
+    kv(x_col_b, h_y - 16, "PACKAGING ENGINEER:", project.get("Packaging Engineer", ""), label_w=RLBL, max_val_w=col_b_val_w)
+    kv(x_col_b, h_y - 30, "GRAPHIC DESIGNER:",   project.get("Graphic Designer", ""), label_w=RLBL, max_val_w=col_b_val_w)
 
     # Stage badge top-right
     if project.get("Project Stage"):
@@ -324,9 +354,9 @@ def render_info_overlay_stamp(out_path: Path, page_size, *, project, component,
         c.setFillColor(white); c.setFont(FONT_BOLD, 12)
         c.drawCentredString(bxr + bw / 2, byr + 6, project["Project Stage"])
 
-    # Right-edge label
-    c.setFillColor(INK_MID); c.setFont(FONT_REG, 8.5)
-    c.drawRightString(inner_right, top_y - 36, "Printing Brief — auto-generated")
+    # Right-edge label (below the designer rows so it never overlaps them)
+    c.setFillColor(INK_MID); c.setFont(FONT_REG, 8)
+    c.drawRightString(inner_right, top_y - 44, "Printing Brief — auto-generated")
 
     # Separator
     sep_y = top_y - 48
@@ -371,8 +401,6 @@ def render_info_overlay_stamp(out_path: Path, page_size, *, project, component,
 
     spec_row("MATERIAL:",   component.get("Material", ""))
     spec_row("METHOD:",     component.get("Printing Method", ""))
-    spec_row("DRAWING #:",  component.get("Drawing Part Number", ""))
-    spec_row("PRINT #:",    component.get("Print Part Number", ""))
     spec_row("MSDS:",       component.get("Coating MSDS Ref.", ""))
     spec_row("SKU CODE:",   project.get("SKU / Colourway", ""))
 
@@ -414,22 +442,30 @@ def render_info_overlay_stamp(out_path: Path, page_size, *, project, component,
 # ---------------------------------------------------------------------------
 def make_option_a(ai_path: Path, out_path: Path, *, project, component, plate_info,
                   component_display):
-    """Overlay the info box onto page 1 of the artwork without modifying its content streams."""
+    """Overlay the info box onto EVERY page of the artwork without modifying its
+    content streams. Each page is sized from its own MediaBox, so mixed page
+    sizes still get a correctly placed 200x100 mm box top-right."""
     with pikepdf.open(ai_path) as src:
-        # Use the first page's MediaBox to size the overlay
-        mb = src.pages[0].MediaBox
-        # MediaBox is [llx, lly, urx, ury]
-        w = float(mb[2]) - float(mb[0])
-        h = float(mb[3]) - float(mb[1])
-        overlay_path = Path(tempfile.gettempdir()) / "_overlay_a.pdf"
-        render_info_overlay_stamp(overlay_path, (w, h),
-                                  project=project, component=component,
-                                  plate_info=plate_info,
-                                  component_display=component_display)
-        with pikepdf.open(overlay_path) as ov:
-            src.pages[0].add_overlay(ov.pages[0])
+        tmpdir = Path(tempfile.mkdtemp(prefix="loop_ov_"))
+        # Cache overlays by (w, h) so identically sized pages reuse one stamp.
+        overlay_cache = {}
+        for i, page in enumerate(src.pages):
+            mb = page.MediaBox
+            w = float(mb[2]) - float(mb[0])
+            h = float(mb[3]) - float(mb[1])
+            key = (round(w, 1), round(h, 1))
+            if key not in overlay_cache:
+                op = tmpdir / f"_ov_{i}.pdf"
+                render_info_overlay_stamp(op, (w, h),
+                                          project=project, component=component,
+                                          plate_info=plate_info,
+                                          component_display=component_display)
+                overlay_cache[key] = pikepdf.open(op)
+            page.add_overlay(overlay_cache[key].pages[0])
         src.save(out_path)
-    overlay_path.unlink(missing_ok=True)
+        for ov in overlay_cache.values():
+            ov.close()
+    shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 # ---------------------------------------------------------------------------
@@ -506,20 +542,10 @@ def main():
     stem = args.ai_file.stem.replace(" ", "_")
 
     out_a = args.out_dir / f"{stem}_OPTION_A_overlay.pdf"
-    out_b = args.out_dir / f"{stem}_OPTION_B_outlined_with_brief.pdf"
-    out_c = args.out_dir / f"{stem}_OPTION_C_untouched_with_brief.pdf"
 
     make_option_a(args.ai_file, out_a, project=data["project"], component=data["component"],
                   plate_info=plate_info, component_display=comp_display)
     print(f"Saved: {out_a}")
-
-    make_option_b(args.ai_file, out_b, project=data["project"], component=data["component"],
-                  plate_info=plate_info, component_display=comp_display)
-    print(f"Saved: {out_b}")
-
-    make_option_c(args.ai_file, out_c, project=data["project"], component=data["component"],
-                  plate_info=plate_info, component_display=comp_display)
-    print(f"Saved: {out_c}")
 
 
 if __name__ == "__main__":

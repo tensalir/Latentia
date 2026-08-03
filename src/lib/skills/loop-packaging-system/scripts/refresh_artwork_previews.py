@@ -42,7 +42,7 @@ ARTWORK_HEADER_PREVIEW_COL = 5    # column E
 PACKING_HEADER_FILE_COL = 3
 PACKING_HEADER_PREVIEW_COL = 5
 
-IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tif", ".tiff", ".webp", ".pdf")
+IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tif", ".tiff", ".webp", ".pdf", ".ai")
 
 
 # ---------------------------------------------------------------------------
@@ -74,11 +74,19 @@ def find_in_folder(folder: Path, query: str) -> Path | None:
         archived = any("archive" in part.lower() for part in path.parts)
         return (1 if archived else 0, depth)
 
+    def _is_supplier_output(f: Path) -> bool:
+        # Generated supplier PDFs carry the stamped info box; they must never be
+        # picked up as Creative Intent artwork previews.
+        if any(part.lower() == "supplier_out" for part in f.parts):
+            return True
+        low = f.name.lower()
+        return ("option_a" in low) or ("_overlay" in low) or ("_supplier" in low)
+
     def _all_image_hits(patterns: list[str]) -> list[Path]:
         hits = []
         for pat in patterns:
             for f in folder.rglob(pat):
-                if f.is_file() and f.suffix.lower() in IMAGE_EXTS:
+                if f.is_file() and f.suffix.lower() in IMAGE_EXTS and not _is_supplier_output(f):
                     hits.append(f)
         return sorted(set(hits), key=_rank)
 
@@ -104,7 +112,7 @@ def to_thumbnail(src: Path, tmp_dir: Path) -> Path | None:
     suffix = src.suffix.lower()
     target = tmp_dir / (src.stem + ".preview.png")
 
-    if suffix == ".pdf":
+    if suffix in (".pdf", ".ai"):
         if not shutil.which("pdftoppm"):
             print(f"  ! pdftoppm not available; skipping {src.name}")
             return None

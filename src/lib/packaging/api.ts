@@ -1,26 +1,33 @@
+/**
+ * Shared HTTP plumbing for Packaging route handlers.
+ *
+ * Same contract as `src/lib/cmf/api.ts` (the canonical error envelope:
+ * `{ error, details?, category?, ...extra }`) — re-exported under packaging
+ * names so route files read naturally and the packaging error classes get
+ * their own translator.
+ */
+
 import { NextResponse } from 'next/server'
+import type { CmfErrorOptions } from '@/lib/cmf/api'
+import { cmfError } from '@/lib/cmf/api'
 import { PackagingForbiddenError, PackagingNotFoundError } from './service'
 
-export function packagingError(err: unknown): NextResponse {
-  if (err instanceof PackagingNotFoundError) {
-    return NextResponse.json({ error: 'not_found', message: err.message }, { status: 404 })
-  }
-  if (err instanceof PackagingForbiddenError) {
-    return NextResponse.json({ error: 'forbidden', message: err.message }, { status: 403 })
-  }
-  if (err instanceof Error) {
-    console.error('[packaging]', err)
-    return NextResponse.json({ error: 'server_error', message: err.message }, { status: 500 })
-  }
-  return NextResponse.json({ error: 'server_error' }, { status: 500 })
+export type PackagingErrorOptions = CmfErrorOptions
+
+export function packagingError(message: string, opts: PackagingErrorOptions = {}): NextResponse {
+  return cmfError(message, opts)
 }
 
+/**
+ * Map `PackagingNotFoundError` / `PackagingForbiddenError` to the standard
+ * envelope; return `null` for anything else so the caller can rethrow.
+ */
 export function translateAccessError(err: unknown): NextResponse | null {
   if (err instanceof PackagingNotFoundError) {
-    return NextResponse.json({ error: 'not_found', message: err.message }, { status: 404 })
+    return packagingError(err.message, { status: 404 })
   }
   if (err instanceof PackagingForbiddenError) {
-    return NextResponse.json({ error: 'forbidden', message: err.message }, { status: 403 })
+    return packagingError(err.message, { status: 403 })
   }
   return null
 }

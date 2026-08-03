@@ -1,84 +1,120 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { uploadBase64ToStorage } from '@/lib/supabase/storage'
-import { parsePackagingWorkbook, PackagingXlsxParseError } from '@/lib/packaging/xlsx'
-import { normaliseParsedWorkbook } from '@/lib/packaging/schema'
-import {
-  createPacketFromWorkbook,
-  logPackagingActivity,
-  requirePackagingWrite,
-} from '@/lib/packaging/service'
-import { packagingError } from '@/lib/packaging/api'
-import { PACKAGING_STORAGE_BUCKET, importStoragePath } from '@/lib/packaging/storage'
+import { packagingError, translateAccessError } from '@/lib/packaging/api'
+import { logPackagingActivity, requirePackagingWrite } from '@/lib/packaging/service'
+import { PackagingWorkbookError, parsePackagingWorkbook } from '@/lib/packaging/workbook-import'
+import { applyWorkbook } from '@/lib/packaging/workbook-service'
+import { importStoragePath } from '@/lib/packaging/storage'
+import { uploadPackagingBuffer } from '@/lib/packaging/signed-upload'
+import { getPacketOrThrow } from '@/lib/packaging/service'
+import { serializePacket } from '@/lib/packaging/serialize'
 
 export const dynamic = 'force-dynamic'
+export const maxDuration = 60
 
-const MAX_BYTES = 10 * 1024 * 1024
+const MAX_BYTES = 15 * 1024 * 1024
 
+/**
+ * Commit a workbook. Idempotent by (project, stage, SKU/colourway): importing
+ * the same file twice updates the same packet instead of duplicating it.
+ */
 export async function POST(request: NextRequest) {
   const auth = await requirePackagingWrite()
   if (!auth.profile) return auth.response
 
+  let form: FormData
   try {
-    const form = await request.formData()
-    const file = form.get('file')
-    if (!(file instanceof File)) {
-      return NextResponse.json({ error: 'file required' }, { status: 400 })
-    }
-    if (file.size > MAX_BYTES) {
-      return NextResponse.json({ error: 'Workbook too large (max 10 MB)' }, { status: 400 })
-    }
+    form = await request.formData()
+  } catch {
+    return packagingError('Expected a multipart upload with a `file` field.')
+  }
 
-    const buffer = Buffer.from(await file.arrayBuffer())
-    const parsed = parsePackagingWorkbook(buffer)
-    const normalized = normaliseParsedWorkbook(parsed)
+  const file = form.get('file')
+  if (!(file instanceof File)) return packagingError('No file received.')
+  if (file.size > MAX_BYTES) {
+    return packagingError('That workbook is larger than 15 MB.', { status: 413 })
+  }
+  const packetId = typeof form.get('packetId') === 'string' ? String(form.get('packetId')) : null
 
-    const importRow = await prisma.packagingImport.create({
-      data: {
-        ownerId: auth.profile.userId,
-        fileName: file.name,
-        status: 'parsed',
-        rowCount: normalized.components.length,
-        diagnostics: normalized.diagnostics as object,
-      },
+  const buffer = Buffer.from(await file.arrayBuffer())
+
+  const record = await prisma.packagingImport.create({
+    data: {
+      ownerId: auth.profile.userId,
+      fileName: file.name,
+      status: 'pending',
+      mode: packetId ? 'upsert' : 'create',
+      packetId,
+    },
+  })
+
+  try {
+    const parsed = parsePackagingWorkbook(buffer, file.name)
+    const result = await applyWorkbook({
+      parsed,
+      packetId,
+      ownerId: auth.profile.userId,
     })
 
-    const path = importStoragePath(auth.profile.userId, importRow.id)
+    // Keep the source file so a bad import can be traced back to its workbook.
+    let storagePath: string | null = null
     try {
-      const dataUrl = `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${buffer.toString('base64')}`
-      await uploadBase64ToStorage(dataUrl, PACKAGING_STORAGE_BUCKET, path)
-      await prisma.packagingImport.update({
-        where: { id: importRow.id },
-        data: { storagePath: path },
+      storagePath = importStoragePath(auth.profile.userId, record.id)
+      await uploadPackagingBuffer({
+        path: storagePath,
+        buffer,
+        contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       })
-    } catch (e) {
-      console.warn('[packaging/import] storage upload failed', e)
+    } catch {
+      storagePath = null // archiving is best-effort; the import already applied
     }
 
-    const packetName = (form.get('packetName') as string) || undefined
-    const { packet } = await createPacketFromWorkbook({
-      ownerId: auth.profile.userId,
-      importId: importRow.id,
-      normalized,
-      packetName,
+    await prisma.packagingImport.update({
+      where: { id: record.id },
+      data: {
+        status: 'applied',
+        packetId: result.packetId,
+        storagePath,
+        diagnostics: parsed.diagnostics as unknown as object,
+        diffSummary: result as unknown as object,
+      },
+    })
+    await prisma.packagingPacket.update({
+      where: { id: result.packetId },
+      data: { lastImportId: record.id },
     })
 
     await logPackagingActivity({
-      packetId: packet!.id,
+      packetId: result.packetId,
       userId: auth.profile.userId,
-      action: 'imported_workbook',
-      metadata: { fileName: file.name },
+      action: result.created ? 'imported_workbook_created' : 'imported_workbook',
+      metadata: {
+        fileName: file.name,
+        appliedFields: result.appliedFields,
+        addedComponents: result.addedComponents.length,
+        skippedMachineFields: result.skippedMachineFields,
+      },
     })
 
+    const packet = await getPacketOrThrow(result.packetId)
     return NextResponse.json({
-      import: importRow,
-      packet,
-      diagnostics: normalized.diagnostics,
+      result,
+      diagnostics: parsed.diagnostics,
+      packet: await serializePacket(packet),
     })
   } catch (err) {
-    if (err instanceof PackagingXlsxParseError) {
-      return NextResponse.json({ error: err.message }, { status: 400 })
+    await prisma.packagingImport.update({
+      where: { id: record.id },
+      data: {
+        status: 'failed',
+        diagnostics: [err instanceof Error ? err.message : 'Unknown error'] as unknown as object,
+      },
+    })
+    if (err instanceof PackagingWorkbookError) {
+      return packagingError(err.message, { status: 422, extra: { hint: err.hint } })
     }
-    return packagingError(err)
+    const translated = translateAccessError(err)
+    if (translated) return translated
+    throw err
   }
 }

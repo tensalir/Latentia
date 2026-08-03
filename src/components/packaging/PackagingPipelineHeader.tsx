@@ -2,50 +2,98 @@
 
 import { cn } from '@/lib/utils'
 
-export type PackagingStageKey =
-  | 'workbook'
-  | 'artwork'
-  | 'plates'
-  | 'review'
-  | 'preview'
-  | 'export'
+/**
+ * The six-step spine of the workflow, matching the order Anna walked through:
+ * pick a project → read its info → pick components from the library → decide
+ * what's included and in what order → fill each component's page → generate.
+ *
+ * Steps are navigable, not gated: different stakeholders arrive at different
+ * points (the engineer goes straight to a component page).
+ */
 
-const STAGES: { key: PackagingStageKey; label: string; num: string }[] = [
-  { key: 'workbook', label: 'Workbook', num: '01' },
-  { key: 'artwork', label: 'Artwork', num: '02' },
-  { key: 'plates', label: 'Plates', num: '03' },
-  { key: 'review', label: 'Review', num: '04' },
-  { key: 'preview', label: 'Preview', num: '05' },
-  { key: 'export', label: 'Export', num: '06' },
-]
+export const PACKAGING_STEPS = [
+  { key: 'project', label: 'Project' },
+  { key: 'info', label: 'Info' },
+  { key: 'library', label: 'Library' },
+  { key: 'setup', label: 'Setup' },
+  { key: 'components', label: 'Components' },
+  { key: 'generate', label: 'Generate' },
+] as const
+
+export type PackagingStep = (typeof PACKAGING_STEPS)[number]['key']
+
+/** Per-step completeness, so "what is still missing" is visible at a glance. */
+export interface StepProgress {
+  /** Everything this step needs is present. */
+  done?: boolean
+  /** Something is worth looking at — shown as an amber dot, never a blocker. */
+  attention?: boolean
+  /** Tooltip detail. */
+  hint?: string
+}
 
 export function PackagingPipelineHeader({
   active,
-  onStageClick,
+  onSelect,
+  disabledFrom,
+  progress,
 }: {
-  active: PackagingStageKey
-  onStageClick: (stage: PackagingStageKey) => void
+  active: PackagingStep
+  onSelect: (step: PackagingStep) => void
+  /** Steps from this index on are unavailable (no packet selected yet). */
+  disabledFrom?: number
+  progress?: Partial<Record<PackagingStep, StepProgress>>
 }) {
   return (
-    <nav className="flex flex-wrap items-center gap-2" aria-label="Packaging pipeline">
-      {STAGES.map((s, i) => (
-        <div key={s.key} className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => onStageClick(s.key)}
-            className={cn(
-              'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-medium uppercase tracking-wider border transition-colors',
-              active === s.key
-                ? 'border-primary/50 bg-primary/10 text-primary'
-                : 'border-border/50 text-muted-foreground hover:border-primary/30'
+    <div className="flex items-center gap-2 flex-wrap">
+      {PACKAGING_STEPS.map((step, idx) => {
+        const isActive = step.key === active
+        const disabled = disabledFrom !== undefined && idx >= disabledFrom
+        const state = progress?.[step.key]
+        return (
+          <div key={step.key} className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() => onSelect(step.key)}
+              title={state?.hint}
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5',
+                'text-[11px] font-medium uppercase tracking-wider transition-colors',
+                isActive
+                  ? 'border-primary/50 text-primary'
+                  : 'border-border/50 text-muted-foreground hover:border-primary/30 hover:text-foreground',
+                disabled && 'opacity-40 cursor-not-allowed hover:border-border/50 hover:text-muted-foreground'
+              )}
+              style={
+                isActive
+                  ? {
+                      backgroundColor:
+                        'color-mix(in oklch, hsl(var(--primary)) 10%, transparent)',
+                    }
+                  : undefined
+              }
+            >
+              <span className="font-mono text-[9px] opacity-60">
+                {String(idx + 1).padStart(2, '0')}
+              </span>
+              {step.label}
+              {!disabled && state && (state.done || state.attention) && (
+                <span
+                  aria-hidden
+                  className={cn(
+                    'h-1.5 w-1.5 rounded-full',
+                    state.attention ? 'bg-amber-500' : 'bg-emerald-500'
+                  )}
+                />
+              )}
+            </button>
+            {idx < PACKAGING_STEPS.length - 1 && (
+              <span aria-hidden className="h-px w-3 bg-border/50" />
             )}
-          >
-            <span className="font-mono opacity-60">{s.num}</span>
-            {s.label}
-          </button>
-          {i < STAGES.length - 1 && <span className="h-px w-3 bg-border/40" aria-hidden />}
-        </div>
-      ))}
-    </nav>
+          </div>
+        )
+      })}
+    </div>
   )
 }

@@ -1,5 +1,12 @@
 # Migration guide — legacy MP folder → new structure
 
+> **Known gap:** `migrate_stage_folder.py` currently emits the *legacy*
+> product-first filenames (`Nyx_MP_Outer_Sleeve_editable.ai`) and a
+> `Reference/` subfolder. After migrating, rename files to the current
+> component-first convention and `Reference/` → `Production Documents/`
+> per `folder_naming_spec.md`. The examples below show the migrator's
+> actual output, not the target naming.
+
 This guide is for the first time you take a product folder that's been
 maintained in the old freeform style ("MP files/" with mixed contents,
 inconsistent filenames, dates baked into names, etc.) and bring it onto

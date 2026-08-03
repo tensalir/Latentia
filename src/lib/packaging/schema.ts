@@ -1,94 +1,139 @@
+/**
+ * Zod request schemas for Packaging Studio v2 routes.
+ *
+ * Machine fields (inks / finishes / structuralPlates / printPartNumber) are
+ * deliberately absent from every mutable schema: they sync from the .ai and
+ * are DB-authoritative ("never hand-fill" — loop-packaging-system SKILL.md).
+ */
+
 import { z } from 'zod'
-import type { ParsedPackagingWorkbook } from './xlsx'
+import { PACKAGING_STAGES } from './naming'
 
-export const packagingSpecsSchema = z.record(z.string())
+const trimmed = (max: number) => z.string().trim().max(max)
+const optionalTrimmed = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max)
+    .nullish()
+    .transform((v) => (v === '' ? null : v ?? null))
 
-export const artworkSlotSchema = z.object({
-  artworkType: z.string(),
-  caption: z.string().optional(),
-  fileName: z.string().optional(),
+export const stageSchema = z.enum(PACKAGING_STAGES)
+
+export const APPROVAL_STATUSES = ['Draft', 'In Review', 'Approved'] as const
+
+// ── Catalogue ───────────────────────────────────────────────────────────────
+
+export const componentTypeCreateSchema = z.object({
+  code: optionalTrimmed(16),
+  slug: trimmed(64).regex(/^[A-Za-z0-9]+(?:_[A-Za-z0-9]+)*$/, {
+    message: 'Slug must be Tab_Name_Form (letters/digits joined by single underscores)',
+  }),
+  displayName: trimmed(120).min(1),
+  description: optionalTrimmed(2000),
+  printed: z.boolean().optional().default(true),
+  defaultInCreativeIntent: z.boolean().optional().default(true),
+  sortOrder: z.number().int().min(0).max(100_000).optional().default(0),
+  active: z.boolean().optional().default(true),
 })
 
-export const packingStepSchema = z.object({
-  step: z.string().optional(),
-  instruction: z.string(),
-  fileName: z.string().optional(),
+export const componentTypePatchSchema = componentTypeCreateSchema.partial()
+
+// ── Projects ────────────────────────────────────────────────────────────────
+
+export const projectCreateSchema = z.object({
+  name: trimmed(120).min(1),
+  productType: optionalTrimmed(120),
+  productFamily: optionalTrimmed(120),
+  supplier: optionalTrimmed(200),
+  internalRef: optionalTrimmed(32),
+  fileLocationUrl: optionalTrimmed(2000),
+  packagingDesignerName: optionalTrimmed(120),
+  packagingDesignerId: z.string().uuid().nullish(),
+  graphicDesignerName: optionalTrimmed(120),
+  graphicDesignerId: z.string().uuid().nullish(),
+  packagingEngineerName: optionalTrimmed(120),
+  packagingEngineerId: z.string().uuid().nullish(),
+  notes: optionalTrimmed(5000),
 })
 
-export const packagingComponentInputSchema = z.object({
-  slug: z.string(),
-  displayName: z.string(),
-  style: z.enum(['two_face', 'single_face']),
-  pageOrder: z.number(),
-  included: z.boolean(),
-  specs: packagingSpecsSchema,
-  packingSteps: z.array(packingStepSchema).default([]),
-  dimensions: z.record(z.string()).default({}),
-  artworks: z.array(artworkSlotSchema).default([]),
+export const projectPatchSchema = projectCreateSchema.partial()
+
+// ── Packets ─────────────────────────────────────────────────────────────────
+
+export const packetCreateSchema = z.object({
+  projectId: z.string().uuid(),
+  stage: stageSchema,
+  variant: trimmed(64).min(1).default('Default'),
+  skuCode: optionalTrimmed(64),
 })
 
-export const packagingProjectInfoSchema = z.object({
-  projectName: z.string().optional(),
-  productType: z.string().optional(),
-  productFamily: z.string().optional(),
-  skuColourway: z.string().optional(),
-  designer: z.string().optional(),
-  engineer: z.string().optional(),
-  brandManager: z.string().optional(),
-  date: z.string().optional(),
-  stage: z.string().optional(),
-  supplier: z.string().optional(),
-  internalRef: z.string().optional(),
-  notes: z.string().optional(),
-  artworkFolder: z.string().optional(),
-  overviewImageName: z.string().optional(),
+export const packetPatchSchema = z.object({
+  skuCode: optionalTrimmed(64),
+  artworkDate: z
+    .string()
+    .trim()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, { message: 'Use YYYY-MM-DD' })
+    .nullish(),
+  status: z.enum(['draft', 'generating', 'ready', 'failed']).optional(),
 })
 
-export type PackagingComponentInput = z.infer<typeof packagingComponentInputSchema>
-export type PackagingProjectInfo = z.infer<typeof packagingProjectInfoSchema>
+// ── Packet components ───────────────────────────────────────────────────────
 
-export interface NormalizedPackagingWorkbook {
-  projectInfo: PackagingProjectInfo
-  components: PackagingComponentInput[]
-  diagnostics: string[]
-}
+export const componentsSyncSchema = z.object({
+  componentTypeIds: z.array(z.string().uuid()).max(100),
+  /** Delete deselected components even if they carry artwork/specs. */
+  force: z.boolean().optional().default(false),
+})
 
-export function normaliseParsedWorkbook(parsed: ParsedPackagingWorkbook): NormalizedPackagingWorkbook {
-  const diagnostics: string[] = []
-  if (parsed.missingSheets.length) {
-    diagnostics.push(`Missing sheets: ${parsed.missingSheets.join(', ')}`)
-  }
+export const componentPatchSchema = z.object({
+  displayName: trimmed(120).min(1).optional(),
+  includeInCreativeIntent: z.boolean().optional(),
+  pageOrder: z.number().int().min(0).max(10_000).optional(),
+  material: optionalTrimmed(300),
+  printingMethod: optionalTrimmed(300),
+  coatingMsdsRef: optionalTrimmed(300),
+  paperThickness: optionalTrimmed(120),
+  drawingPartNumber: optionalTrimmed(120),
+  approvalStatus: z.enum(APPROVAL_STATUSES).optional(),
+  engineerNotes: optionalTrimmed(5000),
+})
 
-  const projectInfo = packagingProjectInfoSchema.parse({
-    projectName: parsed.projectInfo['Project Name'],
-    productType: parsed.projectInfo['Product Type'],
-    productFamily: parsed.projectInfo['Product Family'],
-    skuColourway: parsed.projectInfo['SKU / Colourway'],
-    designer: parsed.projectInfo['Packaging Designer'],
-    engineer: parsed.projectInfo['Packaging Engineer'],
-    brandManager: parsed.projectInfo['Brand Manager'],
-    date: parsed.projectInfo['Date'],
-    stage: parsed.projectInfo['Project Stage'],
-    supplier: parsed.projectInfo['Supplier'],
-    internalRef: parsed.projectInfo['Internal Reference'],
-    notes: parsed.projectInfo['Notes'],
-    artworkFolder: parsed.projectInfo['Artwork Folder'],
-    overviewImageName: parsed.projectInfo['Packaging Overview Image'],
-  })
+export const stepsPutSchema = z.object({
+  steps: z
+    .array(
+      z.object({
+        instruction: trimmed(2000).min(1),
+        imagePath: optionalTrimmed(500),
+        imageFileName: optionalTrimmed(200),
+      })
+    )
+    .max(20),
+})
 
-  const components = parsed.components.map((c) =>
-    packagingComponentInputSchema.parse({
-      slug: c.tabName,
-      displayName: c.displayName,
-      style: c.style,
-      pageOrder: c.pageOrder,
-      included: c.included,
-      specs: c.specs,
-      packingSteps: c.packingSteps,
-      dimensions: c.dimensions,
-      artworks: c.artworks,
-    })
-  )
+// ── Artwork ─────────────────────────────────────────────────────────────────
 
-  return { projectInfo, components, diagnostics }
+export const ARTWORK_KINDS = ['editable_ai', 'mockup', 'overview', 'step_image'] as const
+
+export const signedUploadRequestSchema = z.object({
+  kind: z.enum(ARTWORK_KINDS),
+  fileName: trimmed(200).min(1),
+  packetComponentId: z.string().uuid().nullish(),
+})
+
+export const artworkRegisterSchema = z.object({
+  kind: z.enum(['editable_ai', 'mockup', 'overview']),
+  fileName: trimmed(200).min(1),
+  storagePath: trimmed(500).min(1),
+  mimeType: optionalTrimmed(120),
+  byteSize: z.number().int().min(0).nullish(),
+  packetComponentId: z.string().uuid().nullish(),
+})
+
+export type ComponentPatchInput = z.infer<typeof componentPatchSchema>
+export type ProjectCreateInput = z.infer<typeof projectCreateSchema>
+export type PacketCreateInput = z.infer<typeof packetCreateSchema>
+
+export function zodDetails(error: z.ZodError): Array<{ path: string; message: string }> {
+  return error.issues.map((i) => ({ path: i.path.join('.'), message: i.message }))
 }

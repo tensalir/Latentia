@@ -70,12 +70,7 @@ model Profile {
   packagingImports    PackagingImport[]
   packagingProjects   PackagingProject[]
   packagingPackets    PackagingPacket[]
-  packagingMaterialsCreated PackagingMaterial[] @relation("PackagingMaterial_createdBy")
-  packagingMaterialsUpdated PackagingMaterial[] @relation("PackagingMaterial_updatedBy")
-  packagingMaterialsApproved PackagingMaterial[] @relation("PackagingMaterial_approvedBy")
   packagingArtworksUploaded PackagingArtwork[]
-  packagingComments   PackagingComment[] @relation("PackagingComment_user")
-  packagingCommentResolutions PackagingComment[] @relation("PackagingComment_resolvedBy")
   packagingActivities PackagingActivity[]
   productUpdateViews  UserProductUpdateView[]
 
@@ -1212,171 +1207,221 @@ model CmfActivity {
   @@map("cmf_activity")
 }
 
-// ── Packaging Studio ───────────────────────────────────────────────────────
+// ── Packaging Studio v2 ────────────────────────────────────────────────────
 //
-// Anna's Loop packaging workflow: Excel workbook + editable Illustrator files
-// → plate extraction → supplier PDFs + Creative Intent brief.
+// Anna's Loop packaging workflow, database-first: web forms are the source of
+// truth ("the Excel file should be created into a website"); the workbook is a
+// round-trip format (export from DB / tolerant re-import upsert). Editable .ai
+// uploads feed machine fields (inks / finishes / structural plates / print
+// part number) — those are DB-authoritative and never hand-edited.
 // Mirrors CMF Studio access model (global read, packagingAccess write).
 
+// Global master catalogue of every packaging component that could exist
+// ("components library" in the meeting). Projects select a subset from here.
+model PackagingComponentType {
+  id                      String   @id @default(uuid()) @db.Uuid
+  // Internal component code ("C05", "C11"…). Nullable: ad-hoc entries are
+  // allowed before the official code is known.
+  code                    String?  @unique
+  // Tab-name form ("Rigid_Box_Lid") — the key artwork filenames are matched
+  // against (component token must equal this exactly, per the naming spec).
+  slug                    String   @unique
+  displayName             String   @map("display_name")
+  description             String?  @db.Text
+  // false = not printed (tissue paper etc.) — stays selectable because
+  // non-printed parts still carry pack instructions in the Creative Intent.
+  printed                 Boolean  @default(true)
+  defaultInCreativeIntent Boolean  @default(true) @map("default_in_creative_intent")
+  sortOrder               Int      @default(0) @map("sort_order")
+  active                  Boolean  @default(true)
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+
+  packetComponents PackagingPacketComponent[]
+
+  @@index([active, sortOrder])
+  @@map("packaging_component_types")
+}
+
 model PackagingProject {
-  id            String   @id @default(uuid()) @db.Uuid
-  productSlug   String   @map("product_slug")
-  displayName   String   @map("display_name")
-  productType   String?  @map("product_type")
-  productFamily String?  @map("product_family")
-  ownerId       String   @map("owner_id") @db.Uuid
-  notes         String?  @db.Text
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
+  id              String   @id @default(uuid()) @db.Uuid
+  name            String   // "Aphrodite"
+  slug            String   @unique
+  productType     String?  @map("product_type") // "Sleep Mask"
+  productFamily   String?  @map("product_family")
+  supplier        String?
+  internalRef     String?  @map("internal_ref") // "A120" — the {Ref} filename token
+  // Link to where the stage folders live (Drive/SharePoint) so people outside
+  // the team can find the files from the project page.
+  fileLocationUrl String?  @map("file_location_url") @db.Text
+  // The three roles stamped on every supplier PDF header. Free-text names
+  // (externals exist) with optional profile links for in-app avatars.
+  packagingDesignerName String? @map("packaging_designer_name")
+  packagingDesignerId   String? @map("packaging_designer_id") @db.Uuid
+  graphicDesignerName   String? @map("graphic_designer_name")
+  graphicDesignerId     String? @map("graphic_designer_id") @db.Uuid
+  packagingEngineerName String? @map("packaging_engineer_name")
+  packagingEngineerId   String? @map("packaging_engineer_id") @db.Uuid
+  notes           String?  @db.Text
+  ownerId         String   @map("owner_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
 
   owner   Profile           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   packets PackagingPacket[]
 
-  @@unique([productSlug])
   @@index([ownerId])
   @@map("packaging_projects")
 }
 
-model PackagingImport {
-  id           String   @id @default(uuid()) @db.Uuid
-  ownerId      String   @map("owner_id") @db.Uuid
-  fileName     String   @map("file_name")
-  storagePath  String?  @map("storage_path")
-  status       String   @default("pending") // pending | parsed | validated | failed
-  rowCount     Int      @default(0) @map("row_count")
-  diagnostics  Json?
-  createdAt    DateTime @default(now()) @map("created_at")
-
-  owner   Profile           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  packets PackagingPacket[]
-
-  @@index([ownerId, createdAt(sort: Desc)])
-  @@map("packaging_imports")
-}
-
+// One packet per stage × colourway ("one workbook per SKU" in Anna's system).
 model PackagingPacket {
-  id                    String   @id @default(uuid()) @db.Uuid
-  projectId             String   @map("project_id") @db.Uuid
-  importId              String?  @map("import_id") @db.Uuid
-  ownerId               String   @map("owner_id") @db.Uuid
-  name                  String
-  stage                 String   @default("MP") // EVT | DVT | PVT | MP
-  variant               String?  // e.g. Black, Blue
-  status                String   @default("draft") // draft | parsing | review | ready | failed
-  projectInfo           Json?    @map("project_info")
-  artworkFolder         String?  @map("artwork_folder") @db.Text
-  overviewImageName     String?  @map("overview_image_name")
-  creativeIntentPdfUrl  String?  @map("creative_intent_pdf_url")
-  creativeIntentPdfPath String?  @map("creative_intent_pdf_path")
-  pdfError              String?  @map("pdf_error") @db.Text
-  documentDraft         Json?    @map("document_draft")
-  createdAt             DateTime @default(now()) @map("created_at")
-  updatedAt             DateTime @updatedAt @map("updated_at")
+  id                    String    @id @default(uuid()) @db.Uuid
+  projectId             String    @map("project_id") @db.Uuid
+  stage                 String    @default("EVT") // EVT | DVT | PVT | MP
+  // NOT NULL so the unique index holds ("Default" when a product has one SKU).
+  variant               String    @default("Default") // "Black", "Blue"…
+  skuCode               String?   @map("sku_code")
+  // The DATE shown on the supplier info box (rendered DD-MM-YYYY).
+  artworkDate           DateTime? @map("artwork_date")
+  status                String    @default("draft") // draft | generating | ready | failed
+  // Packet-level exploded overview render (PackagingArtwork kind=overview).
+  overviewArtworkId     String?   @map("overview_artwork_id") @db.Uuid
+  creativeIntentPdfPath String?   @map("creative_intent_pdf_path")
+  creativeIntentPdfUrl  String?   @map("creative_intent_pdf_url")
+  creativeIntentPdfGeneratedAt DateTime? @map("creative_intent_pdf_generated_at")
+  pdfError              String?   @map("pdf_error") @db.Text
+  lastImportId          String?   @map("last_import_id") @db.Uuid
+  lastExportedAt        DateTime? @map("last_exported_at")
+  ownerId               String    @map("owner_id") @db.Uuid
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
 
-  project    PackagingProject    @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  import     PackagingImport?    @relation(fields: [importId], references: [id], onDelete: SetNull)
-  owner      Profile             @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  components PackagingComponent[]
-  comments   PackagingComment[]
+  project    PackagingProject           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  owner      Profile                    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  components PackagingPacketComponent[]
+  artworks   PackagingArtwork[]
   activities PackagingActivity[]
 
   @@unique([projectId, stage, variant])
-  @@index([ownerId])
   @@index([projectId])
+  @@index([ownerId])
   @@index([status])
   @@map("packaging_packets")
 }
 
-model PackagingComponent {
-  id                   String    @id @default(uuid()) @db.Uuid
-  packetId             String    @map("packet_id") @db.Uuid
-  slug                 String
-  displayName          String    @map("display_name")
-  style                String    @default("single_face") // two_face | single_face
-  pageOrder            Int       @default(0) @map("page_order")
-  included             Boolean   @default(true)
-  specs                Json      @default("{}")
-  packingSteps         Json      @default("[]") @map("packing_steps")
-  dimensions           Json      @default("{}")
-  supplierPdfUrl       String?   @map("supplier_pdf_url")
-  supplierPdfPath      String?   @map("supplier_pdf_path")
+// A catalogue component selected into a packet ("product setup" row + the
+// dedicated per-component page different stakeholders fill in).
+model PackagingPacketComponent {
+  id              String  @id @default(uuid()) @db.Uuid
+  packetId        String  @map("packet_id") @db.Uuid
+  componentTypeId String  @map("component_type_id") @db.Uuid
+  // Copied from the catalogue at selection time; overridable per packet.
+  displayName     String  @map("display_name")
+  includeInCreativeIntent Boolean @default(true) @map("include_in_creative_intent")
+  pageOrder       Int     @default(0) @map("page_order")
+
+  // HUMAN fields — owned by the web form (win from the sheet on re-import).
+  material          String?
+  printingMethod    String? @map("printing_method")
+  coatingMsdsRef    String? @map("coating_msds_ref")
+  paperThickness    String? @map("paper_thickness")
+  drawingPartNumber String? @map("drawing_part_number") // 510-XXXXXX drawings
+  approvalStatus    String  @default("Draft") @map("approval_status")
+  engineerNotes     String? @map("engineer_notes") @db.Text
+
+  // MACHINE fields — synced from the editable .ai's XMP plate names.
+  // DB-authoritative: hand-edited workbook values are ignored on re-import.
+  inks             Json      @default("[]") // string[]
+  finishes         Json      @default("[]") // string[]
+  structuralPlates Json      @default("[]") @map("structural_plates") // string[]
+  printPartNumber  String?   @map("print_part_number") // = the .ai stem
+  platesSyncedAt   DateTime? @map("plates_synced_at")
+
+  supplierPdfPath        String?   @map("supplier_pdf_path")
+  supplierPdfUrl         String?   @map("supplier_pdf_url")
   supplierPdfGeneratedAt DateTime? @map("supplier_pdf_generated_at")
-  createdAt            DateTime  @default(now()) @map("created_at")
-  updatedAt            DateTime  @updatedAt @map("updated_at")
+  supplierPdfError       String?   @map("supplier_pdf_error") @db.Text
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
 
-  packet   PackagingPacket   @relation(fields: [packetId], references: [id], onDelete: Cascade)
-  artworks PackagingArtwork[]
+  packet        PackagingPacket                @relation(fields: [packetId], references: [id], onDelete: Cascade)
+  componentType PackagingComponentType         @relation(fields: [componentTypeId], references: [id], onDelete: Restrict)
+  artworks      PackagingArtwork[]
+  packSteps     PackagingPackInstructionStep[]
 
-  @@unique([packetId, slug])
+  @@unique([packetId, componentTypeId])
   @@index([packetId])
-  @@map("packaging_components")
+  @@map("packaging_packet_components")
+}
+
+// Ordered packing instructions ("Step 1… hold it right in the middle"), each
+// with an optional image. A table (not Json) so a step has a stable id to
+// attach an image upload to before its text is saved, and reorders cleanly.
+model PackagingPackInstructionStep {
+  id                String   @id @default(uuid()) @db.Uuid
+  packetComponentId String   @map("packet_component_id") @db.Uuid
+  stepNumber        Int      @map("step_number")
+  instruction       String   @db.Text
+  imagePath         String?  @map("image_path")
+  imageFileName     String?  @map("image_file_name")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  packetComponent PackagingPacketComponent @relation(fields: [packetComponentId], references: [id], onDelete: Cascade)
+
+  @@unique([packetComponentId, stepNumber])
+  @@map("packaging_pack_instruction_steps")
 }
 
 model PackagingArtwork {
-  id                    String    @id @default(uuid()) @db.Uuid
-  componentId           String    @map("component_id") @db.Uuid
-  kind                  String    // Mockup | Artwork_Front | Artwork_Back | Artwork | Overview
-  caption               String?
-  fileName              String    @map("file_name")
-  storagePath           String    @map("storage_path")
-  mimeType              String?   @map("mime_type")
-  byteSize              Int?      @map("byte_size")
-  extractedPlates       Json?     @map("extracted_plates")
-  extractedAt           DateTime? @map("extracted_at")
-  mismatchedMaterialIds Json      @default("[]") @map("mismatched_material_ids")
-  uploadedBy            String    @map("uploaded_by") @db.Uuid
-  createdAt             DateTime  @default(now()) @map("created_at")
-  updatedAt             DateTime  @updatedAt @map("updated_at")
+  id                String    @id @default(uuid()) @db.Uuid
+  packetId          String    @map("packet_id") @db.Uuid
+  // Null for kind=overview (packet-level exploded render).
+  packetComponentId String?   @map("packet_component_id") @db.Uuid
+  kind              String    // editable_ai | mockup | overview
+  fileName          String    @map("file_name")
+  storagePath       String    @map("storage_path")
+  mimeType          String?   @map("mime_type")
+  byteSize          Int?      @map("byte_size")
+  pageCount         Int?      @map("page_count")
+  // pdf-lib load probe result for .ai files (null = not probed). false means
+  // the file was saved without "Create PDF Compatible File" — supplier PDF
+  // generation is skipped for it with a human-readable hint.
+  aiCompatible      Boolean?  @map("ai_compatible")
+  extractedPlates   Json?     @map("extracted_plates")
+  extractedAt       DateTime? @map("extracted_at")
+  uploadedBy        String    @map("uploaded_by") @db.Uuid
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
 
-  component PackagingComponent @relation(fields: [componentId], references: [id], onDelete: Cascade)
-  uploader  Profile            @relation(fields: [uploadedBy], references: [id], onDelete: Cascade)
+  packet          PackagingPacket           @relation(fields: [packetId], references: [id], onDelete: Cascade)
+  packetComponent PackagingPacketComponent? @relation(fields: [packetComponentId], references: [id], onDelete: Cascade)
+  uploader        Profile                   @relation(fields: [uploadedBy], references: [id], onDelete: Cascade)
 
-  @@index([componentId])
+  @@index([packetId])
+  @@index([packetComponentId])
   @@map("packaging_artworks")
 }
 
-model PackagingMaterial {
-  id              String    @id @default(uuid()) @db.Uuid
-  kind            String    // paper | coating | ink | finish | adhesive | substrate
-  code            String
-  name            String
-  description     String?   @db.Text
-  attributes      Json      @default("{}")
-  approvalStatus  String    @default("approved") @map("approval_status") // approved | deprecated | restricted
-  approvedBy      String?   @map("approved_by") @db.Uuid
-  approvedAt      DateTime? @map("approved_at")
-  notes           String?   @db.Text
-  createdBy       String    @map("created_by") @db.Uuid
-  updatedBy       String?   @map("updated_by") @db.Uuid
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
+// Round-trip bookkeeping: every workbook import (bootstrap create or
+// re-import upsert) with its parse diagnostics and applied diff.
+model PackagingImport {
+  id          String   @id @default(uuid()) @db.Uuid
+  ownerId     String   @map("owner_id") @db.Uuid
+  fileName    String   @map("file_name")
+  storagePath String?  @map("storage_path")
+  status      String   @default("pending") // pending | applied | failed
+  mode        String   @default("create") // create | upsert
+  packetId    String?  @map("packet_id") @db.Uuid
+  diagnostics Json?
+  diffSummary Json?    @map("diff_summary")
+  createdAt   DateTime @default(now()) @map("created_at")
 
-  createdByUser  Profile  @relation("PackagingMaterial_createdBy", fields: [createdBy], references: [id], onDelete: Cascade)
-  updatedByUser  Profile? @relation("PackagingMaterial_updatedBy", fields: [updatedBy], references: [id], onDelete: SetNull)
-  approvedByUser Profile? @relation("PackagingMaterial_approvedBy", fields: [approvedBy], references: [id], onDelete: SetNull)
+  owner Profile @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 
-  @@unique([kind, code])
-  @@index([kind, approvalStatus])
-  @@map("packaging_materials")
-}
-
-model PackagingComment {
-  id         String    @id @default(uuid()) @db.Uuid
-  packetId   String    @map("packet_id") @db.Uuid
-  componentId String?  @map("component_id") @db.Uuid
-  userId     String    @map("user_id") @db.Uuid
-  body       String    @db.Text
-  resolvedAt DateTime? @map("resolved_at")
-  resolvedBy String?   @map("resolved_by") @db.Uuid
-  createdAt  DateTime  @default(now()) @map("created_at")
-  updatedAt  DateTime  @updatedAt @map("updated_at")
-
-  packet     PackagingPacket @relation(fields: [packetId], references: [id], onDelete: Cascade)
-  user       Profile         @relation("PackagingComment_user", fields: [userId], references: [id], onDelete: Cascade)
-  resolvedByUser Profile?    @relation("PackagingComment_resolvedBy", fields: [resolvedBy], references: [id], onDelete: SetNull)
-
-  @@index([packetId, createdAt(sort: Desc)])
-  @@map("packaging_comments")
+  @@index([ownerId, createdAt(sort: Desc)])
+  @@map("packaging_imports")
 }
 
 model PackagingActivity {

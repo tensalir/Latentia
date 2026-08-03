@@ -100,6 +100,7 @@ class Project:
     sku_colourway: str = ""
     designer: str = ""
     engineer: str = ""
+    graphic_designer: str = ""
     brand_manager: str = ""
     date: str = ""
     stage: str = ""
@@ -113,6 +114,23 @@ class Project:
 
 def _v(cell) -> str:
     return "" if cell.value is None else str(cell.value).strip()
+
+
+def _format_date_eu(raw) -> str:
+    """DD-MM-YYYY, no time. Accepts datetime/date/string; falls back gracefully."""
+    import datetime as _dt
+    if raw is None or raw == "":
+        return ""
+    if isinstance(raw, (_dt.datetime, _dt.date)):
+        return raw.strftime("%d-%m-%Y")
+    s = str(raw).strip()
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y",
+                "%m/%d/%Y", "%Y/%m/%d", "%d.%m.%Y"):
+        try:
+            return _dt.datetime.strptime(s, fmt).strftime("%d-%m-%Y")
+        except ValueError:
+            continue
+    return s.split(" ")[0]
 
 
 def read_project_info(ws):
@@ -242,8 +260,9 @@ def load_project(workbook_path: Path) -> Project:
         proj.sku_colourway = info.get("SKU / Colourway", "")
         proj.designer = info.get("Packaging Designer", "")
         proj.engineer = info.get("Packaging Engineer", "")
+        proj.graphic_designer = info.get("Graphic Designer", "")
         proj.brand_manager = info.get("Brand Manager", "")
-        proj.date = info.get("Date", "")
+        proj.date = _format_date_eu(info.get("Date", ""))
         proj.stage = info.get("Project Stage", "")
         proj.supplier = info.get("Supplier", "")
         proj.internal_ref = info.get("Internal Reference", "")
@@ -347,13 +366,19 @@ def _header_strip(c, project: Project, page_title: str):
     c.setFont(FONT_REG, 8); c.drawString(x + 70, top - 26, project.date)
 
     rx = PAGE_W / 2 + 30
-    c.setFont(FONT_BOLD, 8); c.drawString(rx, top - 2, "PACKAGING DESIGNER:")
-    c.setFont(FONT_REG, 8); c.drawString(rx + 110, top - 2, project.designer)
-    c.setFont(FONT_BOLD, 8); c.drawString(rx, top - 14, "PACKAGING ENGINEER:")
-    c.setFont(FONT_REG, 8); c.drawString(rx + 110, top - 14, project.engineer)
+    # Right column: Designer, Engineer, (optional) Graphic Designer, SKU.
+    # Tighten the step when four rows are present so all stay above the divider.
+    rows = [("PACKAGING DESIGNER:", project.designer),
+            ("PACKAGING ENGINEER:", project.engineer)]
+    if project.graphic_designer:
+        rows.append(("GRAPHIC DESIGNER:", project.graphic_designer))
     if project.sku_colourway:
-        c.setFont(FONT_BOLD, 8); c.drawString(rx, top - 26, "SKU / COLOURWAY:")
-        c.setFont(FONT_REG, 8); c.drawString(rx + 110, top - 26, project.sku_colourway)
+        rows.append(("SKU / COLOURWAY:", project.sku_colourway))
+    _step = 10.5 if len(rows) > 3 else 12
+    for i, (lbl, val) in enumerate(rows):
+        yy = top - 2 - i * _step
+        c.setFont(FONT_BOLD, 8); c.drawString(rx, yy, lbl)
+        c.setFont(FONT_REG, 8); c.drawString(rx + 110, yy, val)
 
     c.setFont(FONT_REG, 9); c.setFillColor(INK_MID)
     c.drawRightString(PAGE_W - MARGIN, top - 2, "Packaging Creative Intent")

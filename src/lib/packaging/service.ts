@@ -1,13 +1,17 @@
 /**
- * Packaging Studio service — mirrors CMF access model.
+ * Packaging Studio v2 service — auth, access, and shared queries.
+ * Mirrors the CMF access model: reads open to any authenticated profile
+ * (the packet library is a shared ground truth), writes gated by the
+ * `packagingAccess` profile flag (admins implicitly allowed).
+ *
+ * Role-scoped field permissions are deliberately deferred ("at the
+ * beginning, everything — each one knows what they need to fill").
  */
 
 import { NextResponse } from 'next/server'
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 import { prisma } from '@/lib/prisma'
-import type { NormalizedPackagingWorkbook, PackagingComponentInput } from './schema'
-import { slugFromProductName } from './components'
 
 export class PackagingNotFoundError extends Error {
   constructor(message = 'Packaging resource not found') {
@@ -27,20 +31,7 @@ export interface AuthenticatedPackagingProfile {
   userId: string
   email: string | null
   canWrite: boolean
-  canManageMaterials: boolean
   isAdmin: boolean
-}
-
-export type PackagingPacketRole = 'owner' | 'editor' | 'viewer'
-
-const ROLE_RANK: Record<PackagingPacketRole, number> = {
-  viewer: 0,
-  editor: 1,
-  owner: 2,
-}
-
-export function roleAllows(actual: PackagingPacketRole, required: PackagingPacketRole): boolean {
-  return ROLE_RANK[actual] >= ROLE_RANK[required]
 }
 
 export function profileCanWritePackaging(profile: {
@@ -50,15 +41,6 @@ export function profileCanWritePackaging(profile: {
   if (!profile) return false
   if (profile.role === 'admin') return true
   return profile.packagingAccess === true
-}
-
-export function profileCanManageMaterials(profile: {
-  role?: string | null
-  packagingEngineerRole?: boolean | null
-} | null | undefined): boolean {
-  if (!profile) return false
-  if (profile.role === 'admin') return true
-  return profile.packagingEngineerRole === true
 }
 
 export async function requireAuthenticatedProfile(): Promise<
@@ -78,7 +60,6 @@ export async function requireAuthenticatedProfile(): Promise<
       pausedAt: true,
       role: true,
       packagingAccess: true,
-      packagingEngineerRole: true,
     },
   })
 
@@ -89,14 +70,12 @@ export async function requireAuthenticatedProfile(): Promise<
     return { profile: null, response: NextResponse.json({ error: 'Account paused' }, { status: 403 }) }
   }
 
-  const isAdmin = row.role === 'admin'
   return {
     profile: {
       userId: data.user.id,
       email: data.user.email ?? null,
       canWrite: profileCanWritePackaging(row),
-      canManageMaterials: profileCanManageMaterials(row),
-      isAdmin,
+      isAdmin: row.role === 'admin',
     },
     response: null,
   }
@@ -124,87 +103,60 @@ export async function requirePackagingWrite(): Promise<
   return { profile: auth.profile, response: null }
 }
 
-export async function requireMaterialsWrite(): Promise<
-  | { profile: AuthenticatedPackagingProfile; response: null }
-  | { profile: null; response: NextResponse }
-> {
-  const auth = await requireAuthenticatedProfile()
-  if (!auth.profile) return auth
-  if (!auth.profile.canManageMaterials) {
-    return {
-      profile: null,
-      response: NextResponse.json(
-        { error: 'packaging_engineer_required', message: 'Packaging engineer role required.' },
-        { status: 403 }
-      ),
-    }
-  }
-  return { profile: auth.profile, response: null }
-}
+// ── Shared query shapes ─────────────────────────────────────────────────────
 
-export async function getPacketRole(packetId: string, userId: string): Promise<PackagingPacketRole | null> {
-  const packet = await prisma.packagingPacket.findUnique({
-    where: { id: packetId },
-    select: { ownerId: true },
-  })
-  if (!packet) return null
-  if (packet.ownerId === userId) return 'owner'
-  const profile = await prisma.profile.findUnique({
-    where: { id: userId },
-    select: { role: true, packagingAccess: true },
-  })
-  return profileCanWritePackaging(profile) ? 'editor' : 'viewer'
-}
-
-export async function requirePacketAccess(args: {
-  packetId: string
-  userId: string
-  minRole?: PackagingPacketRole
-}) {
-  const role = await getPacketRole(args.packetId, args.userId)
-  if (!role) throw new PackagingNotFoundError('Packet not found')
-  if (args.minRole && !roleAllows(role, args.minRole)) {
-    throw new PackagingForbiddenError(`Requires ${args.minRole}`)
-  }
-  return { role }
-}
+export const COMPONENT_INCLUDE = {
+  componentType: true,
+  artworks: { orderBy: { createdAt: 'asc' as const } },
+  packSteps: { orderBy: { stepNumber: 'asc' as const } },
+} as const
 
 export const PACKET_INCLUDE = {
   project: true,
   components: {
     orderBy: { pageOrder: 'asc' as const },
-    include: { artworks: true },
+    include: COMPONENT_INCLUDE,
   },
-  import: true,
+  artworks: {
+    where: { kind: 'overview' },
+    orderBy: { createdAt: 'desc' as const },
+  },
 } as const
 
-export async function findAccessiblePacket(packetId: string) {
-  return prisma.packagingPacket.findUnique({
+export async function getPacketOrThrow(packetId: string) {
+  const packet = await prisma.packagingPacket.findUnique({
     where: { id: packetId },
     include: PACKET_INCLUDE,
   })
+  if (!packet) throw new PackagingNotFoundError('Packet not found')
+  return packet
 }
 
-export async function listAccessiblePackets() {
-  return prisma.packagingPacket.findMany({
-    include: {
-      project: true,
-      components: { select: { id: true, slug: true, included: true } },
-      owner: { select: { id: true, displayName: true, username: true } },
-    },
-    orderBy: { updatedAt: 'desc' },
+export async function getComponentOrThrow(componentId: string) {
+  const component = await prisma.packagingPacketComponent.findUnique({
+    where: { id: componentId },
+    include: { ...COMPONENT_INCLUDE, packet: { include: { project: true } } },
   })
+  if (!component) throw new PackagingNotFoundError('Component not found')
+  return component
 }
 
 export async function listProjects() {
   return prisma.packagingProject.findMany({
     include: {
       packets: {
-        select: { id: true, name: true, stage: true, variant: true, status: true, updatedAt: true },
+        select: {
+          id: true,
+          stage: true,
+          variant: true,
+          status: true,
+          updatedAt: true,
+          _count: { select: { components: true } },
+        },
         orderBy: { updatedAt: 'desc' },
       },
     },
-    orderBy: { displayName: 'asc' },
+    orderBy: { name: 'asc' },
   })
 }
 
@@ -223,88 +175,5 @@ export async function logPackagingActivity(args: {
       targetId: args.targetId,
       metadata: (args.metadata ?? undefined) as object | undefined,
     },
-  })
-}
-
-export async function createPacketFromWorkbook(args: {
-  ownerId: string
-  importId?: string | null
-  normalized: NormalizedPackagingWorkbook
-  packetName?: string
-}): Promise<{ packet: Awaited<ReturnType<typeof findAccessiblePacket>>; project: { id: string } }> {
-  const info = args.normalized.projectInfo
-  const displayName = info.projectName || 'Packaging Project'
-  const productSlug = slugFromProductName(displayName)
-  const stage = (info.stage || 'MP').toUpperCase()
-  const variant = info.skuColourway || null
-
-  let project = await prisma.packagingProject.findUnique({ where: { productSlug } })
-  if (!project) {
-    project = await prisma.packagingProject.create({
-      data: {
-        productSlug,
-        displayName,
-        productType: info.productType,
-        productFamily: info.productFamily,
-        ownerId: args.ownerId,
-      },
-    })
-  }
-
-  const packetName =
-    args.packetName ||
-    `${displayName.split(' ')[0] || 'Pack'}_${stage}${variant ? `_${variant}` : ''}`
-
-  const packet = await prisma.packagingPacket.create({
-    data: {
-      projectId: project.id,
-      importId: args.importId ?? null,
-      ownerId: args.ownerId,
-      name: packetName,
-      stage,
-      variant,
-      status: 'review',
-      projectInfo: info as object,
-      artworkFolder: info.artworkFolder ?? null,
-      overviewImageName: info.overviewImageName ?? null,
-      components: {
-        create: args.normalized.components
-          .filter((c) => c.included)
-          .map((c) => componentToDb(c)),
-      },
-    },
-    include: PACKET_INCLUDE,
-  })
-
-  await logPackagingActivity({
-    packetId: packet.id,
-    userId: args.ownerId,
-    action: 'created_packet',
-    metadata: { packetName, stage, variant },
-  })
-
-  return { packet, project: { id: project.id } }
-}
-
-function componentToDb(c: PackagingComponentInput) {
-  return {
-    slug: c.slug,
-    displayName: c.displayName,
-    style: c.style,
-    pageOrder: c.pageOrder,
-    included: c.included,
-    specs: c.specs as object,
-    packingSteps: c.packingSteps as object,
-    dimensions: c.dimensions as object,
-  }
-}
-
-export async function updateComponentSpecs(
-  componentId: string,
-  specs: Record<string, string>
-) {
-  return prisma.packagingComponent.update({
-    where: { id: componentId },
-    data: { specs: specs as object },
   })
 }
