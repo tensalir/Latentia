@@ -7,7 +7,7 @@
  */
 
 import { prisma } from '@/lib/prisma'
-import { slugifyProjectName } from './catalogue'
+import { slugifyProjectName, stripStageSuffix } from './catalogue'
 import { PackagingNotFoundError, getPacketOrThrow } from './service'
 import type { ExportComponent, ExportInput } from './workbook-export'
 import type { ParsedWorkbook } from './workbook-import'
@@ -23,7 +23,14 @@ export async function buildExportInput(packet: PacketGraph): Promise<ExportInput
   const catalogue = await prisma.packagingComponentType.findMany({
     where: { active: true },
     orderBy: [{ sortOrder: 'asc' }, { displayName: 'asc' }],
-    select: { code: true, slug: true, displayName: true, description: true, printed: true },
+    select: {
+      code: true,
+      slug: true,
+      displayName: true,
+      description: true,
+      printed: true,
+      style: true,
+    },
   })
 
   const components: ExportComponent[] = packet.components.map((component) => ({
@@ -37,15 +44,26 @@ export async function buildExportInput(packet: PacketGraph): Promise<ExportInput
     material: component.material,
     printingMethod: component.printingMethod,
     coatingMsdsRef: component.coatingMsdsRef,
-    paperThickness: component.paperThickness,
     drawingPartNumber: component.drawingPartNumber,
     approvalStatus: component.approvalStatus,
     engineerNotes: component.engineerNotes,
+    pdfPageTitle: component.pdfPageTitle,
+    perProductNotes: component.perProductNotes,
+    style: component.componentType.style ?? 'single_face',
+    heightMm: component.heightMm,
+    widthMm: component.widthMm,
+    depthMm: component.depthMm,
+    netWeightG: component.netWeightG,
+    stickerPlacement: component.stickerPlacement,
+    paperThickness: component.paperThickness,
     inks: stringArray(component.inks),
     finishes: stringArray(component.finishes),
     printPartNumber: component.printPartNumber,
     artworkFileName:
       component.artworks.filter((a) => a.kind === 'editable_ai').slice(-1)[0]?.fileName ?? null,
+    artworkBackFileName:
+      component.artworks.filter((a) => a.kind === 'editable_ai_back').slice(-1)[0]?.fileName ??
+      null,
     mockupFileName:
       component.artworks.filter((a) => a.kind === 'mockup').slice(-1)[0]?.fileName ?? null,
     packSteps: component.packSteps.map((step) => ({
@@ -100,10 +118,17 @@ export function buildDbSnapshot(packet: PacketGraph): DbSnapshot {
       material: component.material,
       printingMethod: component.printingMethod,
       coatingMsdsRef: component.coatingMsdsRef,
-      paperThickness: component.paperThickness,
       drawingPartNumber: component.drawingPartNumber,
       approvalStatus: component.approvalStatus,
       engineerNotes: component.engineerNotes,
+      pdfPageTitle: component.pdfPageTitle,
+      perProductNotes: component.perProductNotes,
+      heightMm: component.heightMm,
+      widthMm: component.widthMm,
+      depthMm: component.depthMm,
+      netWeightG: component.netWeightG,
+      stickerPlacement: component.stickerPlacement,
+      paperThickness: component.paperThickness,
       packStepCount: component.packSteps.length,
     })),
   }
@@ -143,7 +168,10 @@ export async function resolveWorkbookTarget(args: {
   }
   const stage = info.stage ?? 'EVT'
   const variant = info.skuColourway ?? 'Default'
-  const slug = slugifyProjectName(info.projectName)
+  // Anna names the project "Aphrodite — EVT"; the stage is its own field here,
+  // so resolve to the "Aphrodite" project rather than one project per stage.
+  const projectName = stripStageSuffix(info.projectName)
+  const slug = slugifyProjectName(projectName)
 
   const project = await prisma.packagingProject.findUnique({
     where: { slug },
@@ -153,8 +181,8 @@ export async function resolveWorkbookTarget(args: {
     return {
       packet: null,
       projectId: null,
-      wouldCreate: { projectName: info.projectName, stage, variant },
-      note: `No project called "${info.projectName}" yet — it will be created.`,
+      wouldCreate: { projectName, stage, variant },
+      note: `No project called "${projectName}" yet — it will be created.`,
     }
   }
 
@@ -222,7 +250,7 @@ export async function applyWorkbook(args: {
   let created = false
 
   if (!packetId) {
-    const projectName = info.projectName!
+    const projectName = stripStageSuffix(info.projectName!)
     const slug = slugifyProjectName(projectName)
     const project = await prisma.packagingProject.upsert({
       where: { slug },
@@ -323,13 +351,22 @@ export async function applyWorkbook(args: {
         if (wants(slug, 'Material')) data.material = parsedComponent.human.material
         if (wants(slug, 'Printing method')) data.printingMethod = parsedComponent.human.printingMethod
         if (wants(slug, 'Coating / MSDS')) data.coatingMsdsRef = parsedComponent.human.coatingMsdsRef
-        if (wants(slug, 'Paper thickness')) data.paperThickness = parsedComponent.human.paperThickness
         if (wants(slug, 'Drawing part no.'))
           data.drawingPartNumber = parsedComponent.human.drawingPartNumber
+        if (wants(slug, 'PDF page title')) data.pdfPageTitle = parsedComponent.human.pdfPageTitle
+        if (wants(slug, 'Height (mm)')) data.heightMm = parsedComponent.human.heightMm
+        if (wants(slug, 'Width (mm)')) data.widthMm = parsedComponent.human.widthMm
+        if (wants(slug, 'Depth (mm)')) data.depthMm = parsedComponent.human.depthMm
+        if (wants(slug, 'Net weight (g)')) data.netWeightG = parsedComponent.human.netWeightG
+        if (wants(slug, 'Sticker / element placement'))
+          data.stickerPlacement = parsedComponent.human.stickerPlacement
+        if (wants(slug, 'Paper thickness')) data.paperThickness = parsedComponent.human.paperThickness
         if (wants(slug, 'Approval status') && parsedComponent.human.approvalStatus)
           data.approvalStatus = parsedComponent.human.approvalStatus
         if (wants(slug, 'Notes')) data.engineerNotes = parsedComponent.human.engineerNotes
       }
+      if (wants(slug, 'Per-product notes'))
+        data.perProductNotes = parsedComponent.human.perProductNotes
       if (wants(slug, 'In Creative Intent'))
         data.includeInCreativeIntent = parsedComponent.includeInCreativeIntent
       if (wants(slug, 'Page order')) data.pageOrder = parsedComponent.pageOrder

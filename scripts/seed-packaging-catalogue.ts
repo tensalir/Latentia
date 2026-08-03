@@ -24,26 +24,42 @@ async function main() {
         code: entry.code,
         slug: entry.slug,
         displayName: entry.displayName,
-        description: entry.description ?? null,
+        description: entry.description,
         printed: entry.printed,
-        defaultInCreativeIntent: entry.defaultInCreativeIntent,
+        style: entry.style,
+        defaultInCreativeIntent: true,
         sortOrder: entry.sortOrder,
-        active: entry.active,
+        active: true,
       },
-      // Existing rows: refresh curated metadata but respect an admin's
-      // active/sortOrder choices made in the UI.
+      // Existing rows: refresh everything. Every entry here is in Anna's real
+      // library, so it belongs in the picker and in her C-number order —
+      // including rows an earlier guessed seed had wrongly parked as inactive.
       update: {
         code: entry.code,
         displayName: entry.displayName,
-        description: entry.description ?? null,
+        description: entry.description,
         printed: entry.printed,
-        defaultInCreativeIntent: entry.defaultInCreativeIntent,
+        style: entry.style,
+        sortOrder: entry.sortOrder,
+        active: true,
       },
     })
     if (existing) updated++
     else created++
   }
+
+  // Entries invented before Anna's real library was available. Deactivated
+  // rather than deleted: a packet may already reference one.
+  const NOT_IN_ANNAS_LIBRARY = ['Sticker', 'Master_Carton']
+  const retired = await prisma.packagingComponentType.updateMany({
+    where: { slug: { in: NOT_IN_ANNAS_LIBRARY }, active: true },
+    data: { active: false },
+  })
+
   console.log(`Catalogue seeded: ${created} created, ${updated} updated.`)
+  if (retired.count > 0) {
+    console.log(`Deactivated ${retired.count} entry/entries not in Anna's library.`)
+  }
 }
 
 main()

@@ -30,6 +30,7 @@ function component(overrides: Partial<ExportComponent> = {}): ExportComponent {
     displayName: 'Rigid box lid',
     description: 'Lid of the rigid box.',
     printed: true,
+    style: 'single_face',
     includeInCreativeIntent: true,
     pageOrder: 1,
     material: '450gr Simwhite Paper',
@@ -39,10 +40,18 @@ function component(overrides: Partial<ExportComponent> = {}): ExportComponent {
     drawingPartNumber: '510-123456',
     approvalStatus: 'Draft',
     engineerNotes: 'Keep the top-right clear.',
+    pdfPageTitle: null,
+    perProductNotes: null,
+    heightMm: '120',
+    widthMm: '80',
+    depthMm: '25',
+    netWeightG: '45',
+    stickerPlacement: null,
     inks: ['Cyan', 'Magenta', 'Yellow', 'Black', 'PANTONE 10101 C'],
     finishes: ['holographic foil'],
     printPartNumber: 'Rigid_Box_Lid__Black_A120_Aphrodite_EVT_160726_ED',
     artworkFileName: 'Rigid_Box_Lid__Black_A120_Aphrodite_EVT_160726_ED.ai',
+    artworkBackFileName: null,
     mockupFileName: 'Rigid_Box_Lid_Mockup.png',
     packSteps: [],
     ...overrides,
@@ -68,9 +77,9 @@ function exportInput(components: ExportComponent[]): ExportInput {
     notes: 'First EVT handover.',
     components,
     catalogue: [
-      { code: null, slug: 'Rigid_Box_Lid', displayName: 'Rigid box lid', description: null, printed: true },
-      { code: null, slug: 'Pulp_Tray', displayName: 'Pulp tray', description: null, printed: true },
-      { code: null, slug: 'Tissue_Paper', displayName: 'Tissue paper', description: null, printed: false },
+      { code: 'C011', slug: 'Rigid_Box_Lid', displayName: 'Rigid Box - Lid', description: null, printed: true, style: 'single_face' },
+      { code: 'C014', slug: 'Pulp_Tray', displayName: 'Pulp Tray', description: null, printed: true, style: 'single_face' },
+      { code: 'C003', slug: 'Tissue_Paper', displayName: 'Tissue Paper', description: null, printed: false, style: 'single_face' },
     ],
   }
 }
@@ -103,6 +112,13 @@ function dbSnapshot(components: ExportComponent[]): DbSnapshot {
       drawingPartNumber: c.drawingPartNumber,
       approvalStatus: c.approvalStatus,
       engineerNotes: c.engineerNotes,
+      pdfPageTitle: c.pdfPageTitle,
+      perProductNotes: c.perProductNotes,
+      heightMm: c.heightMm,
+      widthMm: c.widthMm,
+      depthMm: c.depthMm,
+      netWeightG: c.netWeightG,
+      stickerPlacement: c.stickerPlacement,
       packStepCount: c.packSteps.length,
     })),
   }
@@ -173,6 +189,13 @@ test('every human field survives the round trip intact', () => {
     drawingPartNumber: '510-123456',
     approvalStatus: 'Draft',
     engineerNotes: 'Keep the top-right clear.',
+    pdfPageTitle: null,
+    perProductNotes: null,
+    heightMm: '120',
+    widthMm: '80',
+    depthMm: '25',
+    netWeightG: '45',
+    stickerPlacement: null,
   })
   expect(parsed.projectInfo.projectName).toBe('Aphrodite')
   expect(parsed.projectInfo.stage).toBe('EVT')
@@ -372,5 +395,79 @@ test('a non-printed component exports Printing Method as N/A', () => {
     exportInput([component({ slug: 'Tissue_Paper', displayName: 'Tissue paper', printed: false, printingMethod: null })])
   )
   const wb = XLSX.read(buffer, { type: 'buffer' })
-  expect(wb.Sheets['Tissue_Paper']['B15']?.v).toBe('N/A')
+  expect(wb.Sheets['Tissue_Paper']['B16']?.v).toBe('N/A')
+})
+
+test("the spec rows sit exactly where Anna's live workbook has them", () => {
+  // Transcribed from Aphrodite_EVT_Creative_Intent_Black.xlsx. Her Python
+  // addresses the artwork block at a fixed offset below this list, so a shifted
+  // row here silently misreads every artwork filename.
+  const buffer = buildPackagingWorkbook(exportInput([component()]))
+  const sheet = XLSX.read(buffer, { type: 'buffer' }).Sheets['Rigid_Box_Lid']
+  const expected: Array<[string, string]> = [
+    ['A10', 'Drawing Part Number'],
+    ['A11', 'Print Part Number'],
+    ['A12', 'Material'],
+    ['A13', 'Inks / Print'],
+    ['A14', 'Finishes'],
+    ['A15', 'Special Effects'],
+    ['A16', 'Printing Method'],
+    ['A17', 'Coating MSDS Ref.'],
+    ['A18', 'Approval Status'],
+    ['A19', 'Notes'],
+    ['A21', 'Artwork files (file name OR full path)'],
+    ['A22', 'Artwork Type'],
+  ]
+  for (const [addr, label] of expected) {
+    expect(String(sheet[addr]?.v ?? ''), addr).toBe(label)
+  }
+})
+
+test('a two-sided component exports front and back artwork slots', () => {
+  const buffer = buildPackagingWorkbook(
+    exportInput([
+      component({
+        slug: 'User_Guide',
+        displayName: 'User Guide',
+        style: 'two_face',
+        artworkFileName: 'User_Guide_A120_Aphrodite_EVT_160726_ED.ai',
+        artworkBackFileName: 'User_Guide_Back_A120_Aphrodite_EVT_160726_ED.ai',
+      }),
+    ])
+  )
+  const sheet = XLSX.read(buffer, { type: 'buffer' }).Sheets['User_Guide']
+  expect(sheet['A23']?.v).toBe('Mockup')
+  expect(sheet['A24']?.v).toBe('Artwork_Front')
+  expect(sheet['A25']?.v).toBe('Artwork_Back')
+  expect(sheet['C25']?.v).toBe('User_Guide_Back_A120_Aphrodite_EVT_160726_ED.ai')
+})
+
+test('the Dimensions block round-trips free-text values', () => {
+  const components = [
+    component({ heightMm: '≈12.5', widthMm: '120 x 80', stickerPlacement: 'Centred on the lid' }),
+  ]
+  const parsed = roundTrip(exportInput(components))
+  expect(parsed.components[0].human.heightMm).toBe('≈12.5')
+  expect(parsed.components[0].human.widthMm).toBe('120 x 80')
+  expect(parsed.components[0].human.stickerPlacement).toBe('Centred on the lid')
+})
+
+test('a typed Special Effects value is reported, not silently dropped', () => {
+  const components = [component()]
+  const parsed = roundTrip(exportInput(components), (wb) => {
+    setCell(wb.Sheets['Rigid_Box_Lid'], 'B15', 'Soft-touch varnish')
+  })
+  expect(parsed.diagnostics.join(' ')).toContain('retired')
+  expect(parsed.diagnostics.join(' ')).toContain('Soft-touch varnish')
+})
+
+test('the older "Packaging Designer" label still reads', () => {
+  const components = [component()]
+  const parsed = roundTrip(exportInput(components), (wb) => {
+    // build_template.py calls the field this; the live workbook says
+    // "Packaging Structural Designer". Both must resolve.
+    setCell(wb.Sheets[SHEETS.projectInfo], 'B9', 'Packaging Designer')
+    setCell(wb.Sheets[SHEETS.projectInfo], 'C9', 'Ana Cuesta Andreu')
+  })
+  expect(parsed.projectInfo.packagingDesigner).toBe('Ana Cuesta Andreu')
 })

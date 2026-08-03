@@ -32,6 +32,7 @@ export const componentTypeCreateSchema = z.object({
   displayName: trimmed(120).min(1),
   description: optionalTrimmed(2000),
   printed: z.boolean().optional().default(true),
+  style: z.enum(['single_face', 'two_face']).optional().default('single_face'),
   defaultInCreativeIntent: z.boolean().optional().default(true),
   sortOrder: z.number().int().min(0).max(100_000).optional().default(0),
   active: z.boolean().optional().default(true),
@@ -97,6 +98,14 @@ export const componentPatchSchema = z.object({
   drawingPartNumber: optionalTrimmed(120),
   approvalStatus: z.enum(APPROVAL_STATUSES).optional(),
   engineerNotes: optionalTrimmed(5000),
+  pdfPageTitle: optionalTrimmed(200),
+  perProductNotes: optionalTrimmed(5000),
+  // Dimensions are free text: the workbook carries "≈12.5" and "120 x 80".
+  heightMm: optionalTrimmed(60),
+  widthMm: optionalTrimmed(60),
+  depthMm: optionalTrimmed(60),
+  netWeightG: optionalTrimmed(60),
+  stickerPlacement: optionalTrimmed(2000),
 })
 
 export const stepsPutSchema = z.object({
@@ -113,7 +122,13 @@ export const stepsPutSchema = z.object({
 
 // ── Artwork ─────────────────────────────────────────────────────────────────
 
-export const ARTWORK_KINDS = ['editable_ai', 'mockup', 'overview', 'step_image'] as const
+export const ARTWORK_KINDS = [
+  'editable_ai',
+  'editable_ai_back',
+  'mockup',
+  'overview',
+  'step_image',
+] as const
 
 export const signedUploadRequestSchema = z.object({
   kind: z.enum(ARTWORK_KINDS),
@@ -122,7 +137,7 @@ export const signedUploadRequestSchema = z.object({
 })
 
 export const artworkRegisterSchema = z.object({
-  kind: z.enum(['editable_ai', 'mockup', 'overview']),
+  kind: z.enum(['editable_ai', 'editable_ai_back', 'mockup', 'overview']),
   fileName: trimmed(200).min(1),
   storagePath: trimmed(500).min(1),
   mimeType: optionalTrimmed(120),

@@ -17,6 +17,7 @@ export interface PackagingComponentType {
   displayName: string
   description: string | null
   printed: boolean
+  style: string
   defaultInCreativeIntent: boolean
   sortOrder: number
   active: boolean
@@ -53,6 +54,7 @@ export interface PackagingComponent {
   code: string | null
   displayName: string
   printed: boolean
+  style: string
   includeInCreativeIntent: boolean
   pageOrder: number
   material: string | null
@@ -62,6 +64,13 @@ export interface PackagingComponent {
   drawingPartNumber: string | null
   approvalStatus: string
   engineerNotes: string | null
+  pdfPageTitle: string | null
+  perProductNotes: string | null
+  heightMm: string | null
+  widthMm: string | null
+  depthMm: string | null
+  netWeightG: string | null
+  stickerPlacement: string | null
   inks: string[]
   finishes: string[]
   structuralPlates: string[]
@@ -128,6 +137,8 @@ export interface ComponentReadiness {
   includedInCreativeIntent: boolean
   printed: boolean
   hasArtwork: boolean
+  hasBackArtwork: boolean
+  isTwoFace: boolean
   artworkCompatible: boolean
   hasMockup: boolean
   missingSpecs: string[]
@@ -147,6 +158,7 @@ export interface SupplierPdfOutcome {
   status: 'generated' | 'skipped' | 'failed'
   reason?: string
   path?: string
+  backPath?: string
   pageCount?: number
 }
 
@@ -157,7 +169,12 @@ export interface GenerateResponse {
   packet: PackagingPacket
 }
 
-export type ArtworkKind = 'editable_ai' | 'mockup' | 'overview' | 'step_image'
+export type ArtworkKind =
+  | 'editable_ai'
+  | 'editable_ai_back'
+  | 'mockup'
+  | 'overview'
+  | 'step_image'
 
 // ── Fetch helper ────────────────────────────────────────────────────────────
 
@@ -566,6 +583,7 @@ export function useCreateComponentType() {
       code?: string | null
       description?: string | null
       printed?: boolean
+      style?: 'single_face' | 'two_face'
       defaultInCreativeIntent?: boolean
     }) =>
       request<{ componentType: PackagingComponentType }>('/api/packaging/component-types', {

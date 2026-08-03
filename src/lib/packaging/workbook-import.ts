@@ -22,8 +22,10 @@ import * as XLSX from 'xlsx'
 import { coerceDate } from './format'
 import {
   COMPONENT_TAB,
+  DIMENSION_FIELDS,
   LEGACY_SPEC_FIELDS,
   MACHINE_SPEC_FIELDS,
+  PROJECT_INFO_ALIASES,
   PROJECT_INFO_FIRST_ROW,
   PROJECT_INFO_LABEL_COL,
   PROJECT_INFO_VALUE_COL,
@@ -57,10 +59,18 @@ export interface ParsedComponent {
     material: string | null
     printingMethod: string | null
     coatingMsdsRef: string | null
-    paperThickness: string | null
     drawingPartNumber: string | null
     approvalStatus: string | null
     engineerNotes: string | null
+    pdfPageTitle: string | null
+    perProductNotes: string | null
+    // Dimensions block (free text — see DIMENSION_FIELDS).
+    heightMm: string | null
+    widthMm: string | null
+    depthMm: string | null
+    netWeightG: string | null
+    stickerPlacement: string | null
+    paperThickness: string | null
   }
   /** Machine-owned values found in the sheet — reported, never applied. */
   machineFound: Record<string, string>
@@ -136,6 +146,8 @@ interface SetupRow {
   displayName: string
   include: boolean
   order: number
+  /** Product Setup's "Per-product notes" column. */
+  perProductNotes: string | null
 }
 
 function readProductSetup(sheet: XLSX.WorkSheet): SetupRow[] {
@@ -154,6 +166,7 @@ function readProductSetup(sheet: XLSX.WorkSheet): SetupRow[] {
       // cell after a Sheets edit shouldn't silently drop a component.
       include: includeCell !== 'no' && includeCell !== 'false' && includeCell !== '0',
       order: Number.isNaN(parsed) ? 9999 : parsed,
+      perProductNotes: blank(cellStr(sheet, r, TABLE_FIRST_COL + 5)),
     })
   }
   return rows.sort((a, b) => a.order - b.order)
@@ -167,9 +180,14 @@ function findSection(sheet: XLSX.WorkSheet, prefix: string): number | null {
   return null
 }
 
-function readComponentTab(sheet: XLSX.WorkSheet, setup: SetupRow): ParsedComponent {
+function readComponentTab(
+  sheet: XLSX.WorkSheet,
+  setup: SetupRow,
+  diagnostics: string[]
+): ParsedComponent {
   const { labelCol: L, valueCol: V } = COMPONENT_TAB
   const specs: Record<string, string> = {}
+  const legacyValues: Record<string, string> = {}
 
   // Read the specification list by LABEL rather than fixed row, so a sheet
   // whose rows shifted still yields the right values.
@@ -178,8 +196,19 @@ function readComponentTab(sheet: XLSX.WorkSheet, setup: SetupRow): ParsedCompone
   for (let r = COMPONENT_TAB.specsFirstRow; r <= specEnd; r++) {
     const label = cellStr(sheet, r, L)
     if (!label) continue
-    if ((LEGACY_SPEC_FIELDS as readonly string[]).includes(label)) continue
+    if ((LEGACY_SPEC_FIELDS as readonly string[]).includes(label)) {
+      // Retired field: never stored, but say so rather than dropping a typed
+      // value in silence.
+      const v = blank(cellStr(sheet, r, V))
+      if (v) legacyValues[label] = v
+      continue
+    }
     specs[label] = cellStr(sheet, r, V)
+  }
+  for (const [label, value] of Object.entries(legacyValues)) {
+    diagnostics.push(
+      `${setup.slug}: "${label}" is retired — special finishes are read from the artwork file, so that value was not imported (${value.length > 40 ? value.slice(0, 40) + '…' : value}).`
+    )
   }
 
   const machineFound: Record<string, string> = {}
@@ -188,17 +217,21 @@ function readComponentTab(sheet: XLSX.WorkSheet, setup: SetupRow): ParsedCompone
     if (value) machineFound[field] = value
   }
 
-  // Dimensions block — paper thickness lives here.
-  let paperThickness: string | null = null
+  // Component header rows above Specifications.
+  const pdfPageTitle = blank(cellStr(sheet, COMPONENT_TAB.pdfPageTitleRow, V))
+
+  // Dimensions block — label/value pairs, matched case-insensitively so a
+  // hand-retyped "height (mm)" still lands.
+  const dims: Record<string, string | null> = {}
   const dimSection = findSection(sheet, COMPONENT_TAB.sections.dimensions)
   if (dimSection) {
-    for (let r = dimSection + 1; r <= dimSection + 12; r++) {
+    for (let r = dimSection + 1; r <= dimSection + 20; r++) {
       const label = cellStr(sheet, r, 1)
       if (!label) continue
-      if (label.toLowerCase().startsWith('paper thickness')) {
-        paperThickness = blank(cellStr(sheet, r, 2))
-        break
-      }
+      const match = DIMENSION_FIELDS.find(
+        (d) => d.label.toLowerCase() === label.toLowerCase()
+      )
+      if (match) dims[match.field] = blank(cellStr(sheet, r, 2))
     }
   }
 
@@ -226,10 +259,17 @@ function readComponentTab(sheet: XLSX.WorkSheet, setup: SetupRow): ParsedCompone
       material: blank(specs['Material'] ?? ''),
       printingMethod: blank(specs['Printing Method'] ?? ''),
       coatingMsdsRef: blank(specs['Coating MSDS Ref.'] ?? ''),
-      paperThickness,
       drawingPartNumber: blank(specs['Drawing Part Number'] ?? ''),
       approvalStatus: blank(specs['Approval Status'] ?? ''),
       engineerNotes: blank(specs['Notes'] ?? ''),
+      pdfPageTitle,
+      perProductNotes: setup.perProductNotes,
+      heightMm: dims.heightMm ?? null,
+      widthMm: dims.widthMm ?? null,
+      depthMm: dims.depthMm ?? null,
+      netWeightG: dims.netWeightG ?? null,
+      stickerPlacement: dims.stickerPlacement ?? null,
+      paperThickness: dims.paperThickness ?? null,
     },
     machineFound,
     packSteps,
@@ -265,7 +305,14 @@ export function parsePackagingWorkbook(buffer: Buffer, fileName?: string): Parse
     )
   }
   const info = readProjectInfo(projectSheet)
-  const get = (field: string) => blank(info[field]?.text ?? '')
+  /** Reads a field by its current label, falling back to older labels. */
+  const get = (field: string) => {
+    for (const label of PROJECT_INFO_ALIASES[field] ?? [field]) {
+      const v = blank(info[label]?.text ?? '')
+      if (v) return v
+    }
+    return null
+  }
 
   const rawDate = info['Date']?.raw
   const date = coerceDate(
@@ -303,10 +350,19 @@ export function parsePackagingWorkbook(buffer: Buffer, fileName?: string): Parse
           material: null,
           printingMethod: null,
           coatingMsdsRef: null,
-          paperThickness: null,
           drawingPartNumber: null,
           approvalStatus: null,
           engineerNotes: null,
+          pdfPageTitle: null,
+          // Product Setup survived even though the tab didn't, so its column
+          // is still readable.
+          perProductNotes: row.perProductNotes,
+          heightMm: null,
+          widthMm: null,
+          depthMm: null,
+          netWeightG: null,
+          stickerPlacement: null,
+          paperThickness: null,
         },
         machineFound: {},
         packSteps: [],
@@ -314,7 +370,7 @@ export function parsePackagingWorkbook(buffer: Buffer, fileName?: string): Parse
       })
       continue
     }
-    components.push(readComponentTab(sheet, row))
+    components.push(readComponentTab(sheet, row, diagnostics))
   }
 
   return {
@@ -323,7 +379,9 @@ export function parsePackagingWorkbook(buffer: Buffer, fileName?: string): Parse
       productType: get('Product Type'),
       productFamily: get('Product Family'),
       skuColourway: get('SKU / Colourway'),
-      packagingDesigner: get('Packaging Designer'),
+      // Her live label; the alias map also accepts the older
+      // "Packaging Designer" from build_template.py.
+      packagingDesigner: get('Packaging Structural Designer'),
       packagingEngineer: get('Packaging Engineer'),
       graphicDesigner: get('Graphic Designer'),
       date,

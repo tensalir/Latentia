@@ -312,13 +312,17 @@ export function ComponentArtworkPanel({
   canWrite: boolean
 }) {
   const editable = component.artworks.find((a) => a.kind === 'editable_ai')
+  const editableBack = component.artworks.find((a) => a.kind === 'editable_ai_back')
   const mockup = component.artworks.find((a) => a.kind === 'mockup')
+  // Anna's two-face components are printed on both sides and hand over as two
+  // files (Artwork_Front / Artwork_Back).
+  const isTwoFace = component.style === 'two_face'
 
   return (
     <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-2">
         <UploadSlot
-          label="Editable artwork (.ai)"
+          label={isTwoFace ? 'Editable artwork — front (.ai)' : 'Editable artwork (.ai)'}
           hint="The graphic designer's master. Inks and plates are read from it."
           accept=".ai,.pdf,application/pdf,application/postscript"
           artwork={editable}
@@ -327,6 +331,18 @@ export function ComponentArtworkPanel({
           componentId={component.id}
           canWrite={canWrite}
         />
+        {isTwoFace && (
+          <UploadSlot
+            label="Editable artwork — back (.ai)"
+            hint="This component prints on both sides; the reverse gets its own brief."
+            accept=".ai,.pdf,application/pdf,application/postscript"
+            artwork={editableBack}
+            kind="editable_ai_back"
+            packetId={packetId}
+            componentId={component.id}
+            canWrite={canWrite}
+          />
+        )}
         <UploadSlot
           label="Mockup"
           hint="Component render for the Creative Intent page."

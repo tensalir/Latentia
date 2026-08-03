@@ -13,9 +13,10 @@
 import * as XLSX from 'xlsx'
 import { formatDateEu } from './format'
 import {
-  ARTWORK_SLOTS,
+  ARTWORK_SLOT_LABELS,
+  COMPONENT_HEADER_FIELDS,
   COMPONENT_TAB,
-  DIMENSION_PAPER_THICKNESS,
+  DIMENSION_FIELDS,
   LIBRARY_HEADERS,
   PROJECT_INFO_FIELDS,
   PROJECT_INFO_FIRST_ROW,
@@ -27,6 +28,7 @@ import {
   TABLE_FIRST_ROW,
   TABLE_HEADER_ROW,
 } from './workbook-layout'
+import type { ComponentStyle } from './catalogue'
 
 export interface ExportComponent {
   slug: string
@@ -34,19 +36,29 @@ export interface ExportComponent {
   displayName: string
   description: string | null
   printed: boolean
+  style: ComponentStyle | string
   includeInCreativeIntent: boolean
   pageOrder: number
   material: string | null
   printingMethod: string | null
   coatingMsdsRef: string | null
-  paperThickness: string | null
   drawingPartNumber: string | null
   approvalStatus: string | null
   engineerNotes: string | null
+  pdfPageTitle: string | null
+  perProductNotes: string | null
+  heightMm: string | null
+  widthMm: string | null
+  depthMm: string | null
+  netWeightG: string | null
+  stickerPlacement: string | null
+  paperThickness: string | null
   inks: string[]
   finishes: string[]
   printPartNumber: string | null
   artworkFileName: string | null
+  /** Back face of a two_face component. */
+  artworkBackFileName: string | null
   mockupFileName: string | null
   packSteps: Array<{ stepNumber: number; instruction: string; imageFileName: string | null }>
 }
@@ -69,7 +81,14 @@ export interface ExportInput {
   notes: string | null
   components: ExportComponent[]
   /** Full library so the sheet still documents what could be added. */
-  catalogue: Array<{ code: string | null; slug: string; displayName: string; description: string | null; printed: boolean }>
+  catalogue: Array<{
+    code: string | null
+    slug: string
+    displayName: string
+    description: string | null
+    printed: boolean
+    style: ComponentStyle | string
+  }>
 }
 
 /** Sparse cell writer — mirrors the 1-indexed row/col addressing of the layout. */
@@ -85,11 +104,8 @@ function finalise(sheet: XLSX.WorkSheet, maxRow: number, maxCol: number) {
   })
 }
 
-function styleOf(component: { printed: boolean }): keyof typeof ARTWORK_SLOTS {
-  // Anna's "style" governs how many artwork faces a component has. We only
-  // model one editable file per component, so everything is single_face; the
-  // column is kept for compatibility with her template and scripts.
-  return component.printed ? 'single_face' : 'single_face'
+function styleOf(component: { style: ComponentStyle | string }): keyof typeof ARTWORK_SLOT_LABELS {
+  return component.style === 'two_face' ? 'two_face' : 'single_face'
 }
 
 function buildReadme(input: ExportInput): XLSX.WorkSheet {
@@ -122,7 +138,7 @@ function buildProjectInfo(input: ExportInput): XLSX.WorkSheet {
     'Product Type': input.productType ?? '',
     'Product Family': input.productFamily ?? '',
     'SKU / Colourway': input.skuCode ?? input.variant,
-    'Packaging Designer': input.packagingDesigner ?? '',
+    'Packaging Structural Designer': input.packagingDesigner ?? '',
     'Packaging Engineer': input.packagingEngineer ?? '',
     'Graphic Designer': input.graphicDesigner ?? '',
     Date: formatDateEu(input.artworkDate),
@@ -174,7 +190,12 @@ function buildProductSetup(input: ExportInput): XLSX.WorkSheet {
     put(sheet, row, TABLE_FIRST_COL + 2, component.displayName)
     put(sheet, row, TABLE_FIRST_COL + 3, component.includeInCreativeIntent ? 'Yes' : 'No')
     put(sheet, row, TABLE_FIRST_COL + 4, component.pageOrder)
-    put(sheet, row, TABLE_FIRST_COL + 5, component.printed ? '' : 'Not printed')
+    put(
+      sheet,
+      row,
+      TABLE_FIRST_COL + 5,
+      component.perProductNotes ?? (component.printed ? '' : 'Not printed')
+    )
     row++
   }
   finalise(sheet, row, TABLE_FIRST_COL + SETUP_HEADERS.length)
@@ -191,8 +212,8 @@ function buildComponentTab(component: ExportComponent): XLSX.WorkSheet {
   put(sheet, COMPONENT_TAB.displayNameRow, V, component.displayName)
   put(sheet, COMPONENT_TAB.descriptionRow, L, 'Description')
   put(sheet, COMPONENT_TAB.descriptionRow, V, component.description ?? '')
-  put(sheet, COMPONENT_TAB.pdfPageTitleRow, L, 'PDF Page Title')
-  put(sheet, COMPONENT_TAB.pdfPageTitleRow, V, component.displayName)
+  put(sheet, COMPONENT_TAB.pdfPageTitleRow, L, COMPONENT_HEADER_FIELDS.pdfPageTitle)
+  put(sheet, COMPONENT_TAB.pdfPageTitleRow, V, component.pdfPageTitle ?? '')
 
   put(sheet, 8, 1, 'Specifications')
   put(sheet, COMPONENT_TAB.specsHeaderRow, L, 'Field')
@@ -204,6 +225,9 @@ function buildComponentTab(component: ExportComponent): XLSX.WorkSheet {
     Material: component.material ?? '',
     'Inks / Print': component.inks.join(', '),
     Finishes: component.finishes.join(', '),
+    // Retired in favour of Finishes (read from the .ai), but the row stays so
+    // the sheet keeps the shape her scripts and team expect.
+    'Special Effects': '',
     'Printing Method': component.printed ? component.printingMethod ?? '' : 'N/A',
     'Coating MSDS Ref.': component.coatingMsdsRef ?? '',
     'Approval Status': component.approvalStatus ?? 'Draft',
@@ -220,10 +244,17 @@ function buildComponentTab(component: ExportComponent): XLSX.WorkSheet {
   COMPONENT_TAB.artworkHeaders.forEach((header, i) =>
     put(sheet, COMPONENT_TAB.artworkHeaderRow, 1 + i, header)
   )
-  const slots: Array<[string, string | null]> = [
-    ['Mockup', component.mockupFileName],
-    ['Artwork', component.artworkFileName],
-  ]
+  const slots: Array<[string, string | null]> =
+    styleOf(component) === 'two_face'
+      ? [
+          ['Mockup', component.mockupFileName],
+          ['Artwork_Front', component.artworkFileName],
+          ['Artwork_Back', component.artworkBackFileName],
+        ]
+      : [
+          ['Mockup', component.mockupFileName],
+          ['Artwork', component.artworkFileName],
+        ]
   let row = COMPONENT_TAB.artworkFirstRow
   for (const [type, fileName] of slots) {
     put(sheet, row, 1, type)
@@ -255,9 +286,11 @@ function buildComponentTab(component: ExportComponent): XLSX.WorkSheet {
   row += 1
   COMPONENT_TAB.dimensionHeaders.forEach((header, i) => put(sheet, row, 1 + i, header))
   row += 1
-  put(sheet, row, 1, DIMENSION_PAPER_THICKNESS)
-  put(sheet, row, 2, component.paperThickness ?? '')
-  row++
+  for (const dim of DIMENSION_FIELDS) {
+    put(sheet, row, 1, dim.label)
+    put(sheet, row, 2, component[dim.field] ?? '')
+    row++
+  }
 
   finalise(sheet, row, 5)
   return sheet

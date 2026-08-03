@@ -36,10 +36,9 @@ import { slugifyComponentName } from '@/lib/packaging/catalogue'
  * 409 with what would be lost, so a mis-click can't quietly destroy work.
  */
 /**
- * Inline editor for one library entry. The component ID is the field Anna most
- * needs: they are left empty on seed because her template generates them
- * positionally over a different component list, so the real numbers have to
- * come from her.
+ * Inline editor for one library entry — the component ID, its display name, and
+ * whether it is printed and two-sided. The seeded values come from Anna's own
+ * Components Library sheet; this is for adjusting them as the portfolio grows.
  */
 function CatalogueEditor({
   type,
@@ -53,6 +52,7 @@ function CatalogueEditor({
   const [code, setCode] = useState(type.code ?? '')
   const [displayName, setDisplayName] = useState(type.displayName)
   const [printed, setPrinted] = useState(type.printed)
+  const [twoFace, setTwoFace] = useState(type.style === 'two_face')
 
   const save = async () => {
     try {
@@ -61,6 +61,7 @@ function CatalogueEditor({
         code: code.trim() || null,
         displayName: displayName.trim() || type.displayName,
         printed,
+        style: twoFace ? 'two_face' : 'single_face',
       })
       onDone()
     } catch (err) {
@@ -93,13 +94,21 @@ function CatalogueEditor({
           />
         </div>
       </div>
-      <div className="flex items-center justify-between gap-3">
-        <label className="flex items-center gap-2">
-          <Switch checked={printed} onCheckedChange={setPrinted} />
-          <span className="text-[11px] text-muted-foreground">
-            Printed {printed ? '' : '— pack instructions only'}
-          </span>
-        </label>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-4">
+          <label className="flex items-center gap-2">
+            <Switch checked={printed} onCheckedChange={setPrinted} />
+            <span className="text-[11px] text-muted-foreground">
+              Printed {printed ? '' : '— pack instructions only'}
+            </span>
+          </label>
+          <label className="flex items-center gap-2">
+            <Switch checked={twoFace} onCheckedChange={setTwoFace} />
+            <span className="text-[11px] text-muted-foreground">
+              Two-sided {twoFace ? '— front + back artwork' : ''}
+            </span>
+          </label>
+        </div>
         <div className="flex gap-1">
           <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs" onClick={onDone}>
             <X className="h-3 w-3" />
@@ -125,6 +134,7 @@ function NewComponentForm({ onDone }: { onDone: () => void }) {
   const [displayName, setDisplayName] = useState('')
   const [code, setCode] = useState('')
   const [printed, setPrinted] = useState(true)
+  const [twoFace, setTwoFace] = useState(false)
   const slug = slugifyComponentName(displayName)
 
   const submit = async () => {
@@ -135,6 +145,7 @@ function NewComponentForm({ onDone }: { onDone: () => void }) {
         displayName: displayName.trim(),
         code: code.trim() || null,
         printed,
+        style: twoFace ? 'two_face' : 'single_face',
       })
       setDisplayName('')
       setCode('')
@@ -172,11 +183,17 @@ function NewComponentForm({ onDone }: { onDone: () => void }) {
           Tab name: {slug} — artwork filenames must start with this exactly.
         </p>
       )}
-      <div className="flex items-center justify-between gap-3">
-        <label className="flex items-center gap-2">
-          <Switch checked={printed} onCheckedChange={setPrinted} />
-          <span className="text-[11px] text-muted-foreground">Printed</span>
-        </label>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-4">
+          <label className="flex items-center gap-2">
+            <Switch checked={printed} onCheckedChange={setPrinted} />
+            <span className="text-[11px] text-muted-foreground">Printed</span>
+          </label>
+          <label className="flex items-center gap-2">
+            <Switch checked={twoFace} onCheckedChange={setTwoFace} />
+            <span className="text-[11px] text-muted-foreground">Two-sided</span>
+          </label>
+        </div>
         <Button
           size="sm"
           className="h-7 px-2 text-xs"
@@ -343,6 +360,11 @@ export function ComponentLibraryDialog({
                           {!type.printed && (
                             <span className="rounded-full border border-border/60 px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-muted-foreground">
                               not printed
+                            </span>
+                          )}
+                          {type.style === 'two_face' && (
+                            <span className="rounded-full border border-border/60 px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-muted-foreground">
+                              two-sided
                             </span>
                           )}
                         </span>

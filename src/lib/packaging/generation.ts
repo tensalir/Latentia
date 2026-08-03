@@ -35,6 +35,9 @@ export interface ComponentReadiness {
   includedInCreativeIntent: boolean
   printed: boolean
   hasArtwork: boolean
+  /** Two-face components carry a second artwork file for the reverse. */
+  hasBackArtwork: boolean
+  isTwoFace: boolean
   artworkCompatible: boolean
   hasMockup: boolean
   missingSpecs: string[]
@@ -59,6 +62,11 @@ function editableArtwork(component: PacketComponent) {
   return component.artworks.filter((a) => a.kind === 'editable_ai').slice(-1)[0] ?? null
 }
 
+/** Back face of a two_face component (outer sleeve, user guide, insert card…). */
+function editableBackArtwork(component: PacketComponent) {
+  return component.artworks.filter((a) => a.kind === 'editable_ai_back').slice(-1)[0] ?? null
+}
+
 function mockupArtwork(component: PacketComponent) {
   return component.artworks.filter((a) => a.kind === 'mockup').slice(-1)[0] ?? null
 }
@@ -77,6 +85,8 @@ export function summarisePacketReadiness(packet: PacketGraph): PacketReadiness {
       includedInCreativeIntent: component.includeInCreativeIntent,
       printed,
       hasArtwork: Boolean(artwork),
+      hasBackArtwork: Boolean(editableBackArtwork(component)),
+      isTwoFace: component.componentType.style === 'two_face',
       artworkCompatible: artwork ? artwork.aiCompatible !== false : false,
       hasMockup: Boolean(mockupArtwork(component)),
       missingSpecs,
@@ -90,6 +100,11 @@ export function summarisePacketReadiness(packet: PacketGraph): PacketReadiness {
   for (const c of components) {
     if (c.expectsSupplierPdf && !c.hasArtwork) {
       warnings.push(`${c.displayName}: no editable artwork yet — no supplier PDF will be produced.`)
+    }
+    if (c.isTwoFace && c.hasArtwork && !c.hasBackArtwork) {
+      warnings.push(
+        `${c.displayName}: printed on both sides but no back artwork uploaded — only the front will be stamped.`
+      )
     }
     if (c.hasArtwork && !c.artworkCompatible) {
       warnings.push(
@@ -113,6 +128,8 @@ export interface SupplierPdfOutcome {
   status: 'generated' | 'skipped' | 'failed'
   reason?: string
   path?: string
+  /** Second stamped brief for a two-face component's reverse. */
+  backPath?: string
   pageCount?: number
 }
 
@@ -170,12 +187,11 @@ async function buildOneSupplierPdf(args: {
   }
 
   try {
-    const buffer = await args.fetchPath(artwork.storagePath)
-    const { bytes, pageCount } = await buildSupplierPdf({
-      artwork: buffer,
-      data: infoBoxDataFor(packet, component),
-    })
     const generatedAt = new Date()
+    const data = infoBoxDataFor(packet, component)
+
+    const buffer = await args.fetchPath(artwork.storagePath)
+    const { bytes, pageCount } = await buildSupplierPdf({ artwork: buffer, data })
     const path = supplierPdfStoragePath({
       projectSlug: packet.project.slug,
       packetId: packet.id,
@@ -184,6 +200,26 @@ async function buildOneSupplierPdf(args: {
       generatedAt,
     })
     await args.upload(path, Buffer.from(bytes))
+
+    // A two-face component's reverse is its own file, so it needs its own
+    // stamped brief — the supplier prints the two sides separately.
+    const back = editableBackArtwork(component)
+    let backPath: string | undefined
+    if (back && back.aiCompatible !== false) {
+      const backBuffer = await args.fetchPath(back.storagePath)
+      const backOut = await buildSupplierPdf({
+        artwork: backBuffer,
+        data: { ...data, partName: `${data.partName} (back)` },
+      })
+      backPath = supplierPdfStoragePath({
+        projectSlug: packet.project.slug,
+        packetId: packet.id,
+        componentSlug: component.componentType.slug,
+        printPartNumber: `${component.printPartNumber ?? component.componentType.slug}_back`,
+        generatedAt,
+      })
+      await args.upload(backPath, Buffer.from(backOut.bytes))
+    }
     await prisma.packagingPacketComponent.update({
       where: { id: component.id },
       data: {
@@ -193,7 +229,7 @@ async function buildOneSupplierPdf(args: {
         supplierPdfError: null,
       },
     })
-    return { ...base, status: 'generated', path, pageCount }
+    return { ...base, status: 'generated', path, pageCount, backPath }
   } catch (err) {
     const reason = err instanceof Error ? err.message : 'Supplier PDF failed'
     await prisma.packagingPacketComponent.update({
@@ -269,11 +305,16 @@ export async function generatePacketOutputs(args: {
     const ciComponents: CreativeIntentComponent[] = await Promise.all(
       included.map(async (component) => {
         const artwork = editableArtwork(component)
+        const back = editableBackArtwork(component)
         const mockup = mockupArtwork(component)
         // A missing or unreadable file is a placeholder, never a failure.
         const artworkBytes =
           artwork && artwork.aiCompatible !== false
             ? await fetchPath(artwork.storagePath).catch(() => null)
+            : null
+        const backBytes =
+          back && back.aiCompatible !== false
+            ? await fetchPath(back.storagePath).catch(() => null)
             : null
         const mockupBytes = mockup ? await fetchPath(mockup.storagePath).catch(() => null) : null
         const stepImages = await Promise.all(
@@ -282,7 +323,7 @@ export async function generatePacketOutputs(args: {
           )
         )
         return {
-          displayName: component.displayName,
+          displayName: component.pdfPageTitle || component.displayName,
           code: component.componentType.code,
           printed: component.componentType.printed,
           material: component.material,
@@ -292,12 +333,21 @@ export async function generatePacketOutputs(args: {
           drawingPartNumber: component.drawingPartNumber,
           approvalStatus: component.approvalStatus,
           engineerNotes: component.engineerNotes,
+          dimensions: {
+            heightMm: component.heightMm,
+            widthMm: component.widthMm,
+            depthMm: component.depthMm,
+            netWeightG: component.netWeightG,
+            stickerPlacement: component.stickerPlacement,
+            paperThickness: component.paperThickness,
+          },
           inks: stringArray(component.inks),
           finishes: stringArray(component.finishes),
           structural: stringArray(component.structuralPlates),
           printPartNumber: component.printPartNumber,
           mockupBytes: mockupBytes ? new Uint8Array(mockupBytes) : null,
           artworkBytes: artworkBytes ? new Uint8Array(artworkBytes) : null,
+          artworkBackBytes: backBytes ? new Uint8Array(backBytes) : null,
           packSteps: component.packSteps.map((step, i) => ({
             stepNumber: step.stepNumber,
             instruction: step.instruction,

@@ -10,7 +10,12 @@
 
 export const PACKAGING_STORAGE_BUCKET = 'packaging-files'
 
-export type PackagingArtworkKind = 'editable_ai' | 'mockup' | 'overview' | 'step_image'
+export type PackagingArtworkKind =
+  | 'editable_ai'
+  | 'editable_ai_back'
+  | 'mockup'
+  | 'overview'
+  | 'step_image'
 
 export function artworkStoragePath(args: {
   projectSlug: string

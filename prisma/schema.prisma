@@ -1231,6 +1231,10 @@ model PackagingComponentType {
   // false = not printed (tissue paper etc.) — stays selectable because
   // non-printed parts still carry pack instructions in the Creative Intent.
   printed                 Boolean  @default(true)
+  // Anna's component "style": a two_face part is printed on both sides and
+  // needs Artwork_Front AND Artwork_Back (outer sleeve, insert card, user
+  // guide); single_face needs one artwork file.
+  style                   String   @default("single_face")
   defaultInCreativeIntent Boolean  @default(true) @map("default_in_creative_intent")
   sortOrder               Int      @default(0) @map("sort_order")
   active                  Boolean  @default(true)
@@ -1329,6 +1333,20 @@ model PackagingPacketComponent {
   drawingPartNumber String? @map("drawing_part_number") // 510-XXXXXX drawings
   approvalStatus    String  @default("Draft") @map("approval_status")
   engineerNotes     String? @map("engineer_notes") @db.Text
+  // Overrides the heading on this component's Creative Intent page when the
+  // display name isn't what should print ("PDF Page Title" in the workbook).
+  pdfPageTitle      String? @map("pdf_page_title")
+  // Product Setup's "Per-product notes" column — why this component is in
+  // THIS pack, as distinct from the supplier-facing spec notes above.
+  perProductNotes   String? @map("per_product_notes") @db.Text
+
+  // Dimensions block. Free text, not numbers: the workbook carries values like
+  // "≈12.5" and "120 x 80" and the round trip has to be lossless.
+  heightMm          String? @map("height_mm")
+  widthMm           String? @map("width_mm")
+  depthMm           String? @map("depth_mm")
+  netWeightG        String? @map("net_weight_g")
+  stickerPlacement  String? @map("sticker_placement") @db.Text
 
   // MACHINE fields — synced from the editable .ai's XMP plate names.
   // DB-authoritative: hand-edited workbook values are ignored on re-import.

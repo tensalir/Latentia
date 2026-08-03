@@ -26,6 +26,7 @@ export interface ComponentTypeDto {
   displayName: string
   description: string | null
   printed: boolean
+  style: string
   defaultInCreativeIntent: boolean
   sortOrder: number
   active: boolean
@@ -63,6 +64,7 @@ export interface PacketComponentDto {
   code: string | null
   displayName: string
   printed: boolean
+  style: string
   includeInCreativeIntent: boolean
   pageOrder: number
   material: string | null
@@ -72,6 +74,13 @@ export interface PacketComponentDto {
   drawingPartNumber: string | null
   approvalStatus: string
   engineerNotes: string | null
+  pdfPageTitle: string | null
+  perProductNotes: string | null
+  heightMm: string | null
+  widthMm: string | null
+  depthMm: string | null
+  netWeightG: string | null
+  stickerPlacement: string | null
   inks: string[]
   finishes: string[]
   structuralPlates: string[]
@@ -143,6 +152,7 @@ export function serializeComponentType(row: {
   displayName: string
   description: string | null
   printed: boolean
+  style: string
   defaultInCreativeIntent: boolean
   sortOrder: number
   active: boolean
@@ -155,6 +165,7 @@ export function serializeComponentType(row: {
     displayName: row.displayName,
     description: row.description,
     printed: row.printed,
+    style: row.style,
     defaultInCreativeIntent: row.defaultInCreativeIntent,
     sortOrder: row.sortOrder,
     active: row.active,
@@ -233,6 +244,7 @@ export async function serializePacket(packet: PacketWithGraph): Promise<PacketDt
       code: component.componentType.code,
       displayName: component.displayName,
       printed: component.componentType.printed,
+      style: component.componentType.style,
       includeInCreativeIntent: component.includeInCreativeIntent,
       pageOrder: component.pageOrder,
       material: component.material,
@@ -242,6 +254,13 @@ export async function serializePacket(packet: PacketWithGraph): Promise<PacketDt
       drawingPartNumber: component.drawingPartNumber,
       approvalStatus: component.approvalStatus,
       engineerNotes: component.engineerNotes,
+      pdfPageTitle: component.pdfPageTitle,
+      perProductNotes: component.perProductNotes,
+      heightMm: component.heightMm,
+      widthMm: component.widthMm,
+      depthMm: component.depthMm,
+      netWeightG: component.netWeightG,
+      stickerPlacement: component.stickerPlacement,
       inks: stringArray(component.inks),
       finishes: stringArray(component.finishes),
       structuralPlates: stringArray(component.structuralPlates),

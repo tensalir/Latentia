@@ -31,6 +31,7 @@ function fakePacket(options: {
     id: string
     displayName: string
     printed?: boolean
+    style?: string
     included?: boolean
     material?: string | null
     printingMethod?: string | null
@@ -61,7 +62,11 @@ function fakePacket(options: {
       includeInCreativeIntent: c.included ?? true,
       material: c.material ?? null,
       printingMethod: c.printingMethod ?? null,
-      componentType: { printed: c.printed ?? true, slug: c.displayName.replace(/\s/g, '_') },
+      componentType: {
+        printed: c.printed ?? true,
+        style: c.style ?? 'single_face',
+        slug: c.displayName.replace(/\s/g, '_'),
+      },
       artworks: c.artworks ?? [],
       packSteps: [],
     })),

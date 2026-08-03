@@ -57,6 +57,17 @@ export interface CreativeIntentComponent {
   mockupBytes: Uint8Array | null
   /** Clean editable artwork (.ai / PDF bytes). */
   artworkBytes: Uint8Array | null
+  /** Reverse face of a two-face component, if it has one. */
+  artworkBackBytes?: Uint8Array | null
+  /** Free-text dimensions block, as the workbook carries it. */
+  dimensions?: {
+    heightMm: string | null
+    widthMm: string | null
+    depthMm: string | null
+    netWeightG: string | null
+    stickerPlacement: string | null
+    paperThickness: string | null
+  }
   packSteps: CreativeIntentPackStep[]
 }
 
@@ -266,7 +277,6 @@ async function drawComponentPage(
     ['Material', component.material || '—'],
     ['Printing method', component.printed ? component.printingMethod || '—' : 'Not printed'],
     ['Coating / MSDS', component.coatingMsdsRef || '—'],
-    ['Paper thickness', component.paperThickness || '—'],
     ['Drawing part no.', component.drawingPartNumber || '—'],
     ['Print part no.', component.printPartNumber || '—'],
     ['Approval', component.approvalStatus || '—'],
@@ -304,6 +314,42 @@ async function drawComponentPage(
       maxLines: 3,
     })
     y = Math.min(y - 15, end - 3)
+  }
+
+  // Dimensions — free text, so print only the rows that carry a value.
+  const dims = component.dimensions
+  const dimRows: Array<[string, string]> = dims
+    ? ([
+        ['Height', dims.heightMm],
+        ['Width', dims.widthMm],
+        ['Depth', dims.depthMm],
+        ['Net weight', dims.netWeightG],
+        ['Paper thickness', dims.paperThickness],
+      ].filter(([, v]) => Boolean(v)) as Array<[string, string]>)
+    : []
+  if (dimRows.length > 0 || dims?.stickerPlacement) {
+    y -= 6
+    text(page, 'DIMENSIONS', { x: colX, y, size: 7.5, font: fonts.bold, color: C.accent })
+    y -= 13
+    if (dimRows.length > 0) {
+      text(page, dimRows.map(([k, v]) => `${k} ${v}`).join('   ·   '), {
+        x: colX,
+        y,
+        size: 8.5,
+        font: fonts.regular,
+      })
+      y -= 13
+    }
+    if (dims?.stickerPlacement) {
+      y = wrapText(page, `Placement: ${dims.stickerPlacement}`, {
+        x: colX,
+        y,
+        size: 8.5,
+        font: fonts.regular,
+        maxWidth: colW,
+        maxLines: 2,
+      })
+    }
   }
 
   if (component.engineerNotes) {
@@ -359,8 +405,29 @@ async function drawComponentPage(
     placeholder(page, fonts, mockupBox, '[no mockup]')
   }
 
-  text(page, 'ARTWORK', { x: rightX, y: artworkBox.y + artworkBox.height + 8, size: 7.5, font: fonts.bold, color: C.mid })
-  await drawArtwork(pdf, page, fonts, component, artworkBox)
+  const hasBack = Boolean(component.artworkBackBytes && component.artworkBackBytes.length > 0)
+  text(page, hasBack ? 'ARTWORK — FRONT / BACK' : 'ARTWORK', {
+    x: rightX,
+    y: artworkBox.y + artworkBox.height + 8,
+    size: 7.5,
+    font: fonts.bold,
+    color: C.mid,
+  })
+  if (hasBack) {
+    // Two-face component: show both sides side by side so the reviewer sees the
+    // whole printed surface, not just the front.
+    const half = (artworkBox.width - 10) / 2
+    await drawArtwork(pdf, page, fonts, component, { ...artworkBox, width: half })
+    await drawArtwork(
+      pdf,
+      page,
+      fonts,
+      { ...component, artworkBytes: component.artworkBackBytes ?? null },
+      { ...artworkBox, x: artworkBox.x + half + 10, width: half }
+    )
+  } else {
+    await drawArtwork(pdf, page, fonts, component, artworkBox)
+  }
 }
 
 /**

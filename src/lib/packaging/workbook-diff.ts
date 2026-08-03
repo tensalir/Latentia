@@ -50,10 +50,17 @@ export interface DbComponentSnapshot {
   material: string | null
   printingMethod: string | null
   coatingMsdsRef: string | null
-  paperThickness: string | null
   drawingPartNumber: string | null
   approvalStatus: string | null
   engineerNotes: string | null
+  pdfPageTitle: string | null
+  perProductNotes: string | null
+  heightMm: string | null
+  widthMm: string | null
+  depthMm: string | null
+  netWeightG: string | null
+  stickerPlacement: string | null
+  paperThickness: string | null
   packStepCount: number
 }
 
@@ -79,10 +86,17 @@ const HUMAN_COMPONENT_FIELDS: Array<[keyof ParsedComponent['human'], keyof DbCom
   ['material', 'material', 'Material'],
   ['printingMethod', 'printingMethod', 'Printing method'],
   ['coatingMsdsRef', 'coatingMsdsRef', 'Coating / MSDS'],
-  ['paperThickness', 'paperThickness', 'Paper thickness'],
   ['drawingPartNumber', 'drawingPartNumber', 'Drawing part no.'],
   ['approvalStatus', 'approvalStatus', 'Approval status'],
   ['engineerNotes', 'engineerNotes', 'Notes'],
+  ['pdfPageTitle', 'pdfPageTitle', 'PDF page title'],
+  ['perProductNotes', 'perProductNotes', 'Per-product notes'],
+  ['heightMm', 'heightMm', 'Height (mm)'],
+  ['widthMm', 'widthMm', 'Width (mm)'],
+  ['depthMm', 'depthMm', 'Depth (mm)'],
+  ['netWeightG', 'netWeightG', 'Net weight (g)'],
+  ['stickerPlacement', 'stickerPlacement', 'Sticker / element placement'],
+  ['paperThickness', 'paperThickness', 'Paper thickness'],
 ]
 
 function norm(value: string | null | undefined): string | null {
