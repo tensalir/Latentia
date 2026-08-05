@@ -63,11 +63,26 @@ export function ProjectsRail({
         <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">
           Projects
         </p>
-        {canWrite && (
-          <Button variant="ghost" size="sm" onClick={() => setOpen(true)} className="h-7 px-2">
+        {/* Shown disabled rather than hidden: a missing button reads as a
+            broken tool, a greyed one reads as "not mine to press". The title
+            sits on the wrapper because a disabled button fires no hover. */}
+        <span
+          title={
+            canWrite
+              ? 'New packaging project'
+              : 'Packaging write access required — ask an admin to grant it from User Management.'
+          }
+        >
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setOpen(true)}
+            disabled={!canWrite}
+            className={cn('h-7 px-2', !canWrite && 'opacity-60 cursor-not-allowed')}
+          >
             <Plus className="h-3.5 w-3.5" />
           </Button>
-        )}
+        </span>
       </div>
 
       {isLoading ? (

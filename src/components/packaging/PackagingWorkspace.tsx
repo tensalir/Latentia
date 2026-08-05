@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { FileSpreadsheet, Package } from 'lucide-react'
+import { FileSpreadsheet, Lock, Package } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useActivePackagingSelection } from '@/hooks/useActivePackagingSelection'
 import { usePackagingPacket, usePackagingProjects } from '@/hooks/usePackaging'
@@ -34,7 +34,7 @@ export function PackagingWorkspace({
   initialPacketId: string | null
   initialComponentId: string | null
 }) {
-  const { canWrite } = usePackagingPermissions()
+  const { canWrite, isLoading: permissionsLoading } = usePackagingPermissions()
   const selection = useActivePackagingSelection({
     projectId: initialProjectId,
     packetId: initialPacketId,
@@ -149,20 +149,33 @@ export function PackagingWorkspace({
           disabledFrom={disabledFrom}
           progress={progress}
         />
-        {packet && (
-          <div className="flex items-center gap-2">
-            <ActivityButton onClick={() => setActivityOpen(true)} />
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-1.5 text-xs"
-              onClick={() => setWorkbookOpen(true)}
+        <div className="flex items-center gap-2">
+          {/* Without this, a read-only visitor sees disabled fields and a
+              missing "+" and reads the tool as broken rather than locked. */}
+          {!canWrite && !permissionsLoading && (
+            <span
+              className="inline-flex items-center gap-1 rounded-full border border-border/50 bg-muted/40 px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground"
+              title="Packaging write access is required to create projects, fill specs, upload artwork or generate. Ask an admin to grant it from User Management."
             >
-              <FileSpreadsheet className="h-3.5 w-3.5" />
-              Excel workbook
-            </Button>
-          </div>
-        )}
+              <Lock className="h-3 w-3" />
+              Read-only · request packaging write from admin
+            </span>
+          )}
+          {packet && (
+            <>
+              <ActivityButton onClick={() => setActivityOpen(true)} />
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 text-xs"
+                onClick={() => setWorkbookOpen(true)}
+              >
+                <FileSpreadsheet className="h-3.5 w-3.5" />
+                Excel workbook
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
       <div className="flex flex-col gap-8 lg:flex-row">
@@ -182,7 +195,7 @@ export function PackagingWorkspace({
             <div className="rounded-2xl border border-dashed border-border/50 bg-card/20 p-12 text-center">
               <Package className="mx-auto h-9 w-9 text-muted-foreground/50" />
               <p className="mt-4 text-sm text-muted-foreground">
-                Pick a project to begin, or create one.
+                {canWrite ? 'Pick a project to begin, or create one.' : 'Pick a project to begin.'}
               </p>
             </div>
           ) : (
