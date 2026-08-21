@@ -250,6 +250,7 @@ export async function POST(request: NextRequest) {
 
       // Calculate cost using actual predict_time from Replicate for accurate billing
       const { calculateGenerationCost } = await import('@/lib/cost/calculator')
+      const { seedanceUsesVideoInput } = await import('@/lib/models/replicate-utils')
       const actualPredictTime = payload.metrics?.predict_time
       
       if (actualPredictTime) {
@@ -266,6 +267,7 @@ export async function POST(request: NextRequest) {
         computeTimeSeconds: actualPredictTime, // Pass actual time for accurate billing
         videoDurationSeconds: videoDuration,
         resolution: isVideo ? params?.resolution : undefined,
+        hasVideoInput: seedanceUsesVideoInput(params),
       })
       
       console.log(`[Replicate Webhook] Cost calculated: $${costResult.cost.toFixed(6)} (${costResult.isActual ? 'actual' : 'estimated'})`)

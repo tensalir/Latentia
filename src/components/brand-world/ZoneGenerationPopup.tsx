@@ -153,6 +153,9 @@ export function ZoneGenerationPopup({ stage, projectId, onClose, onGenerationSta
         endFrameImage?: File
         endFrameImageId?: string
         endFrameImageUrl?: string
+        referenceImageUrls?: string[]
+        referenceVideoUrls?: string[]
+        referenceAudioUrls?: string[]
       }
     ) => {
       if (!promptText.trim()) return
@@ -196,6 +199,10 @@ export function ZoneGenerationPopup({ stage, projectId, onClose, onGenerationSta
             ...(endFrameUrl && { endFrameImageUrl: endFrameUrl }),
             ...(endFrameData && !endFrameUrl && { endFrameImage: endFrameData }),
             ...(options?.endFrameImageId && { endFrameImageId: options.endFrameImageId }),
+            // Seedance multimodal reference sets
+            ...(options?.referenceImageUrls?.length && { referenceImageUrls: options.referenceImageUrls }),
+            ...(options?.referenceVideoUrls?.length && { referenceVideoUrls: options.referenceVideoUrls }),
+            ...(options?.referenceAudioUrls?.length && { referenceAudioUrls: options.referenceAudioUrls }),
           },
         })
 

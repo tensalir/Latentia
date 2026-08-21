@@ -21,6 +21,7 @@ import { useParams } from 'next/navigation'
 import { PromptEnhancementButton } from './PromptEnhancementButton'
 import { IterationButton } from './IterationButton'
 import { SnapshotRail, SNAPSHOT_RAIL_MIME } from './SnapshotRail'
+import { ReferenceSetPicker, type ReferenceSetItem } from './ReferenceSetPicker'
 
 interface VideoInputProps {
   prompt: string
@@ -34,6 +35,10 @@ interface VideoInputProps {
     endFrameImageId?: string
     /** Pre-uploaded end frame URL (bypasses 4.5MB limit) */
     endFrameImageUrl?: string
+    /** Seedance multimodal reference sets (mutually exclusive with frames) */
+    referenceImageUrls?: string[]
+    referenceVideoUrls?: string[]
+    referenceAudioUrls?: string[]
   }) => void
   parameters: {
     aspectRatio: string
@@ -147,6 +152,10 @@ export function VideoInput({
   
   // Detected aspect ratio from start image (for Kling "auto" mode)
   const [detectedAspectRatio, setDetectedAspectRatio] = useState<string | null>(null)
+
+  // Seedance multimodal reference sets (images / videos / audio clips)
+  const [referenceSetItems, setReferenceSetItems] = useState<ReferenceSetItem[]>([])
+  const [referenceSetUploading, setReferenceSetUploading] = useState(false)
   
   // Resizable input height - available in both default and overlay modes
   const [inputHeight, setInputHeight] = useState(52) // Default min height (matches ChatInput)
@@ -157,7 +166,7 @@ export function VideoInput({
   const currentHeight = useRef(52)
   
   // Combine external and internal generating state + upload progress
-  const isUploading = referenceUpload.isUploading || endFrameUpload.isUploading
+  const isUploading = referenceUpload.isUploading || endFrameUpload.isUploading || referenceSetUploading
   const generating = externalGenerating ?? localGenerating
   const isOverlay = variant === 'overlay'
   
@@ -187,6 +196,41 @@ export function VideoInput({
   // Only kling-official and gemini-veo-3.1 support this
   const supportsFrameInterpolation = modelConfig?.capabilities?.['frame-interpolation'] === true
   const showEndFrameControl = !hideEndFrame && supportsFrameInterpolation
+
+  // Seedance-style multimodal reference sets. A model opts in by advertising
+  // reference video/audio caps; frames and reference sets are exclusive.
+  const maxReferenceVideos = modelConfig?.capabilities?.maxReferenceVideos ?? 0
+  const maxReferenceAudios = modelConfig?.capabilities?.maxReferenceAudios ?? 0
+  const supportsReferenceSets =
+    (maxReferenceVideos > 0 || maxReferenceAudios > 0) &&
+    // Flows that pin a specific start frame (animate-still) are frame-based by
+    // definition; offering reference sets there would just discard that frame.
+    !lockedReferenceImage &&
+    !hideStartFrame
+  const referenceSetLimits = {
+    maxImages: modelConfig?.capabilities?.maxReferenceImages ?? 0,
+    maxVideos: maxReferenceVideos,
+    maxAudios: maxReferenceAudios,
+    maxMediaSeconds: 30,
+  }
+  const framesInUse = Boolean(
+    referenceImage || imagePreviewUrl || uploadedReferenceUrl ||
+    endFrameImage || endFramePreviewUrl || uploadedEndFrameUrl
+  )
+
+  const clearAllFrames = useCallback(() => {
+    if (imagePreviewUrl?.startsWith('blob:')) URL.revokeObjectURL(imagePreviewUrl)
+    if (endFramePreviewUrl?.startsWith('blob:')) URL.revokeObjectURL(endFramePreviewUrl)
+    setImagePreviewUrl(null)
+    setReferenceImage(null)
+    setReferenceImageId(null)
+    setUploadedReferenceUrl(null)
+    setEndFramePreviewUrl(null)
+    setEndFrameImage(null)
+    setEndFrameImageId(null)
+    setUploadedEndFrameUrl(null)
+    onClearReferenceImage?.()
+  }, [imagePreviewUrl, endFramePreviewUrl, onClearReferenceImage])
   
   // Check if this is a Kling model (for auto aspect ratio detection)
   const isKlingModel = selectedModel.includes('kling')
@@ -263,6 +307,15 @@ export function VideoInput({
       }
     }
   }, [modelConfig, selectedModel])
+
+  // Drop reference sets when switching to a model that cannot accept them,
+  // so a stale Seedance selection never rides along to Kling or Veo.
+  useEffect(() => {
+    if (!supportsReferenceSets && referenceSetItems.length > 0) {
+      console.log('[VideoInput] Clearing reference sets - model does not support them')
+      setReferenceSetItems([])
+    }
+  }, [supportsReferenceSets, referenceSetItems.length])
 
   // Clear end frame when switching to a model that doesn't support frame interpolation
   useEffect(() => {
@@ -366,10 +419,10 @@ export function VideoInput({
     if (!prompt.trim()) return
     
     // Wait for any pending uploads
-    if (referenceUpload.isUploading || endFrameUpload.isUploading) {
+    if (referenceUpload.isUploading || endFrameUpload.isUploading || referenceSetUploading) {
       toast({
-        title: 'Uploading images…',
-        description: 'Please wait for image upload to complete.',
+        title: 'Uploading…',
+        description: 'Please wait for the upload to complete.',
       })
       return
     }
@@ -403,6 +456,15 @@ export function VideoInput({
         endFrameImage: hideEndFrame ? undefined : (effectiveEndFrameUrl ? undefined : endFrameImage || undefined),
         endFrameImageId: hideEndFrame ? undefined : (endFrameImageId || undefined),
         endFrameImageUrl: effectiveEndFrameUrl ?? undefined,
+        // Reference sets win over frames server-side, so only send frames when
+        // no reference set is active (keeps the request self-consistent).
+        ...(referenceSetItems.length > 0
+          ? {
+              referenceImageUrls: referenceSetItems.filter((i) => i.kind === 'image').map((i) => i.url),
+              referenceVideoUrls: referenceSetItems.filter((i) => i.kind === 'video').map((i) => i.url),
+              referenceAudioUrls: referenceSetItems.filter((i) => i.kind === 'audio').map((i) => i.url),
+            }
+          : {}),
       })
       // Keep the last prompt AND reference image after generating (users often iterate).
       // (ChatInput does the same for images; clearing the reference can cause confusing
@@ -919,6 +981,19 @@ export function VideoInput({
           onSelect={(snap) => {
             openImagePreview(snap.fileUrl)
           }}
+        />
+      )}
+
+      {/* Multimodal reference sets (Seedance 2.5) */}
+      {supportsReferenceSets && (
+        <ReferenceSetPicker
+          items={referenceSetItems}
+          onItemsChange={setReferenceSetItems}
+          limits={referenceSetLimits}
+          disabled={generating}
+          framesInUse={framesInUse}
+          onClearFrames={clearAllFrames}
+          onUploadingChange={setReferenceSetUploading}
         />
       )}
 

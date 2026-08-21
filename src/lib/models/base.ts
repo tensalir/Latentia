@@ -33,6 +33,16 @@ export interface ModelConfig {
     multiImageEditing?: boolean // Supports multiple reference images
     maxReferenceImages?: number // Maximum number of reference images supported (default 14 for multi-image models)
     audioGeneration?: boolean // Supports generating audio with video
+    /**
+     * Multimodal reference sets (Seedance 2.5): reference clips that guide
+     * motion, style and character rather than acting as first/last frames.
+     * A model advertising these accepts them INSTEAD of start/end frames,
+     * never alongside — see `referenceSetsExcludeFrames`.
+     */
+    maxReferenceVideos?: number
+    maxReferenceAudios?: number
+    /** True when reference sets and start/end frames are mutually exclusive. */
+    referenceSetsExcludeFrames?: boolean
   }
   pricing?: {
     perImage?: number

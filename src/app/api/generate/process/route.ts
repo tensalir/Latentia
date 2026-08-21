@@ -736,6 +736,7 @@ async function processGenerationById(
       // Calculate cost for this generation
       // Use actual compute time from Replicate API when available for accurate billing
       const { calculateGenerationCost } = await import('@/lib/cost/calculator')
+      const { seedanceUsesVideoInput } = await import('@/lib/models/replicate-utils')
       const totalVideoDuration = outputRecords.reduce((sum, output) => {
         return sum + (output.duration || 0)
       }, 0)
@@ -757,6 +758,7 @@ async function processGenerationById(
         videoDurationSeconds: totalVideoDuration > 0 ? totalVideoDuration : undefined,
         computeTimeSeconds: actualPredictTime, // Pass actual time for accurate Replicate billing
         resolution: (generation.parameters as any)?.resolution,
+        hasVideoInput: seedanceUsesVideoInput(generation.parameters as any),
       })
       
       console.log(`[${generationId}] Cost calculated: $${costResult.cost.toFixed(6)} (${costResult.isActual ? 'actual' : 'estimated'})`)

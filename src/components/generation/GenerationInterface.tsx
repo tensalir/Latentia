@@ -973,6 +973,10 @@ export function GenerationInterface({
       endFrameImageId?: string
       /** Pre-uploaded end frame URL (bypasses 4.5MB limit) */
       endFrameImageUrl?: string
+      /** Seedance multimodal reference sets (mutually exclusive with frames) */
+      referenceImageUrls?: string[]
+      referenceVideoUrls?: string[]
+      referenceAudioUrls?: string[]
     }
   ) => {
     if (!session) return null
@@ -1224,6 +1228,11 @@ export function GenerationInterface({
           ...(endFrameImageUrl_ && { endFrameImageUrl: endFrameImageUrl_ }),
           ...(endFrameImageData_ && !endFrameImageUrl_ && { endFrameImage: endFrameImageData_ }),
           ...(options?.endFrameImageId && { endFrameImageId: options.endFrameImageId }),
+          // Seedance reference sets — kept under distinct keys so they can
+          // never be confused with the start-frame `referenceImages`.
+          ...(options?.referenceImageUrls?.length && { referenceImageUrls: options.referenceImageUrls }),
+          ...(options?.referenceVideoUrls?.length && { referenceVideoUrls: options.referenceVideoUrls }),
+          ...(options?.referenceAudioUrls?.length && { referenceAudioUrls: options.referenceAudioUrls }),
           ...editLineage,
         },
       })

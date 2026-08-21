@@ -80,6 +80,9 @@ export async function generateVideoTool(
     duration,
     resolution,
     referenceImage,
+    referenceImageUrls,
+    referenceVideoUrls,
+    referenceAudioUrls,
     allowFallback,
   } = parsed.data
 
@@ -108,6 +111,17 @@ export async function generateVideoTool(
     ...(typeof duration === 'number' ? { duration } : {}),
     ...(typeof resolution === 'number' ? { resolution } : {}),
     ...(referenceImage ? { referenceImage } : {}),
+    // Reference sets reach the adapter via `parameters`, matching how the
+    // web app passes them through the generation record.
+    ...(referenceImageUrls?.length || referenceVideoUrls?.length || referenceAudioUrls?.length
+      ? {
+          parameters: {
+            ...(referenceImageUrls?.length ? { referenceImageUrls } : {}),
+            ...(referenceVideoUrls?.length ? { referenceVideoUrls } : {}),
+            ...(referenceAudioUrls?.length ? { referenceAudioUrls } : {}),
+          },
+        }
+      : {}),
     allowFallback: allowFallback !== false,
   }
 

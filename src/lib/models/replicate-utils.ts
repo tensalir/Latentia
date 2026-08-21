@@ -193,20 +193,44 @@ export function normalizeSeedanceDuration(duration: unknown): number {
   return Math.min(SEEDANCE_MAX_DURATION, Math.max(SEEDANCE_MIN_DURATION, Math.round(numeric)))
 }
 
+/** Reference-set caps accepted by Seedance 2.5 in a single generation. */
+export const SEEDANCE_MAX_REFERENCE_IMAGES = 30
+export const SEEDANCE_MAX_REFERENCE_VIDEOS = 10
+export const SEEDANCE_MAX_REFERENCE_AUDIOS = 10
+
+/** Combined duration ceiling (seconds) across reference videos, and across audios. */
+export const SEEDANCE_MAX_REFERENCE_MEDIA_SECONDS = 30
+
+function toUrlList(value: unknown, cap: number): string[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .filter((entry): entry is string => typeof entry === 'string' && entry.length > 0)
+    .slice(0, cap)
+}
+
 /**
  * Build the Replicate input payload for Seedance 2.5.
  *
  * Shared by the synchronous adapter and the webhook submission path so the
  * two cannot drift on Seedance's input constraints, which are unusually
- * strict:
+ * strict and are all enforced here:
  *
  *  - `last_frame_image` requires `image`, and that first/last-frame mode
  *    only accepts `aspect_ratio: 'adaptive'` (the model derives the ratio
  *    from the supplied frames).
  *  - `reference_images` / `reference_videos` / `reference_audios` cannot be
- *    combined with `image` / `last_frame_image`. This app's video flow always
- *    means "start frame" by a reference image, so we only ever send `image`.
- *  - `duration` is 4–30s, or -1 to let the model pick.
+ *    combined with `image` / `last_frame_image`. When a reference set is
+ *    present it wins and the frames are dropped, so the payload is always
+ *    valid regardless of what the caller passed.
+ *  - `reference_audios` require at least one reference image or video.
+ *  - Caps: 30 images, 10 videos, 10 audios.
+ *  - `duration` is 4-30s, or -1 to let the model pick.
+ *
+ * Note the deliberate split in naming. `referenceImage` / `referenceImageUrl` /
+ * `referenceImages` keep this app's long-standing "start frame" meaning (Kling
+ * reads them the same way). Seedance's multimodal reference sets arrive under
+ * the distinct `referenceImageUrls` / `referenceVideoUrls` / `referenceAudioUrls`
+ * keys so the two concepts can never collide.
  */
 export function buildSeedanceInput(params: Record<string, any>): Record<string, any> {
   const startImage =
@@ -219,6 +243,15 @@ export function buildSeedanceInput(params: Record<string, any>): Record<string, 
 
   const endImage = params.endFrameImageUrl || null
 
+  const referenceImages = toUrlList(params.referenceImageUrls, SEEDANCE_MAX_REFERENCE_IMAGES)
+  const referenceVideos = toUrlList(params.referenceVideoUrls, SEEDANCE_MAX_REFERENCE_VIDEOS)
+  // Audio is only meaningful alongside a visual reference; the API rejects it otherwise.
+  const requestedAudios = toUrlList(params.referenceAudioUrls, SEEDANCE_MAX_REFERENCE_AUDIOS)
+  const hasVisualReference = referenceImages.length > 0 || referenceVideos.length > 0
+  const referenceAudios = hasVisualReference ? requestedAudios : []
+
+  const usesReferenceSets = referenceImages.length > 0 || referenceVideos.length > 0
+
   const input: Record<string, any> = {
     prompt: params.prompt || '',
     duration: normalizeSeedanceDuration(params.duration),
@@ -227,16 +260,24 @@ export function buildSeedanceInput(params: Record<string, any>): Record<string, 
     output_format: 'mp4',
   }
 
-  if (startImage) {
-    input.image = startImage
-  }
-
-  if (startImage && endImage) {
-    // First/last-frame mode: Seedance rejects a fixed ratio here.
-    input.last_frame_image = endImage
-    input.aspect_ratio = 'adaptive'
-  } else {
+  if (usesReferenceSets) {
+    // Reference-set mode. Frames are mutually exclusive with these, so they go.
+    if (referenceImages.length > 0) input.reference_images = referenceImages
+    if (referenceVideos.length > 0) input.reference_videos = referenceVideos
+    if (referenceAudios.length > 0) input.reference_audios = referenceAudios
     input.aspect_ratio = params.aspectRatio || '16:9'
+  } else {
+    if (startImage) {
+      input.image = startImage
+    }
+
+    if (startImage && endImage) {
+      // First/last-frame mode: Seedance rejects a fixed ratio here.
+      input.last_frame_image = endImage
+      input.aspect_ratio = 'adaptive'
+    } else {
+      input.aspect_ratio = params.aspectRatio || '16:9'
+    }
   }
 
   if (typeof params.seed === 'number') {
@@ -244,6 +285,15 @@ export function buildSeedanceInput(params: Record<string, any>): Record<string, 
   }
 
   return input
+}
+
+/**
+ * True when the payload carries reference videos, which moves Seedance onto
+ * Replicate's `video_in` billing tier (roughly 4x the per-second rate).
+ */
+export function seedanceUsesVideoInput(params: Record<string, any> | null | undefined): boolean {
+  if (!params) return false
+  return toUrlList(params.referenceVideoUrls, SEEDANCE_MAX_REFERENCE_VIDEOS).length > 0
 }
 
 /**

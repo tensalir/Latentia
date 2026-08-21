@@ -1,7 +1,13 @@
 import { BaseModelAdapter, ModelConfig, GenerationRequest, GenerationResponse } from '../base'
 import { recordApiCall } from '@/lib/rate-limits/usage'
 import { getScopeForModel } from '@/lib/rate-limits/config'
-import { buildSeedanceInput, SEEDANCE_2_5_MODEL_PATH } from '../replicate-utils'
+import {
+  buildSeedanceInput,
+  SEEDANCE_2_5_MODEL_PATH,
+  SEEDANCE_MAX_REFERENCE_AUDIOS,
+  SEEDANCE_MAX_REFERENCE_IMAGES,
+  SEEDANCE_MAX_REFERENCE_VIDEOS,
+} from '../replicate-utils'
 
 // Support both REPLICATE_API_TOKEN (official) and REPLICATE_API_KEY (legacy)
 // Only check env vars on server side (they're not available in browser)
@@ -259,6 +265,13 @@ export const SEEDANCE_2_5_CONFIG: ModelConfig = {
     'image-2-video': true,
     'frame-interpolation': true, // Native first + last frame support
     audioGeneration: true,
+    // Multimodal reference sets - 50 files total, and mutually exclusive
+    // with the first/last frame inputs.
+    multiImageEditing: true,
+    maxReferenceImages: SEEDANCE_MAX_REFERENCE_IMAGES,
+    maxReferenceVideos: SEEDANCE_MAX_REFERENCE_VIDEOS,
+    maxReferenceAudios: SEEDANCE_MAX_REFERENCE_AUDIOS,
+    referenceSetsExcludeFrames: true,
   },
   parameters: [
     {
@@ -688,12 +701,34 @@ export class ReplicateAdapter extends BaseModelAdapter {
           referenceImage: startImage,
           endFrameImageUrl,
           seed: request.seed,
+          referenceImageUrls: parameters?.referenceImageUrls,
+          referenceVideoUrls: parameters?.referenceVideoUrls,
+          referenceAudioUrls: parameters?.referenceAudioUrls,
         })
 
+        const refCounts = {
+          images: input.reference_images?.length ?? 0,
+          videos: input.reference_videos?.length ?? 0,
+          audios: input.reference_audios?.length ?? 0,
+        }
+        const usesReferenceSets = refCounts.images > 0 || refCounts.videos > 0
+        const mode = usesReferenceSets
+          ? `Reference-set mode (${refCounts.images} image, ${refCounts.videos} video, ${refCounts.audios} audio)`
+          : startImage
+            ? endFrameImageUrl
+              ? 'First/last-frame mode'
+              : 'Image-to-video mode'
+            : 'Text-to-video mode'
+
         console.log(
-          `[${logTag}] ${startImage ? (endFrameImageUrl ? 'First/last-frame mode' : 'Image-to-video mode') : 'Text-to-video mode'}` +
-            ` @ ${input.resolution}, ${input.duration}s, ratio ${input.aspect_ratio}`
+          `[${logTag}] ${mode} @ ${input.resolution}, ${input.duration}s, ratio ${input.aspect_ratio}`
         )
+        if (usesReferenceSets && (startImage || endFrameImageUrl)) {
+          console.log(`[${logTag}] ⚠️ Start/end frames dropped - Seedance cannot combine them with reference sets`)
+        }
+        if (refCounts.videos > 0) {
+          console.log(`[${logTag}] 💰 Reference videos present - billing on the 4x video_in tier`)
+        }
         if (negativePrompt) {
           console.log(`[${logTag}] ⚠️ Negative prompt ignored - Seedance 2.5 has no negative_prompt input`)
         }

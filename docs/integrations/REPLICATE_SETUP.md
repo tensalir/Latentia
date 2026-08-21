@@ -232,16 +232,53 @@ Model path: `bytedance/seedance-2.5`. Submitted through the webhook path
 **Latentia UI exposes:**
 - Aspect ratio, resolution (480p/720p), duration, audio toggle
 - Start frame and end frame (frame interpolation)
+- Multimodal reference sets: up to 30 images, 10 videos, 10 audio clips
+  (`ReferenceSetPicker`, uploaded via `/api/upload/reference-media`)
 
-Not yet wired to the UI: the multimodal reference sets (up to 30 images, 10 videos,
-10 audio clips), video editing, and video extension. The adapter only ever sends
-`image` / `last_frame_image`, so those modes are unreachable today.
+### Two different meanings of "reference"
+
+This is the sharp edge of the integration. Two unrelated concepts both want the
+word *reference*, and mixing them produces a 422:
+
+| App key | Meaning | Replicate field |
+|---|---|---|
+| `referenceImage` / `referenceImageUrl` / `referenceImages` | **Start frame** (long-standing app contract, shared with Kling) | `image` |
+| `endFrameImageUrl` | **End frame** | `last_frame_image` |
+| `referenceImageUrls` | Seedance **reference set** | `reference_images` |
+| `referenceVideoUrls` | Seedance **reference set** | `reference_videos` |
+| `referenceAudioUrls` | Seedance **reference set** | `reference_audios` |
+
+Note `referenceImages` (start frame) vs `referenceImageUrls` (reference set) —
+one character apart, completely different behaviour. The distinct keys are
+deliberate: they let `buildSeedanceInput` tell the two apart with no ambiguity.
+
+`buildSeedanceInput` resolves the conflict deterministically: **if any reference
+set is present, the frames are dropped**. The UI prevents the situation from
+arising (the picker warns and offers "Clear frames"), but the builder is the
+backstop so a malformed caller still produces a valid payload.
+
+Reference sets are hidden in flows that pin a start frame — the animate-still
+overlay locks its source image, and offering reference sets there would silently
+discard it.
+
+Still not wired: video **editing** and **extension** modes, which require
+`duration: -1` and `aspect_ratio: 'adaptive'` alongside reference videos.
+Supplying reference videos today is treated as motion/style transfer.
 
 **Billing:** Seedance is an *official* Replicate model, billed **per second of output
-video**, not by compute time. `calculateSeedanceCost` holds the rates
-(480p `$0.1028/s`, 720p `$0.2312/s`; the `video_in` tiers are 4x higher but unreachable
-while reference videos are not sent). Do **not** route it through
-`calculateReplicateCost` — the hardware-rate estimate is off by ~100x.
+video**, not by compute time. Do **not** route it through `calculateReplicateCost` —
+the hardware-rate estimate is off by ~100x. `calculateSeedanceCost` holds the four
+real tiers:
+
+| | 480p | 720p |
+|---|---|---|
+| no reference video | $0.1028/s | $0.2312/s |
+| with reference video (`video_in`) | $0.4304/s | $0.9676/s |
+
+Adding a single reference video moves the whole job onto the `video_in` tier —
+roughly **4x** the rate — so a 30s 720p render goes from $6.94 to $29.03.
+`seedanceUsesVideoInput()` derives that flag from the stored generation
+parameters, and both cost call sites pass it.
 
 ## API Reference
 

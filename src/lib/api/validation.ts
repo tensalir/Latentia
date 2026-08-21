@@ -191,12 +191,19 @@ export const HeadlessGenerateVideoSchema = z.object({
   prompt: z.string().min(1, 'prompt is required').max(HEADLESS_PROMPT_MAX),
   modelId: z.string().min(1, 'modelId is required').max(128),
   aspectRatio: z.string().max(16).optional(),
-  duration: z.number().int().min(4).max(15).optional(),
+  // Seedance 2.5 generates up to 30s in a single pass; shorter-ceiling models
+  // clamp their own duration in the adapter.
+  duration: z.number().int().min(4).max(30).optional(),
   resolution: z.number().int().optional(),
   referenceImage: z
     .string()
     .max(HEADLESS_REFERENCE_IMAGE_MAX, 'referenceImage exceeds 6 MB cap')
     .optional(),
+  // Seedance multimodal reference sets. URLs only — the provider fetches them,
+  // so inline data would be both huge and useless here.
+  referenceImageUrls: z.array(z.string().url().max(2048)).max(30).optional(),
+  referenceVideoUrls: z.array(z.string().url().max(2048)).max(10).optional(),
+  referenceAudioUrls: z.array(z.string().url().max(2048)).max(10).optional(),
   allowFallback: z.boolean().optional().default(true),
   async: z.boolean().optional().default(true),
 })
