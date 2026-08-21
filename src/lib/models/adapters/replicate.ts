@@ -1,5 +1,7 @@
 import { BaseModelAdapter, ModelConfig, GenerationRequest, GenerationResponse } from '../base'
 import { recordApiCall } from '@/lib/rate-limits/usage'
+import { getScopeForModel } from '@/lib/rate-limits/config'
+import { buildSeedanceInput, SEEDANCE_2_5_MODEL_PATH } from '../replicate-utils'
 
 // Support both REPLICATE_API_TOKEN (official) and REPLICATE_API_KEY (legacy)
 // Only check env vars on server side (they're not available in browser)
@@ -212,6 +214,87 @@ export const KLING_2_6_CONFIG: ModelConfig = {
       options: [
         { label: '5 seconds', value: 5 },
         { label: '10 seconds', value: 10 },
+      ],
+    },
+    {
+      name: 'generateAudio',
+      type: 'boolean',
+      label: 'Generate Audio',
+      default: true,
+    },
+    {
+      name: 'numOutputs',
+      type: 'number',
+      label: 'Number of outputs',
+      min: 1,
+      max: 1,
+      default: 1,
+      options: [
+        { label: '1', value: 1 },
+      ],
+    },
+  ],
+}
+
+/**
+ * Seedance 2.5 Model Configuration
+ * ByteDance's flagship multimodal video model via Replicate
+ * Documentation: https://replicate.com/bytedance/seedance-2.5
+ *
+ * Notable vs Kling 2.6: native 30-second generation in a single pass, native
+ * synchronized audio, and first/last-frame keyframe control. Resolution tops
+ * out at 720p — there is no 1080p tier.
+ */
+export const SEEDANCE_2_5_CONFIG: ModelConfig = {
+  id: 'replicate-seedance-2.5',
+  name: 'Seedance 2.5',
+  provider: 'ByteDance (Replicate)',
+  type: 'video',
+  description: 'Flagship multimodal video model with native synchronized audio, up to 30 seconds in one pass, and start/end frame control',
+  supportedAspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'],
+  defaultAspectRatio: '16:9',
+  maxResolution: 720,
+  capabilities: {
+    'text-2-video': true,
+    'image-2-video': true,
+    'frame-interpolation': true, // Native first + last frame support
+    audioGeneration: true,
+  },
+  parameters: [
+    {
+      name: 'aspectRatio',
+      type: 'select',
+      label: 'Aspect Ratio',
+      options: [
+        { label: '16:9 (Landscape)', value: '16:9' },
+        { label: '9:16 (Portrait)', value: '9:16' },
+        { label: '1:1 (Square)', value: '1:1' },
+        { label: '4:3 (Landscape)', value: '4:3' },
+        { label: '3:4 (Portrait)', value: '3:4' },
+        { label: '21:9 (Ultrawide)', value: '21:9' },
+      ],
+    },
+    {
+      name: 'resolution',
+      type: 'select',
+      label: 'Resolution',
+      default: 720,
+      options: [
+        { label: '480p', value: 480 },
+        { label: '720p', value: 720 },
+      ],
+    },
+    {
+      name: 'duration',
+      type: 'select',
+      label: 'Duration',
+      default: 5,
+      options: [
+        { label: '5 seconds', value: 5 },
+        { label: '10 seconds', value: 10 },
+        { label: '15 seconds', value: 15 },
+        { label: '20 seconds', value: 20 },
+        { label: '30 seconds', value: 30 },
       ],
     },
     {
@@ -556,67 +639,102 @@ export class ReplicateAdapter extends BaseModelAdapter {
     } = request
 
     try {
+      const isSeedance = this.config.id === 'replicate-seedance-2.5'
+
       // Determine which Replicate video model to use
       let modelPath: string
       if (this.config.id === 'replicate-kling-2.6') {
         modelPath = 'kwaivgi/kling-v2.6'
+      } else if (isSeedance) {
+        modelPath = SEEDANCE_2_5_MODEL_PATH
       } else {
         throw new Error(`Unknown Replicate video model: ${this.config.id}`)
       }
 
+      const logTag = isSeedance ? 'Seedance-2.5' : 'Kling-2.6'
+
       // Get parameters with safe fallbacks
       const aspectRatio = parameters?.aspectRatio || request.aspectRatio || '16:9'
-      const duration = parameters?.duration || 5
       const generateAudio = parameters?.generateAudio !== false // Default true
       const negativePrompt = parameters?.negativePrompt
 
-      // Prepare model-specific input for Kling 2.6
-      const input: any = {
-        prompt,
-        duration,
-        aspect_ratio: aspectRatio,
-        generate_audio: generateAudio,
-      }
-
-      // Add negative prompt if provided
-      if (negativePrompt) {
-        input.negative_prompt = negativePrompt
-      }
-
-      // Add start image for image-to-video (Kling's main strength)
+      // Resolve the start frame from every source the app may populate.
       let startImage: string | null = null
-      
-      // Check for reference image from various sources
       if (referenceImage && typeof referenceImage === 'string' && referenceImage.length > 0) {
         startImage = referenceImage
-        console.log('[Kling-2.6] Using referenceImage for start_image')
+        console.log(`[${logTag}] Using referenceImage for start frame`)
       } else if (referenceImageUrl && typeof referenceImageUrl === 'string') {
         startImage = referenceImageUrl
-        console.log('[Kling-2.6] Using referenceImageUrl for start_image:', referenceImageUrl.substring(0, 50))
+        console.log(`[${logTag}] Using referenceImageUrl for start frame:`, referenceImageUrl.substring(0, 50))
       } else if (request.referenceImages && Array.isArray(request.referenceImages) && request.referenceImages.length > 0) {
         startImage = request.referenceImages[0]
-        console.log('[Kling-2.6] Using first referenceImages entry for start_image')
+        console.log(`[${logTag}] Using first referenceImages entry for start frame`)
       }
 
-      if (startImage) {
-        input.start_image = startImage
-        // When start_image is provided, aspect_ratio is ignored by Kling
-        console.log('[Kling-2.6] ✅ Image-to-video mode with start_image')
+      const endFrameImageUrl =
+        typeof parameters?.endFrameImageUrl === 'string' ? parameters.endFrameImageUrl : null
+
+      let input: any
+
+      if (isSeedance) {
+        // Seedance has strict cross-field constraints — build via the shared
+        // helper so the sync and webhook paths stay identical.
+        input = buildSeedanceInput({
+          prompt,
+          aspectRatio,
+          duration: parameters?.duration ?? request.duration,
+          resolution: parameters?.resolution ?? request.resolution,
+          generateAudio,
+          referenceImage: startImage,
+          endFrameImageUrl,
+          seed: request.seed,
+        })
+
+        console.log(
+          `[${logTag}] ${startImage ? (endFrameImageUrl ? 'First/last-frame mode' : 'Image-to-video mode') : 'Text-to-video mode'}` +
+            ` @ ${input.resolution}, ${input.duration}s, ratio ${input.aspect_ratio}`
+        )
+        if (negativePrompt) {
+          console.log(`[${logTag}] ⚠️ Negative prompt ignored - Seedance 2.5 has no negative_prompt input`)
+        }
       } else {
-        console.log('[Kling-2.6] Text-to-video mode (no start_image)')
+        // Prepare model-specific input for Kling 2.6
+        input = {
+          prompt,
+          duration: parameters?.duration || 5,
+          aspect_ratio: aspectRatio,
+          generate_audio: generateAudio,
+        }
+
+        // Add negative prompt if provided
+        if (negativePrompt) {
+          input.negative_prompt = negativePrompt
+        }
+
+        if (startImage) {
+          input.start_image = startImage
+          // When start_image is provided, aspect_ratio is ignored by Kling
+          console.log('[Kling-2.6] ✅ Image-to-video mode with start_image')
+        } else {
+          console.log('[Kling-2.6] Text-to-video mode (no start_image)')
+        }
+
+        // Check for end frame image (for frame-to-frame interpolation)
+        if (endFrameImageUrl) {
+          input.end_image = endFrameImageUrl
+          console.log('[Kling-2.6] ✅ Frame-to-frame interpolation with end_image')
+        }
       }
 
-      // Check for end frame image (for frame-to-frame interpolation)
-      const endFrameImageUrl = parameters?.endFrameImageUrl
-      if (endFrameImageUrl && typeof endFrameImageUrl === 'string') {
-        input.end_image = endFrameImageUrl
-        console.log('[Kling-2.6] ✅ Frame-to-frame interpolation with end_image')
-      }
+      // The duration actually submitted (Seedance clamps to its 4-30s range)
+      const duration = input.duration
 
-      console.log('Submitting Kling 2.6 video generation:', { 
-        ...input, 
-        start_image: startImage ? '[IMAGE]' : undefined,
-        end_image: endFrameImageUrl ? '[IMAGE]' : undefined 
+      console.log(`Submitting ${this.config.name} video generation:`, {
+        ...input,
+        image: input.image ? '[IMAGE]' : undefined,
+        last_frame_image: input.last_frame_image ? '[IMAGE]' : undefined,
+        start_image: input.start_image ? '[IMAGE]' : undefined,
+        end_image: input.end_image ? '[IMAGE]' : undefined,
       })
 
       // First, fetch the latest version for the model
@@ -643,9 +761,9 @@ export class ReplicateAdapter extends BaseModelAdapter {
 
       // Track API call for rate limiting (right before the actual generation request)
       try {
-        await recordApiCall('replicate', 'replicate-kling-2.6', 1)
+        await recordApiCall('replicate', getScopeForModel(this.config.id), 1)
       } catch (trackErr) {
-        console.warn('[ReplicateAdapter] Failed to track Kling API call:', trackErr)
+        console.warn(`[ReplicateAdapter] Failed to track ${logTag} API call:`, trackErr)
       }
 
       // Submit prediction to Replicate
@@ -677,7 +795,7 @@ export class ReplicateAdapter extends BaseModelAdapter {
       const data = await response.json()
       const predictionId = data.id
 
-      console.log('Kling 2.6 prediction started:', predictionId)
+      console.log(`${logTag} prediction started:`, predictionId)
 
       // Poll for results - video generation takes longer
       let attempts = 0
@@ -705,7 +823,7 @@ export class ReplicateAdapter extends BaseModelAdapter {
         }
 
         const statusData = await statusResponse.json()
-        console.log(`Kling 2.6 status: ${statusData.status} (attempt ${attempts + 1})`)
+        console.log(`${logTag} status: ${statusData.status} (attempt ${attempts + 1})`)
 
         if (statusData.status === 'succeeded') {
           // Parse output URL - Kling returns a single video URL
@@ -728,16 +846,22 @@ export class ReplicateAdapter extends BaseModelAdapter {
           // Capture metrics for accurate cost calculation
           const predictTime = statusData.metrics?.predict_time
           if (predictTime) {
-            console.log(`[Kling-2.6] Video generated in ${predictTime.toFixed(2)}s`)
+            console.log(`[${logTag}] Video generated in ${predictTime.toFixed(2)}s`)
           }
 
+          // Nominal dimensions for the gallery. Seedance caps at 720p and can
+          // return an adaptive ratio, so scale the short edge to its tier.
+          const shortEdge = isSeedance && input.resolution === '480p' ? 480 : 720
+          const isPortrait = aspectRatio === '9:16' || aspectRatio === '3:4'
+          const longEdge = Math.round(shortEdge * (16 / 9))
+
           return {
-            id: `replicate-kling-${Date.now()}`,
+            id: `replicate-video-${Date.now()}`,
             status: 'completed',
             outputs: [{
               url: outputUrl,
-              width: aspectRatio === '9:16' ? 720 : 1280,
-              height: aspectRatio === '9:16' ? 1280 : 720,
+              width: isPortrait ? shortEdge : longEdge,
+              height: isPortrait ? longEdge : shortEdge,
               duration: duration,
             }],
             metadata: {
@@ -759,8 +883,8 @@ export class ReplicateAdapter extends BaseModelAdapter {
 
       throw new Error('Video generation timeout - request took too long')
     } catch (error: any) {
-      console.error('Kling 2.6 video generation error:', error)
-      throw new Error(error.message || 'Failed to generate video with Kling 2.6')
+      console.error(`${this.config.name} video generation error:`, error)
+      throw new Error(error.message || `Failed to generate video with ${this.config.name}`)
     }
   }
 }

@@ -14,5 +14,6 @@ export type Phase1ModelId = (typeof PHASE_1_MODEL_IDS)[number]
 export const VIDEO_MODEL_IDS = [
   'gemini-veo-3.1',
   'replicate-kling-2.6',
+  'replicate-seedance-2.5',
   'kling-official',
 ] as const

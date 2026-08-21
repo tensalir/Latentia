@@ -265,6 +265,7 @@ export async function POST(request: NextRequest) {
         outputCount: outputRecords.length,
         computeTimeSeconds: actualPredictTime, // Pass actual time for accurate billing
         videoDurationSeconds: videoDuration,
+        resolution: isVideo ? params?.resolution : undefined,
       })
       
       console.log(`[Replicate Webhook] Cost calculated: $${costResult.cost.toFixed(6)} (${costResult.isActual ? 'actual' : 'estimated'})`)

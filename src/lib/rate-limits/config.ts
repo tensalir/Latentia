@@ -12,6 +12,7 @@ export type RateLimitScope =
   | 'gemini-nano-banana-2'
   | 'gemini-veo-3.1' 
   | 'replicate-kling-2.6'
+  | 'replicate-seedance-2.5'
   | 'replicate-nano-banana'
   | 'kling-official'
   | 'global'
@@ -143,6 +144,9 @@ export function getScopeForModel(modelId: string): RateLimitScope {
   }
   if (modelId === 'replicate-kling-2.6') {
     return 'replicate-kling-2.6'
+  }
+  if (modelId === 'replicate-seedance-2.5') {
+    return 'replicate-seedance-2.5'
   }
   if (modelId === 'kling-official') {
     return 'kling-official'

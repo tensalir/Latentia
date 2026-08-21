@@ -133,6 +133,59 @@ function getEstimatedComputeTime(modelId: string): number {
 }
 
 /**
+ * Seedance 2.5 pricing (USD per second of OUTPUT video).
+ * Source: https://replicate.com/bytedance/seedance-2.5 (billing tiers)
+ * Verified: August 2026
+ *
+ * Seedance is an *official* Replicate model, so it is billed per second of
+ * output video rather than by compute time — the hardware-rate model used by
+ * `calculateReplicateCost` would be wildly wrong here. The `video_in` tier
+ * applies only when reference videos are supplied (editing/extension modes),
+ * which this app does not currently send.
+ */
+const SEEDANCE_PRICE_PER_OUTPUT_SECOND = {
+  non_video_in: {
+    '480p': 0.1028,
+    '720p': 0.2312,
+  },
+  video_in: {
+    '480p': 0.4304,
+    '720p': 0.9676,
+  },
+} as const
+
+/**
+ * Calculate cost for Seedance 2.5 (per second of output video).
+ */
+export function calculateSeedanceCost(
+  videoDurationSeconds?: number,
+  options: { resolution?: number | string; hasVideoInput?: boolean } = {}
+): CostCalculationResult {
+  const tier = options.hasVideoInput ? 'video_in' : 'non_video_in'
+
+  const rawResolution = options.resolution
+  const numericResolution =
+    typeof rawResolution === 'number' ? rawResolution : Number(rawResolution)
+  const resolutionKey =
+    rawResolution === '480p' || (Number.isFinite(numericResolution) && numericResolution > 0 && numericResolution <= 480)
+      ? '480p'
+      : '720p'
+
+  const pricePerSecond = SEEDANCE_PRICE_PER_OUTPUT_SECOND[tier][resolutionKey]
+
+  // Duration drives the bill directly, so never let a missing/odd value
+  // produce a zero or negative cost. Seedance's floor is 4s.
+  const requested = Number(videoDurationSeconds)
+  const duration = Number.isFinite(requested) && requested >= 4 ? requested : 5
+
+  return {
+    cost: pricePerSecond * duration,
+    unit: `${duration}s @ $${pricePerSecond.toFixed(4)}/s (${resolutionKey}${options.hasVideoInput ? ', video input' : ''})`,
+    isActual: Number.isFinite(requested) && requested >= 4,
+  }
+}
+
+/**
  * Calculate cost for Kling Official API
  * Pricing based on video duration and quality mode
  */
@@ -247,9 +300,18 @@ export function calculateGenerationCost(
     outputCount?: number
     videoDurationSeconds?: number
     computeTimeSeconds?: number
+    /** Video resolution setting — required to price Seedance's per-second tiers. */
+    resolution?: number | string
+    /** True when reference videos were supplied (Seedance editing/extension). */
+    hasVideoInput?: boolean
   } = {}
 ): CostCalculationResult {
-  const { outputCount = 1, videoDurationSeconds, computeTimeSeconds } = options
+  const { outputCount = 1, videoDurationSeconds, computeTimeSeconds, resolution, hasVideoInput } = options
+
+  // Seedance is billed per second of output video, not by compute time.
+  if (modelId === 'replicate-seedance-2.5') {
+    return calculateSeedanceCost(videoDurationSeconds, { resolution, hasVideoInput })
+  }
 
   if ((modelId === 'gemini-nano-banana-pro' || modelId === 'gemini-nano-banana-2') && computeTimeSeconds) {
     return calculateReplicateCost(modelId, computeTimeSeconds)

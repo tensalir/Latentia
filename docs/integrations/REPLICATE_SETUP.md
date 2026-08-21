@@ -7,7 +7,11 @@ This document explains how the Replicate API integration works in Latentia, incl
 Replicate is used to access AI models hosted on their platform, including Seedream 4 by ByteDance. The integration supports both text-to-image generation and image-to-image editing.
 
 **Current Models:**
-- **Seedream 4** (`replicate-seedream-4`) - Advanced image generation and editing up to 4K resolution
+- **Seedream 4.5** (`replicate-seedream-4`) - Advanced image generation and editing up to 4K resolution
+- **Reve** (`replicate-reve`) - Text-to-image
+- **Nano Banana Pro (Backup)** (`replicate-nano-banana-pro`) - Replicate-hosted fallback for Google's API
+- **Kling 2.6 Pro** (`replicate-kling-2.6`) - Image-to-video with native audio
+- **Seedance 2.5** (`replicate-seedance-2.5`) - Video with native audio, up to 30s in a single pass, start/end frame control
 
 ## Authentication
 
@@ -202,6 +206,42 @@ body: JSON.stringify({
 - Aspect ratio selector
 - Number of outputs (1 or 4)
 - Reference image upload (optional)
+
+### Seedance 2.5
+
+Model path: `bytedance/seedance-2.5`. Submitted through the webhook path
+(`REPLICATE_MODEL_CONFIGS['replicate-seedance-2.5']`), like the other video models.
+
+**Input Parameters:**
+- `prompt` (string) - Max 2000 characters. Optional when an image is supplied.
+- `duration` (integer) - 4-30 seconds, or `-1` to let the model choose. The UI offers 5/10/15/20/30.
+- `resolution` (string) - `"480p"` or `"720p"`. **There is no 1080p tier** — the app's numeric
+  resolution setting is clamped by `normalizeSeedanceResolution`.
+- `aspect_ratio` (string) - `16:9`, `4:3`, `1:1`, `3:4`, `9:16`, `21:9`, or `adaptive`.
+- `generate_audio` (boolean) - Native synchronized audio. Defaults to `true`.
+- `image` (string) - First-frame image for image-to-video.
+- `last_frame_image` (string) - Last-frame image. **Requires `image`.**
+- `reference_images` / `reference_videos` / `reference_audios` (arrays) - Multimodal reference sets.
+- `seed`, `watermark`, `output_format` (`mp4` / `mov`).
+
+**Constraints that will 422 if violated** (all enforced in `buildSeedanceInput`):
+- `last_frame_image` requires `image`, and that mode only accepts `aspect_ratio: "adaptive"`.
+- Reference images/videos/audios cannot be combined with `image` / `last_frame_image`.
+- Editing and extension modes require `duration: -1`.
+
+**Latentia UI exposes:**
+- Aspect ratio, resolution (480p/720p), duration, audio toggle
+- Start frame and end frame (frame interpolation)
+
+Not yet wired to the UI: the multimodal reference sets (up to 30 images, 10 videos,
+10 audio clips), video editing, and video extension. The adapter only ever sends
+`image` / `last_frame_image`, so those modes are unreachable today.
+
+**Billing:** Seedance is an *official* Replicate model, billed **per second of output
+video**, not by compute time. `calculateSeedanceCost` holds the rates
+(480p `$0.1028/s`, 720p `$0.2312/s`; the `video_in` tiers are 4x higher but unreachable
+while reference videos are not sent). Do **not** route it through
+`calculateReplicateCost` — the hardware-rate estimate is off by ~100x.
 
 ## API Reference
 

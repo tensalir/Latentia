@@ -756,6 +756,7 @@ async function processGenerationById(
         outputCount: outputRecords.length,
         videoDurationSeconds: totalVideoDuration > 0 ? totalVideoDuration : undefined,
         computeTimeSeconds: actualPredictTime, // Pass actual time for accurate Replicate billing
+        resolution: (generation.parameters as any)?.resolution,
       })
       
       console.log(`[${generationId}] Cost calculated: $${costResult.cost.toFixed(6)} (${costResult.isActual ? 'actual' : 'estimated'})`)

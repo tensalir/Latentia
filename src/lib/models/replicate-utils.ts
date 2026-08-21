@@ -166,6 +166,86 @@ export async function cancelPrediction(predictionId: string): Promise<void> {
   console.log(`[Replicate] Prediction ${predictionId} cancelled`)
 }
 
+/** Replicate model path for Seedance 2.5. */
+export const SEEDANCE_2_5_MODEL_PATH = 'bytedance/seedance-2.5'
+
+/** Duration bounds accepted by Seedance 2.5 (`-1` = let the model choose). */
+export const SEEDANCE_MIN_DURATION = 4
+export const SEEDANCE_MAX_DURATION = 30
+export const SEEDANCE_AUTO_DURATION = -1
+
+/**
+ * Normalize this app's numeric resolution setting to a Seedance tier.
+ * Seedance 2.5 only offers 480p and 720p, so anything higher clamps down.
+ */
+export function normalizeSeedanceResolution(resolution: unknown): '480p' | '720p' {
+  if (resolution === '480p' || resolution === '720p') return resolution
+  const numeric = typeof resolution === 'number' ? resolution : Number(resolution)
+  if (Number.isFinite(numeric) && numeric > 0 && numeric <= 480) return '480p'
+  return '720p'
+}
+
+/** Clamp a requested duration into Seedance's accepted range. */
+export function normalizeSeedanceDuration(duration: unknown): number {
+  const numeric = typeof duration === 'number' ? duration : Number(duration)
+  if (!Number.isFinite(numeric)) return 5
+  if (numeric === SEEDANCE_AUTO_DURATION) return SEEDANCE_AUTO_DURATION
+  return Math.min(SEEDANCE_MAX_DURATION, Math.max(SEEDANCE_MIN_DURATION, Math.round(numeric)))
+}
+
+/**
+ * Build the Replicate input payload for Seedance 2.5.
+ *
+ * Shared by the synchronous adapter and the webhook submission path so the
+ * two cannot drift on Seedance's input constraints, which are unusually
+ * strict:
+ *
+ *  - `last_frame_image` requires `image`, and that first/last-frame mode
+ *    only accepts `aspect_ratio: 'adaptive'` (the model derives the ratio
+ *    from the supplied frames).
+ *  - `reference_images` / `reference_videos` / `reference_audios` cannot be
+ *    combined with `image` / `last_frame_image`. This app's video flow always
+ *    means "start frame" by a reference image, so we only ever send `image`.
+ *  - `duration` is 4–30s, or -1 to let the model pick.
+ */
+export function buildSeedanceInput(params: Record<string, any>): Record<string, any> {
+  const startImage =
+    (Array.isArray(params.referenceImages) && params.referenceImages.length > 0
+      ? params.referenceImages[0]
+      : null) ||
+    params.referenceImage ||
+    params.referenceImageUrl ||
+    null
+
+  const endImage = params.endFrameImageUrl || null
+
+  const input: Record<string, any> = {
+    prompt: params.prompt || '',
+    duration: normalizeSeedanceDuration(params.duration),
+    resolution: normalizeSeedanceResolution(params.resolution),
+    generate_audio: params.generateAudio !== false, // Default true
+    output_format: 'mp4',
+  }
+
+  if (startImage) {
+    input.image = startImage
+  }
+
+  if (startImage && endImage) {
+    // First/last-frame mode: Seedance rejects a fixed ratio here.
+    input.last_frame_image = endImage
+    input.aspect_ratio = 'adaptive'
+  } else {
+    input.aspect_ratio = params.aspectRatio || '16:9'
+  }
+
+  if (typeof params.seed === 'number') {
+    input.seed = params.seed
+  }
+
+  return input
+}
+
 /**
  * Model configurations for webhook-based submission
  */
@@ -257,6 +337,10 @@ export const REPLICATE_MODEL_CONFIGS: Record<string, {
 
       return input
     },
+  },
+  'replicate-seedance-2.5': {
+    modelPath: SEEDANCE_2_5_MODEL_PATH,
+    buildInput: buildSeedanceInput,
   },
 }
 

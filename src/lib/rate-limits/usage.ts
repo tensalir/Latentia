@@ -61,6 +61,7 @@ export interface ProviderSnapshot {
   }
   replicate: {
     kling: UsageSnapshot
+    seedance: UsageSnapshot
     nanoBanana: UsageSnapshot
     overall: RateLimitStatus
   }
@@ -235,11 +236,13 @@ export async function getProviderSnapshot(): Promise<ProviderSnapshot> {
     geminiNanoBanana,
     geminiVeo,
     replicateKling,
+    replicateSeedance,
     replicateNanoBanana,
   ] = await Promise.all([
     getUsageSnapshot('gemini', 'gemini-nano-banana-pro'),
     getUsageSnapshot('gemini', 'gemini-veo-3.1'),
     getUsageSnapshot('replicate', 'replicate-kling-2.6'),
+    getUsageSnapshot('replicate', 'replicate-seedance-2.5'),
     getUsageSnapshot('replicate', 'replicate-nano-banana'),
   ])
 
@@ -248,9 +251,10 @@ export async function getProviderSnapshot(): Promise<ProviderSnapshot> {
     geminiNanoBanana.status === 'blocked' || geminiVeo.status === 'blocked' ? 'blocked' :
     geminiNanoBanana.status === 'limited' || geminiVeo.status === 'limited' ? 'limited' : 'ok'
 
+  const replicateScopes = [replicateKling, replicateSeedance, replicateNanoBanana]
   const replicateOverall: RateLimitStatus =
-    replicateKling.status === 'blocked' || replicateNanoBanana.status === 'blocked' ? 'blocked' :
-    replicateKling.status === 'limited' || replicateNanoBanana.status === 'limited' ? 'limited' : 'ok'
+    replicateScopes.some((s) => s.status === 'blocked') ? 'blocked' :
+    replicateScopes.some((s) => s.status === 'limited') ? 'limited' : 'ok'
 
   return {
     gemini: {
@@ -260,6 +264,7 @@ export async function getProviderSnapshot(): Promise<ProviderSnapshot> {
     },
     replicate: {
       kling: replicateKling,
+      seedance: replicateSeedance,
       nanoBanana: replicateNanoBanana,
       overall: replicateOverall,
     },

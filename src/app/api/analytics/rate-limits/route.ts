@@ -92,6 +92,7 @@ export async function GET() {
       },
       replicate: {
         kling: formatUsageSnapshot(snapshot.replicate.kling),
+        seedance: formatUsageSnapshot(snapshot.replicate.seedance),
         nanoBanana: formatUsageSnapshot(snapshot.replicate.nanoBanana),
         overall: snapshot.replicate.overall,
       },

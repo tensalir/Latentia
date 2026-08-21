@@ -185,7 +185,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
     name: 'generate_video',
     title: 'Generate a video',
     description:
-      'Generate a short video with Veo or Kling. Defaults to async job queue — poll get_generation_status until completed.',
+      'Generate a short video with Veo, Kling, or Seedance 2.5. Defaults to async job queue — poll get_generation_status until completed.',
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
     inputSchema: {
       type: 'object',
@@ -195,7 +195,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
         prompt: { type: 'string', minLength: 1, maxLength: 8000 },
         modelId: { type: 'string', enum: [...VIDEO_MODEL_IDS] },
         aspectRatio: { type: 'string', maxLength: 16 },
-        duration: { type: 'integer', minimum: 4, maximum: 15 },
+        duration: { type: 'integer', minimum: 4, maximum: 30 },
         resolution: { type: 'integer' },
         referenceImage: { type: 'string' },
         allowFallback: { type: 'boolean', default: true },
