@@ -10,6 +10,36 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader } from '@/components/ui/card'
 
+/**
+ * Where to land after a successful sign in.
+ *
+ * Middleware appends `?redirect=<path>` when it bounces someone off a
+ * protected route, and the MCP OAuth consent screen depends on it: a user
+ * signing in halfway through connecting a client has to come back to the
+ * authorization they were approving. Read from `window.location` rather than
+ * `useSearchParams` so the page needs no Suspense boundary. Same-origin
+ * paths only.
+ */
+function postLoginTarget(): string {
+  if (typeof window === 'undefined') return '/projects'
+  const target = new URLSearchParams(window.location.search).get('redirect')
+  if (!target || !target.startsWith('/') || target.startsWith('//')) {
+    return '/projects'
+  }
+  return target
+}
+
+/**
+ * Callback URL for Google sign in, carrying the post-login target only when
+ * there is one.
+ */
+function buildGoogleCallbackUrl(): string {
+  const callback = new URL('/auth/callback', window.location.origin)
+  const target = postLoginTarget()
+  if (target !== '/projects') callback.searchParams.set('redirect', target)
+  return callback.toString()
+}
+
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -30,7 +60,7 @@ export default function LoginPage() {
       })
 
       if (error) throw error
-      router.push('/projects')
+      router.push(postLoginTarget())
     } catch (error: any) {
       setError(error.message || 'An error occurred during login')
     } finally {
@@ -44,7 +74,12 @@ export default function LoginPage() {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
+          // Only decorate the callback when there is somewhere specific to
+          // return to. An ordinary sign in keeps the exact URL it has always
+          // used, so the common path cannot trip Supabase's redirect
+          // allow-list; see docs/headless-vesper.md for the pattern to add
+          // if the OAuth consent return should survive a Google sign in.
+          redirectTo: buildGoogleCallbackUrl(),
         },
       })
       if (error) throw error

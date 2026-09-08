@@ -17,6 +17,10 @@ import {
   hashHeadlessToken,
 } from './tokens'
 import {
+  getProtectedResourceMetadataUrl,
+  resolvePublicOrigin,
+} from './mcp-oauth'
+import {
   checkAndIncrementHeadlessRate,
   rateLimitHeaders,
   type CredentialLimits,
@@ -90,6 +94,28 @@ function deny(
 }
 
 /**
+ * RFC 9728 challenge headers for a 401 on the MCP resource.
+ *
+ * Without this an MCP client has nothing to discover: it gets a bare 401,
+ * cannot find the protected-resource document, and either gives up or
+ * guesses at default OAuth endpoints. Only the header-auth surface gets a
+ * challenge — `/api/mcp/<token>` identifies a specific credential, and
+ * bouncing a revoked token URL into a browser login would quietly mint a
+ * different credential than the one the URL names.
+ */
+function oauthChallengeHeaders(
+  request: NextRequest | Request,
+  options: VerifyOptions
+): Record<string, string> | undefined {
+  if (options.surface !== 'mcp' || options.tokenFromPath) return undefined
+
+  const origin = resolvePublicOrigin(request.url)
+  return {
+    'WWW-Authenticate': `Bearer realm="vesper-mcp", resource_metadata="${getProtectedResourceMetadataUrl(origin)}"`,
+  }
+}
+
+/**
  * Verify the `Authorization` header on an incoming request, look up the
  * credential, enforce tool/model allowlists, and atomically check the
  * durable rate-limit buckets. Returns either an opaque failure response
@@ -111,10 +137,15 @@ export async function verifyHeadlessRequest(
     rawToken = extractBearerToken(headerValue)
   }
   if (!rawToken) {
-    return deny(401, {
-      error: 'Missing or malformed Vesper API token. Provide `Authorization: Bearer vsp_live_...` or use a `/api/mcp/<token>` URL.',
-      errorCategory: 'auth',
-    })
+    return deny(
+      401,
+      {
+        error:
+          'Missing or malformed Vesper API token. Sign in through your MCP client\'s connect flow, provide `Authorization: Bearer vsp_live_...`, or use a `/api/mcp/<token>` URL from /headless.',
+        errorCategory: 'auth',
+      },
+      oauthChallengeHeaders(request, options)
+    )
   }
 
   const tokenHash = hashHeadlessToken(rawToken)
@@ -133,24 +164,36 @@ export async function verifyHeadlessRequest(
   })
 
   if (!credential) {
-    return deny(401, {
-      error: 'Invalid Vesper API token.',
-      errorCategory: 'auth',
-    })
+    return deny(
+      401,
+      {
+        error: 'Invalid Vesper API token.',
+        errorCategory: 'auth',
+      },
+      oauthChallengeHeaders(request, options)
+    )
   }
 
   if (credential.revokedAt) {
-    return deny(401, {
-      error: 'This Vesper API token has been revoked.',
-      errorCategory: 'auth',
-    })
+    return deny(
+      401,
+      {
+        error: 'This Vesper API token has been revoked.',
+        errorCategory: 'auth',
+      },
+      oauthChallengeHeaders(request, options)
+    )
   }
 
   if (credential.expiresAt && credential.expiresAt.getTime() <= Date.now()) {
-    return deny(401, {
-      error: 'This Vesper API token has expired.',
-      errorCategory: 'auth',
-    })
+    return deny(
+      401,
+      {
+        error: 'This Vesper API token has expired.',
+        errorCategory: 'auth',
+      },
+      oauthChallengeHeaders(request, options)
+    )
   }
 
   if (credential.owner.deletedAt) {

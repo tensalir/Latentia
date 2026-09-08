@@ -16,6 +16,12 @@ export interface IssueCredentialInput {
   rateLimitPerMinute?: number
   rateLimitPerDay?: number
   expiresAt?: Date
+  /**
+   * Set when the MCP OAuth flow mints the credential, so /headless can tell
+   * a browser-authorised connector apart from a hand-issued partner token
+   * and a reconnect can replace its own predecessor.
+   */
+  oauthClientId?: string
 }
 
 export interface IssueCredentialResult {
@@ -61,6 +67,7 @@ export async function issueCredential(
       rateLimitPerMinute: input.rateLimitPerMinute ?? null,
       rateLimitPerDay: input.rateLimitPerDay ?? null,
       expiresAt: input.expiresAt ?? null,
+      oauthClientId: input.oauthClientId ?? null,
     },
     select: {
       id: true,

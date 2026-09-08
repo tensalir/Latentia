@@ -9,6 +9,14 @@ Vesper is Loop's image and video workshop exposed as a remote MCP server.
 
 ## Setup
 
+For claude.ai, Claude Desktop, or Cowork, add
+`https://vesper.loop.dev/api/mcp` as a custom connector and press Connect:
+Vesper takes you through a Loop login and issues the token itself. Your
+account needs headless access (admins have it by default).
+
+For a client that cannot open a browser, sign in at `/headless`, generate a
+token URL, and configure it directly:
+
 1. Sign in at `/headless` and generate your MCP URL (`/api/mcp/vsp_live_...`) or bearer token.
 2. Add to your MCP client:
 

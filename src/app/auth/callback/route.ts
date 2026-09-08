@@ -3,6 +3,16 @@ import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
+/**
+ * Only ever bounce back to a path on this origin. A `redirect` value that
+ * starts with `//` or names another host is discarded — an open redirector
+ * on the login route is exactly what an attacker would want here.
+ */
+function safeRedirectPath(value: string | null): string | null {
+  if (!value || !value.startsWith('/') || value.startsWith('//')) return null
+  return value
+}
+
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url)
   const code = requestUrl.searchParams.get('code')
@@ -25,7 +35,10 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // URL to redirect to after sign in process completes
-  return NextResponse.redirect(new URL('/projects', requestUrl.origin))
+  // URL to redirect to after sign in process completes. The OAuth consent
+  // flow sends users through here mid-connection, so an explicit target wins
+  // over the default landing page.
+  const target = safeRedirectPath(requestUrl.searchParams.get('redirect'))
+  return NextResponse.redirect(new URL(target ?? '/projects', requestUrl.origin))
 }
 

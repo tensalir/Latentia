@@ -6,8 +6,14 @@ import type { NextRequest } from 'next/server'
 // Includes password recovery pages so unauthenticated users can reset their password
 const PUBLIC_ROUTES = ['/login', '/signup', '/auth', '/forgot-password', '/reset-password']
 
-// Routes that skip middleware entirely (no auth call needed)
-const SKIP_AUTH_ROUTES = ['/api']
+// Routes that skip middleware entirely (no auth call needed).
+//
+// `/.well-known` has to be here: OAuth and MCP clients fetch those discovery
+// documents anonymously, before any login exists. Bouncing them to /login is
+// what made "Add custom connector" fail with "Couldn't register with Vesper's
+// sign-in service" — the client got an HTML login page where JSON metadata
+// was supposed to be.
+const SKIP_AUTH_ROUTES = ['/api', '/.well-known']
 
 function isPublicRoute(pathname: string): boolean {
   return PUBLIC_ROUTES.some(route => pathname.startsWith(route))
@@ -48,9 +54,16 @@ export async function middleware(req: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
-  // Redirect unauthenticated users to login
+  // Redirect unauthenticated users to login, remembering where they were
+  // headed. The OAuth consent screen depends on this: a user who is sent to
+  // sign in mid-connection has to land back on the authorization they were
+  // approving, not on /projects.
   if (!user) {
-    return NextResponse.redirect(new URL('/login', req.url))
+    const login = new URL('/login', req.url)
+    if (pathname !== '/') {
+      login.searchParams.set('redirect', `${pathname}${req.nextUrl.search}`)
+    }
+    return NextResponse.redirect(login)
   }
 
   return res

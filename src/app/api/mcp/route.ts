@@ -28,7 +28,10 @@ import {
   jobToMcpResult,
 } from '@/lib/headless/mcp-jobs'
 import { estimateGenerationCostUsd } from '@/lib/headless/estimate-cost'
-import { buildProtectedResourceMetadata } from '@/lib/headless/mcp-oauth'
+import {
+  buildProtectedResourceMetadata,
+  resolvePublicOrigin,
+} from '@/lib/headless/mcp-oauth'
 
 /**
  * POST /api/mcp
@@ -691,7 +694,7 @@ export async function POST(request: NextRequest) {
 // Public capability probe — no auth required. Used by some MCP discovery
 // flows to confirm a server is reachable before trying authentication.
 export async function GET(request: NextRequest) {
-  const origin = new URL(request.url).origin
+  const origin = resolvePublicOrigin(request.url)
   return NextResponse.json(
     {
       service: SERVER_INFO.name,
@@ -702,7 +705,7 @@ export async function GET(request: NextRequest) {
         scheme: 'Bearer',
         header: 'Authorization',
         description:
-          'Send `Authorization: Bearer vsp_live_...` on every POST request, or use `/api/mcp/<token>` for Claude custom connectors.',
+          'Add this URL as a connector and sign in through the OAuth flow, send `Authorization: Bearer vsp_live_...` on every POST, or use a `/api/mcp/<token>` URL from /headless.',
         oauth: buildProtectedResourceMetadata(origin),
       },
       methods: [

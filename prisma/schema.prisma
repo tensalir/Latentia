@@ -772,6 +772,11 @@ model HeadlessCredential {
   expiresAt          DateTime? @map("expires_at")
   revokedAt          DateTime? @map("revoked_at")
   revokedReason      String?   @map("revoked_reason")
+  // Set when the credential was minted by the MCP OAuth flow rather than by
+  // an admin or the /headless page. Deliberately a plain column and not a
+  // relation: deleting a stale OAuth client registration must never cascade
+  // into revoking the working tokens it once issued.
+  oauthClientId      String?   @map("oauth_client_id")
   createdAt          DateTime  @default(now()) @map("created_at")
   updatedAt          DateTime  @updatedAt @map("updated_at")
 
@@ -783,6 +788,7 @@ model HeadlessCredential {
   @@index([ownerId])
   @@index([tokenPrefix])
   @@index([revokedAt])
+  @@index([oauthClientId])
   @@map("headless_credentials")
 }
 
@@ -861,6 +867,71 @@ model HeadlessMcpJob {
   @@index([credentialId, createdAt(sort: Desc)])
   @@index([status])
   @@map("headless_mcp_jobs")
+}
+
+// ── MCP OAuth 2.1 ──
+//
+// Lets an MCP client (claude.ai, Claude Desktop, Cursor) register itself,
+// send a Loop user through a browser login, and exchange the resulting
+// authorization code for a `vsp_live_*` credential. The access token IS a
+// HeadlessCredential row, so every existing guard — tool allowlists, model
+// allowlists, rate limits, audit logging, revocation from /headless —
+// applies to OAuth clients unchanged.
+
+// A client registered through RFC 7591 dynamic client registration. Public
+// clients only: no secret is issued, PKCE (S256) is mandatory instead.
+model McpOAuthClient {
+  id                      String    @id @default(uuid()) @db.Uuid
+  clientId                String    @unique @map("client_id")
+  clientName              String?   @map("client_name")
+  redirectUris            String[]  @map("redirect_uris")
+  grantTypes              String[]  @default(["authorization_code"]) @map("grant_types")
+  responseTypes           String[]  @default(["code"]) @map("response_types")
+  scope                   String?
+  tokenEndpointAuthMethod String    @default("none") @map("token_endpoint_auth_method")
+  clientUri               String?   @map("client_uri")
+  logoUri                 String?   @map("logo_uri")
+  softwareId              String?   @map("software_id")
+  softwareVersion         String?   @map("software_version")
+  createdAt               DateTime  @default(now()) @map("created_at")
+  lastUsedAt              DateTime? @map("last_used_at")
+
+  authorizations McpOAuthAuthorization[]
+
+  @@map("mcp_oauth_clients")
+}
+
+// One row per authorization attempt. It starts life as a pending consent
+// request (unguessable `id`, no code yet), becomes an authorization code on
+// approval, and is burned on token exchange. Keeping both stages in one row
+// means the code can only ever exist for a request a signed-in user
+// explicitly approved.
+model McpOAuthAuthorization {
+  id                  String    @id @default(uuid()) @db.Uuid
+  clientId            String    @map("client_id")
+  // Supabase user who is granting access. Plain uuid, mirroring
+  // HeadlessMcpJob.ownerId.
+  userId              String    @map("user_id") @db.Uuid
+  redirectUri         String    @map("redirect_uri")
+  state               String?
+  scope               String?
+  // RFC 8707 resource indicator, echoed back so the token is auditable.
+  resource            String?
+  codeChallenge       String    @map("code_challenge")
+  codeChallengeMethod String    @default("S256") @map("code_challenge_method")
+  // SHA-256 of the authorization code. Null until the user approves.
+  codeHash            String?   @unique @map("code_hash")
+  approvedAt          DateTime? @map("approved_at")
+  deniedAt            DateTime? @map("denied_at")
+  consumedAt          DateTime? @map("consumed_at")
+  expiresAt           DateTime  @map("expires_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+
+  client McpOAuthClient @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("mcp_oauth_authorizations")
 }
 
 // ── CMF (Color, Material, Finishing) Product Designer Workflow ──

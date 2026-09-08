@@ -199,6 +199,55 @@ It's compatible with:
 - **Cursor's MCP host** (configured via Settings → MCP).
 - **Any MCP runtime** that supports remote URL transports.
 
+### Signing in with OAuth (claude.ai custom connector)
+
+Paste `https://<vesper-host>/api/mcp` into **Customize → Connectors → Add
+custom connector** and press Connect. Claude registers itself, sends you to
+Vesper's login, shows a consent screen, and stores the resulting token. No
+URL with a secret in it, and each person gets their own credential.
+
+The flow, for anyone debugging it:
+
+| Step | Endpoint |
+|------|----------|
+| 1. Unauthenticated `POST /api/mcp` | `401` + `WWW-Authenticate: Bearer … resource_metadata="…"` |
+| 2. Protected resource metadata (RFC 9728) | `/.well-known/oauth-protected-resource/api/mcp` |
+| 3. Authorization server metadata (RFC 8414) | `/.well-known/oauth-authorization-server` |
+| 4. Dynamic client registration (RFC 7591) | `POST /api/mcp/oauth/register` |
+| 5. Authorization + consent | `GET /api/mcp/oauth/authorize` → `/oauth/consent` |
+| 6. Token exchange (PKCE S256) | `POST /api/mcp/oauth/token` |
+| 7. Disconnect | `POST /api/mcp/oauth/revoke` |
+
+Notes that matter when something goes wrong:
+
+- **The issuer is the bare origin.** RFC 8414 derives the metadata location
+  from the issuer, so a pathful issuer would move the document to
+  `/.well-known/oauth-authorization-server/api/mcp/oauth`. Both are served;
+  the root one is what clients try first.
+- **`/.well-known/*` must never require a session.** Vesper's middleware
+  skips auth for it. When it did not, every client got an HTML login page
+  where JSON was expected and failed with *"Couldn't register with Vesper's
+  sign-in service"*.
+- **Access tokens are `vsp_live_*` credentials.** OAuth does not introduce a
+  second token type: the exchange mints the same credential /headless issues,
+  with the full tool and model allowlist, and it shows up (and can be
+  revoked) alongside the others. Reconnecting replaces the previous token for
+  that client.
+- **Only admins and accounts with headless access can approve.** Everyone
+  else gets an explanatory page instead of a consent screen.
+- **PKCE S256 is required**, `plain` is refused, and codes are single-use and
+  expire in five minutes.
+- **No refresh tokens.** Access tokens do not expire; revoking is what ends
+  access.
+- **Google sign in mid-connection.** Email/password login returns to the
+  consent screen on its own. For Google, Supabase has to allow the decorated
+  callback: add `https://<vesper-host>/auth/callback?**` under Authentication
+  → URL Configuration → Redirect URLs. Without it, a Google user who was
+  signed out lands on /projects after login and just presses Connect again.
+
+A token URL (`/api/mcp/<token>`) from /headless keeps working and is still
+the quickest path for a client with no browser to hand.
+
 ### Configuring Claude (MCP connector)
 
 ```bash
